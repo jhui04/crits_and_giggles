@@ -1,0 +1,42 @@
+/* Reset for accessibility and clarity */
+body {
+  font-family: sans-serif;
+  line-height: 1.5;
+  margin: 0;
+  padding: 0;
+  background-color: #fff;
+  color: #000;
+}
+
+.app-container {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+header {
+  border-bottom: 2px solid #ccc;
+  margin-bottom: 1rem;
+}
+
+main {
+  flex-grow: 1;
+}
+
+.mode-toggle-footer {
+  position: sticky;
+  bottom: 0;
+  background-color: #fff;
+  padding: 1rem 0;
+  border-top: 2px solid #ccc;
+  text-align: center;
+}
+
+.mode-toggle-btn {
+  padding: 0.75rem 1.5rem;
+  font-size: 1.2rem;
+  cursor: pointer;
+}
