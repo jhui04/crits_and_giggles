@@ -1,6 +1,6 @@
-# React + TypeScript + Vite
+# Crits & Giggles
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A blind-accessible D&D DM application.
 
 Currently, two official plugins are available:
 

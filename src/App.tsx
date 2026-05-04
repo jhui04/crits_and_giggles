@@ -19,10 +19,7 @@ function App() {
   return (
     <div className="app-container">
       <header>
-        <h1>Blind DM Web App</h1>
-        <p role="status">
-          Current Mode: <strong>{mode === 'create' ? 'Create Mode' : 'Run Mode'}</strong>
-        </p>
+        <h1 aria-label="Crits & Giggles Main Menu">Crits & Giggles</h1>
       </header>
 
       <main>
@@ -45,7 +42,7 @@ function App() {
 function CreateLayout() {
   return (
     <section>
-      <h2>Create Mode</h2>
+      <div style={{ fontWeight: 'bold', fontSize: '1.2rem', marginBottom: '1rem' }}>Create Mode</div>
       <EncounterBuilder />
     </section>
   );
@@ -54,7 +51,7 @@ function CreateLayout() {
 function RunLayout() {
   return (
     <section>
-      <h2>Run Mode</h2>
+      <div style={{ fontWeight: 'bold', fontSize: '1.2rem', marginBottom: '1rem' }}>Run Mode</div>
       <EncounterRunner />
     </section>
   );

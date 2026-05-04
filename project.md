@@ -1,4 +1,4 @@
-# Project: Blind-Accessible DM Web App (Project Name TBD)
+# Project: Crits & Giggles
 
 ## Mission
 To provide a lightweight, high-performance web application specifically designed for blind Dungeon Masters (DMs) running Dungeons & Dragons (D&D) games. The application prioritizes maximum screen reader compatibility, keyboard-driven efficiency, and rapid information retrieval to enable a seamless gaming experience.
