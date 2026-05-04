@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { EncounterBuilder } from './components/EncounterBuilder';
+import { EncounterRunner } from './components/EncounterRunner';
 
 /**
  * AppModes: Defines the two primary contexts for the DM.
@@ -44,11 +46,7 @@ function CreateLayout() {
   return (
     <section>
       <h2>Create Mode</h2>
-      <p>This layout will contain tools for building encounters, creating NPCs, and outlining adventures.</p>
-      <ul>
-        <li>Encounter Builder (Coming Soon)</li>
-        <li>NPC Workshop (Coming Soon)</li>
-      </ul>
+      <EncounterBuilder />
     </section>
   );
 }
@@ -57,12 +55,7 @@ function RunLayout() {
   return (
     <section>
       <h2>Run Mode</h2>
-      <p>This layout will contain tools for tracking initiative, managing combat, and taking session notes.</p>
-      <ul>
-        <li>Initiative Tracker (Coming Soon)</li>
-        <li>Combat Hub (Coming Soon)</li>
-        <li>Active Scratchpad (Coming Soon)</li>
-      </ul>
+      <EncounterRunner />
     </section>
   );
 }
