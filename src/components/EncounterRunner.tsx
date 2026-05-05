@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { DiceService } from '../services/DiceService';
+import { MonsterDetails } from './MonsterDetails';
 import type { Encounter, EncounterUnit } from './EncounterBuilder';
 
 export function EncounterRunner() {
@@ -58,7 +59,6 @@ export function EncounterRunner() {
     if (selectedUnit) {
       detailHeadingRef.current?.focus();
     } else if (lastFocusedUnitId.current) {
-      // Return focus to the unit that opened the modal
       unitRefs.current[lastFocusedUnitId.current]?.focus();
       lastFocusedUnitId.current = null;
     }
@@ -78,9 +78,8 @@ export function EncounterRunner() {
 
   const startCombat = () => {
     const rolledCombatants = combatants.map(u => {
-      let hp = { max: u.maxHp, current: u.currentHp };
+      let hp = { max: u.maxHp || 1, current: u.currentHp || 1 };
       
-      // Roll HP for monsters if not already set (or if we want fresh HP each time)
       if (!u.isPlayer && u.hpDice) {
         const roll = DiceService.roll(u.hpDice).total;
         hp.max = roll;
@@ -131,7 +130,7 @@ export function EncounterRunner() {
         <button onClick={() => setActiveEncounter(null)}>Close Encounter</button>
       </header>
 
-      <div aria-live="assertive" className="sr-only" style={{ position: 'absolute', width: '1px', height: '1px', padding: '0', margin: '-1px', overflow: 'hidden', clip: 'rect(0,0,0,0)', border: '0' }}>
+      <div aria-live="assertive" className="sr-only">
         {announcement}
       </div>
 
@@ -158,7 +157,7 @@ export function EncounterRunner() {
       ) : (
         <section>
           <h4>Initiative Track</h4>
-          <p>Use <strong>Arrow Keys</strong> to navigate the list. Press <strong>Enter</strong> for details. <strong>Alt + N</strong> for next turn. <strong>Escape</strong> to close details.</p>
+          <p>Use <strong>Arrow Keys</strong> to navigate. <strong>Enter</strong> for details. <strong>Alt + N</strong> for next turn.</p>
           <button onClick={nextTurn} style={{ marginBottom: '1rem' }}>Next Turn (Alt+N)</button>
           
           <ul style={{ listStyle: 'none', padding: 0 }} role="list">
@@ -173,7 +172,6 @@ export function EncounterRunner() {
                     padding: '1rem', 
                     border: i === turnIndex ? '3px solid #000' : '1px solid #eee',
                     backgroundColor: i === turnIndex ? '#f0f8ff' : 'white',
-                    cursor: 'pointer',
                     display: 'block'
                   }}
                   aria-current={i === turnIndex ? 'step' : undefined}
@@ -193,23 +191,26 @@ export function EncounterRunner() {
           backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', 
           alignItems: 'center', justifyContent: 'center', zIndex: 1001
         }}>
-          <div style={{ backgroundColor: 'white', padding: '2rem', borderRadius: '8px', maxWidth: '400px', width: '90%' }}>
-            <h3 
-              id="unit-detail-title" 
-              ref={detailHeadingRef} 
-              tabIndex={-1} 
-              style={{ outline: 'none' }}
-            >
+          <div style={{ backgroundColor: 'white', padding: '2rem', borderRadius: '8px', maxWidth: '600px', width: '90%', maxHeight: '90vh', overflowY: 'auto' }}>
+            <h3 id="unit-detail-title" ref={detailHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>
               {selectedUnit.name} Details
             </h3>
-            <p><strong>Type:</strong> {selectedUnit.isPlayer ? 'Player Character' : 'Monster'}</p>
-            <p><strong>Initiative:</strong> {selectedUnit.initiative}</p>
-            {!selectedUnit.isPlayer && <p><strong>HP:</strong> {selectedUnit.currentHp} / {selectedUnit.maxHp} (Dice: {selectedUnit.hpDice})</p>}
-            {selectedUnit.isPlayer && <p><strong>Passive Perception:</strong> {selectedUnit.passivePerception}</p>}
-            <button 
-              onClick={closeDetails} 
-              style={{ marginTop: '1rem' }}
-            >
+            
+            {selectedUnit.isPlayer ? (
+              <section aria-labelledby="unit-detail-title">
+                <p><strong>Initiative:</strong> {selectedUnit.initiative}</p>
+                <p><strong>Passive Perception:</strong> {selectedUnit.passivePerception}</p>
+              </section>
+            ) : selectedUnit.fullData ? (
+              <MonsterDetails 
+                monster={selectedUnit.fullData} 
+                currentHp={selectedUnit.currentHp} 
+                maxHp={selectedUnit.maxHp} 
+                initiative={selectedUnit.initiative} 
+              />
+            ) : null}
+
+            <button onClick={closeDetails} style={{ marginTop: '1.5rem', width: '100%', padding: '0.5rem' }}>
               Close Details (Esc)
             </button>
           </div>

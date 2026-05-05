@@ -1,11 +1,35 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { MonsterDetails } from './MonsterDetails';
 
 export interface Monster {
   id: string;
   name: string;
-  hp_dice: string;
-  dex_mod: number;
-  ac: number;
+  meta: {
+    size: string;
+    type: string;
+    tags: string[];
+    alignment: string;
+  };
+  attributes: {
+    ac: { value: number; notes?: string };
+    hp: { value: number; dice: string };
+    speeds: Record<string, number | boolean>;
+    initiative_modifier?: number;
+  };
+  stats: Record<string, { score: number; modifier: number; save: number }>;
+  skills: { name: string; modifier: number }[];
+  vulnerabilities: string[];
+  resistances: string[];
+  immunities: { damage: string[]; condition: string[] };
+  senses: { name: string; value: number; notes?: string }[];
+  languages: string[];
+  cr: string;
+  source?: string;
+  proficiency_bonus?: number;
+  traits: { name: string; content: string; usage?: { times: number; type: string } }[];
+  actions: { name: string; content: string; is_attack?: boolean; attack_bonus?: number; damage?: { dice: string; type: string }[] }[];
+  legendary_actions: { name: string; content: string; cost?: number }[];
+  reactions: { name: string; content: string }[];
 }
 
 export interface EncounterUnit {
@@ -14,11 +38,12 @@ export interface EncounterUnit {
   name: string;
   maxHp?: number;
   currentHp?: number;
-  hpDice?: string; // Notation for rolling later
+  hpDice?: string; 
   dexMod: number;
   initiative?: number;
   passivePerception?: number;
   isPlayer?: boolean;
+  fullData?: Monster;
 }
 
 export interface Encounter {
@@ -33,39 +58,76 @@ export function EncounterBuilder() {
   const [units, setUnits] = useState<EncounterUnit[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [previewMonster, setPreviewMonster] = useState<Monster | null>(null);
 
   const addMonsterBtnRef = useRef<HTMLButtonElement>(null);
   const modalFirstBtnRef = useRef<HTMLButtonElement>(null);
+  const previewHeadingRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
-    fetch('/data/monsters.json')
+    fetch(`/data/monsters.json?t=${new Date().getTime()}`)
       .then(res => res.json())
       .then(data => {
         setMonsters(data);
         setLoading(false);
+      })
+      .catch(err => {
+        console.error("Failed to load monsters:", err);
+        setLoading(false);
       });
   }, []);
+
+  const closeModal = useCallback(() => {
+    setIsModalOpen(false);
+    setPreviewMonster(null);
+  }, []);
+
+  // Handle global Escape key for modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isModalOpen) {
+        if (previewMonster) {
+          setPreviewMonster(null);
+        } else {
+          closeModal();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isModalOpen, previewMonster, closeModal]);
 
   // Handle focus when modal opens/closes
   useEffect(() => {
     if (isModalOpen) {
-      modalFirstBtnRef.current?.focus();
+      if (previewMonster) {
+        previewHeadingRef.current?.focus();
+      } else {
+        modalFirstBtnRef.current?.focus();
+      }
     } else {
       addMonsterBtnRef.current?.focus();
     }
-  }, [isModalOpen]);
+  }, [isModalOpen, previewMonster]);
 
   const addMonster = (monster: Monster) => {
+    // Defensive checks for missing data
+    const pp = monster.senses?.find(s => s.name === "Passive Perception")?.value || 10;
+    const dex = monster.stats?.DEX?.modifier ?? 0;
+    const hpDice = monster.attributes?.hp?.dice || "1d1";
+
     const newUnit: EncounterUnit = {
       instanceId: crypto.randomUUID(),
       monsterId: monster.id,
       name: `${monster.name} ${units.filter(u => u.monsterId === monster.id).length + 1}`,
-      hpDice: monster.hp_dice,
-      dexMod: monster.dex_mod,
-      isPlayer: false
+      hpDice: hpDice,
+      dexMod: dex,
+      passivePerception: pp,
+      isPlayer: false,
+      fullData: monster
     };
     setUnits([...units, newUnit]);
-    setIsModalOpen(false);
+    closeModal();
   };
 
   const addPlayer = () => {
@@ -100,7 +162,8 @@ export function EncounterBuilder() {
 
   return (
     <div className="encounter-builder">
-      <section>
+      <section aria-labelledby="builder-title">
+        <h2 id="builder-title" className="sr-only">Encounter Builder</h2>
         <label htmlFor="encounter-name">Encounter Name:</label>
         <input 
           id="encounter-name" 
@@ -127,23 +190,55 @@ export function EncounterBuilder() {
         }}>
           <div className="modal-content" style={{
             backgroundColor: 'white', padding: '2rem', borderRadius: '8px', 
-            maxWidth: '400px', width: '90%'
+            maxWidth: '600px', width: '90%', maxHeight: '80vh', overflowY: 'auto'
           }}>
-            <h3 id="modal-title">Select Monster</h3>
-            <ul style={{ listStyle: 'none', padding: 0 }}>
-              {monsters.map((m, index) => (
-                <li key={m.id} style={{ marginBottom: '0.5rem' }}>
+            {!previewMonster ? (
+              <>
+                <h3 id="modal-title">Select Monster</h3>
+                <ul style={{ listStyle: 'none', padding: 0 }}>
+                  {monsters.map((m, index) => (
+                    <li key={m.id} style={{ marginBottom: '0.5rem', display: 'flex', gap: '0.5rem' }}>
+                      <button 
+                        ref={index === 0 ? modalFirstBtnRef : null}
+                        onClick={() => addMonster(m)} 
+                        style={{ flexGrow: 1, textAlign: 'left' }}
+                        aria-label={`Add ${m.name} to encounter`}
+                      >
+                        Add <strong>{m.name}</strong> (CR: {m.cr})
+                      </button>
+                      <button 
+                        onClick={() => setPreviewMonster(m)}
+                        aria-label={`View details for ${m.name}`}
+                      >
+                        View Details
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <button onClick={closeModal} style={{ marginTop: '1rem' }}>Cancel (Esc)</button>
+              </>
+            ) : (
+              <>
+                <h3 id="modal-title" ref={previewHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>
+                  {previewMonster.name} Preview
+                </h3>
+                <MonsterDetails monster={previewMonster} />
+                <div style={{ marginTop: '1.5rem', display: 'flex', gap: '1rem' }}>
                   <button 
-                    ref={index === 0 ? modalFirstBtnRef : null}
-                    onClick={() => addMonster(m)} 
-                    style={{ width: '100%', textAlign: 'left' }}
+                    onClick={() => addMonster(previewMonster)} 
+                    style={{ flex: 1, padding: '0.75rem', fontWeight: 'bold' }}
                   >
-                    {m.name} (HD: {m.hp_dice})
+                    Add to Encounter
                   </button>
-                </li>
-              ))}
-            </ul>
-            <button onClick={() => setIsModalOpen(false)} style={{ marginTop: '1rem' }}>Cancel</button>
+                  <button 
+                    onClick={() => setPreviewMonster(null)} 
+                    style={{ flex: 1, padding: '0.75rem' }}
+                  >
+                    Back to List
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -153,8 +248,20 @@ export function EncounterBuilder() {
         {units.length === 0 ? <p>No units added yet.</p> : (
           <ul style={{ listStyle: 'none', padding: 0 }}>
             {units.map(u => (
-              <li key={u.instanceId} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0' }}>
-                <strong>{u.name}</strong> {u.isPlayer ? '(Player)' : `- HP: ${u.hpDice || 'Fixed'}`}
+              <li key={u.instanceId} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0', display: 'flex', alignItems: 'center' }}>
+                <button 
+                  onClick={() => {
+                    if (u.fullData) {
+                      setPreviewMonster(u.fullData);
+                      setIsModalOpen(true);
+                    }
+                  }}
+                  disabled={!u.fullData}
+                  style={{ background: 'none', border: 'none', padding: 0, color: 'inherit', font: 'inherit', cursor: u.fullData ? 'pointer' : 'default', textAlign: 'left', flexGrow: 1 }}
+                  aria-label={u.fullData ? `Preview ${u.name}` : undefined}
+                >
+                  <strong>{u.name}</strong> {u.isPlayer ? '(Player)' : `- HP Dice: ${u.hpDice}`}
+                </button>
                 <button 
                   onClick={() => removeUnit(u.instanceId)} 
                   aria-label={`Remove ${u.name}`}
