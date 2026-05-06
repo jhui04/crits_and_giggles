@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { DiceService } from '../services/DiceService';
 import { MonsterDetails } from './MonsterDetails';
-import type { Encounter, EncounterUnit } from './EncounterBuilder';
+import type { Encounter, EncounterUnit } from '../types';
+import { useCampaigns } from '../context/CampaignContext';
 
-export function EncounterRunner() {
-  const [savedEncounters, setSavedEncounters] = useState<Encounter[]>([]);
+export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: string | null }) {
+  const { activeCampaign } = useCampaigns();
   const [activeEncounter, setActiveEncounter] = useState<Encounter | null>(null);
   const [combatants, setCombatants] = useState<EncounterUnit[]>([]);
   const [turnIndex, setTurnIndex] = useState(0);
@@ -14,12 +15,32 @@ export function EncounterRunner() {
 
   const unitRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const detailHeadingRef = useRef<HTMLHeadingElement>(null);
+  const runnerHeadingRef = useRef<HTMLHeadingElement>(null);
   const lastFocusedUnitId = useRef<string | null>(null);
 
-  useEffect(() => {
-    const saved = JSON.parse(localStorage.getItem('saved_encounters') || '[]');
-    setSavedEncounters(saved);
+  const loadEncounter = useCallback((encounter: Encounter) => {
+    setActiveEncounter(encounter);
+    setCombatants(encounter.units.map(u => ({ ...u })));
+    setIsCombatStarted(false);
+    setTurnIndex(0);
   }, []);
+
+  useEffect(() => {
+    if (activeEncounter) {
+      setTimeout(() => {
+        runnerHeadingRef.current?.focus();
+      }, 0);
+    }
+  }, [activeEncounter]);
+
+  useEffect(() => {
+    if (targetEncounterId && activeCampaign) {
+      const encounter = activeCampaign.encounters.find(e => e.id === targetEncounterId);
+      if (encounter) {
+        loadEncounter(encounter);
+      }
+    }
+  }, [targetEncounterId, activeCampaign, loadEncounter]);
 
   const nextTurn = useCallback(() => {
     if (!isCombatStarted || combatants.length === 0) return;
@@ -64,13 +85,6 @@ export function EncounterRunner() {
     }
   }, [selectedUnit]);
 
-  const loadEncounter = (encounter: Encounter) => {
-    setActiveEncounter(encounter);
-    setCombatants(encounter.units.map(u => ({ ...u })));
-    setIsCombatStarted(false);
-    setTurnIndex(0);
-  };
-
   const updateInitiative = (instanceId: string, val: string) => {
     const num = parseInt(val, 10) || 0;
     setCombatants(prev => prev.map(u => u.instanceId === instanceId ? { ...u, initiative: num } : u));
@@ -107,12 +121,14 @@ export function EncounterRunner() {
   };
 
   if (!activeEncounter) {
+    const campaignEncounters = activeCampaign?.encounters || [];
     return (
       <section>
-        <h3>Load Encounter</h3>
-        {savedEncounters.length === 0 ? <p>No saved encounters found. Go to Create Mode to build one.</p> : (
+        <h3 ref={runnerHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>Load Encounter</h3>
+        {!activeCampaign ? <p>Please select a campaign in Create Mode.</p> :
+         campaignEncounters.length === 0 ? <p>No saved encounters found. Go to Create Mode to build one.</p> : (
           <ul style={{ listStyle: 'none', padding: 0 }}>
-            {savedEncounters.map(e => (
+            {campaignEncounters.map(e => (
               <li key={e.id}>
                 <button onClick={() => loadEncounter(e)}>Load "{e.name}"</button>
               </li>
@@ -126,7 +142,7 @@ export function EncounterRunner() {
   return (
     <div className="encounter-runner">
       <header>
-        <h3>Running: {activeEncounter.name}</h3>
+        <h3 ref={runnerHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>Running: {activeEncounter.name}</h3>
         <button onClick={() => setActiveEncounter(null)}>Close Encounter</button>
       </header>
 

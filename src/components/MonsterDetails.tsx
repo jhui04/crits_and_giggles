@@ -1,4 +1,4 @@
-import type { Monster } from './EncounterBuilder';
+import type { Monster } from '../types';
 
 interface MonsterDetailsProps {
   monster: Monster;

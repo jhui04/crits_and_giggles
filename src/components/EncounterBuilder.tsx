@@ -1,61 +1,18 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { MonsterDetails } from './MonsterDetails';
+import type { Monster, EncounterUnit, Encounter } from '../types';
+import { useCampaigns } from '../context/CampaignContext';
 
-export interface Monster {
-  id: string;
-  name: string;
-  meta: {
-    size: string;
-    type: string;
-    tags: string[];
-    alignment: string;
-  };
-  attributes: {
-    ac: { value: number; notes?: string };
-    hp: { value: number; dice: string };
-    speeds: Record<string, number | boolean>;
-    initiative_modifier?: number;
-  };
-  stats: Record<string, { score: number; modifier: number; save: number }>;
-  skills: { name: string; modifier: number }[];
-  vulnerabilities: string[];
-  resistances: string[];
-  immunities: { damage: string[]; condition: string[] };
-  senses: { name: string; value: number; notes?: string }[];
-  languages: string[];
-  cr: string;
-  source?: string;
-  proficiency_bonus?: number;
-  traits: { name: string; content: string; usage?: { times: number; type: string } }[];
-  actions: { name: string; content: string; is_attack?: boolean; attack_bonus?: number; damage?: { dice: string; type: string }[] }[];
-  legendary_actions: { name: string; content: string; cost?: number }[];
-  reactions: { name: string; content: string }[];
+interface EncounterBuilderProps {
+  initialEncounter: Encounter | null;
+  onClose: () => void;
 }
 
-export interface EncounterUnit {
-  instanceId: string;
-  monsterId?: string;
-  name: string;
-  maxHp?: number;
-  currentHp?: number;
-  hpDice?: string; 
-  dexMod: number;
-  initiative?: number;
-  passivePerception?: number;
-  isPlayer?: boolean;
-  fullData?: Monster;
-}
-
-export interface Encounter {
-  id: string;
-  name: string;
-  units: EncounterUnit[];
-}
-
-export function EncounterBuilder() {
+export function EncounterBuilder({ initialEncounter, onClose }: EncounterBuilderProps) {
+  const { activeCampaign, updateCampaign } = useCampaigns();
   const [monsters, setMonsters] = useState<Monster[]>([]);
-  const [encounterName, setEncounterName] = useState('New Encounter');
-  const [units, setUnits] = useState<EncounterUnit[]>([]);
+  const [encounterName, setEncounterName] = useState(initialEncounter ? initialEncounter.name : 'New Encounter');
+  const [units, setUnits] = useState<EncounterUnit[]>(initialEncounter ? initialEncounter.units : []);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [previewMonster, setPreviewMonster] = useState<Monster | null>(null);
@@ -63,6 +20,7 @@ export function EncounterBuilder() {
   const addMonsterBtnRef = useRef<HTMLButtonElement>(null);
   const modalFirstBtnRef = useRef<HTMLButtonElement>(null);
   const previewHeadingRef = useRef<HTMLHeadingElement>(null);
+  const builderHeadingRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
     fetch(`/data/monsters.json?t=${new Date().getTime()}`)
@@ -76,6 +34,14 @@ export function EncounterBuilder() {
         setLoading(false);
       });
   }, []);
+
+  useEffect(() => {
+    if (!loading) {
+      setTimeout(() => {
+        builderHeadingRef.current?.focus();
+      }, 0);
+    }
+  }, [loading]);
 
   const closeModal = useCallback(() => {
     setIsModalOpen(false);
@@ -148,22 +114,41 @@ export function EncounterBuilder() {
   };
 
   const saveEncounter = () => {
+    if (!activeCampaign) {
+      alert("Please select a Campaign first in the Campaigns tab.");
+      return;
+    }
     const encounter: Encounter = {
-      id: crypto.randomUUID(),
+      id: initialEncounter ? initialEncounter.id : crypto.randomUUID(),
       name: encounterName,
       units: units
     };
-    const saved = JSON.parse(localStorage.getItem('saved_encounters') || '[]');
-    localStorage.setItem('saved_encounters', JSON.stringify([...saved, encounter]));
-    alert(`Encounter "${encounterName}" saved!`);
+    
+    const existingEncounters = initialEncounter 
+      ? activeCampaign.encounters.filter(e => e.id !== initialEncounter.id)
+      : activeCampaign.encounters;
+
+    updateCampaign({
+      ...activeCampaign,
+      encounters: [...existingEncounters, encounter]
+    });
+    alert(`Encounter "${encounterName}" saved to Campaign "${activeCampaign.name}"!`);
+    onClose();
+  };
+
+  const handleCancel = () => {
+    onClose();
   };
 
   if (loading) return <p>Loading data...</p>;
 
   return (
     <div className="encounter-builder">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+        <h2 id="builder-title" ref={builderHeadingRef} tabIndex={-1} style={{ margin: 0, outline: 'none' }}>Encounter Builder</h2>
+        <button onClick={handleCancel} style={{ padding: '0.5rem' }}>Back to Campaign</button>
+      </div>
       <section aria-labelledby="builder-title">
-        <h2 id="builder-title" className="sr-only">Encounter Builder</h2>
         <label htmlFor="encounter-name">Encounter Name:</label>
         <input 
           id="encounter-name" 
