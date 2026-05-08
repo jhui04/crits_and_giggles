@@ -12,6 +12,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   const [isCombatStarted, setIsCombatStarted] = useState(false);
   const [announcement, setAnnouncement] = useState('');
   const [selectedUnit, setSelectedUnit] = useState<EncounterUnit | null>(null);
+  const [hpMods, setHpMods] = useState<Record<string, string>>({});
 
   const unitRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const detailHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -23,6 +24,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     setCombatants(encounter.units.map(u => ({ ...u })));
     setIsCombatStarted(false);
     setTurnIndex(0);
+    setHpMods({});
   }, []);
 
   useEffect(() => {
@@ -120,6 +122,38 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     setSelectedUnit(unit);
   };
 
+  const applyHpMod = (instanceId: string, isDamage: boolean) => {
+    const val = parseInt(hpMods[instanceId] || '0', 10);
+    if (!val || isNaN(val)) return;
+    
+    setCombatants(prev => prev.map(u => {
+      if (u.instanceId === instanceId) {
+        if (u.isPlayer) return u;
+        
+        const newHp = isDamage 
+          ? Math.max(0, (u.currentHp || 0) - val) 
+          : Math.min((u.maxHp || 0), (u.currentHp || 0) + val);
+        
+        setAnnouncement(`${u.name} takes ${val} ${isDamage ? 'damage' : 'healing'}. New HP is ${newHp}.`);
+        return { ...u, currentHp: newHp };
+      }
+      return u;
+    }));
+    
+    setHpMods(prev => ({ ...prev, [instanceId]: '' }));
+    
+    // Update selectedUnit if it's currently open so modal updates live
+    if (selectedUnit && selectedUnit.instanceId === instanceId) {
+      setSelectedUnit(prev => {
+        if (!prev) return prev;
+        const newHp = isDamage 
+          ? Math.max(0, (prev.currentHp || 0) - val) 
+          : Math.min((prev.maxHp || 0), (prev.currentHp || 0) + val);
+        return { ...prev, currentHp: newHp };
+      });
+    }
+  };
+
   if (!activeEncounter) {
     const campaignEncounters = activeCampaign?.encounters || [];
     return (
@@ -173,28 +207,38 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
       ) : (
         <section>
           <h4>Initiative Track</h4>
-          <p>Use <strong>Arrow Keys</strong> to navigate. <strong>Enter</strong> for details. <strong>Alt + N</strong> for next turn.</p>
+          <p>Use <strong>Tab</strong> to navigate. <strong>Enter</strong> for details. <strong>Alt + N</strong> for next turn.</p>
           <button onClick={nextTurn} style={{ marginBottom: '1rem' }}>Next Turn (Alt+N)</button>
           
           <ul style={{ listStyle: 'none', padding: 0 }} role="list">
             {combatants.map((u, i) => (
-              <li key={u.instanceId} style={{ marginBottom: '0.5rem' }}>
-                <button
-                  ref={(el) => { unitRefs.current[u.instanceId] = el; }}
-                  onClick={() => openUnitDetails(u)}
-                  style={{ 
-                    width: '100%',
-                    textAlign: 'left',
-                    padding: '1rem', 
-                    border: i === turnIndex ? '3px solid #000' : '1px solid #eee',
-                    backgroundColor: i === turnIndex ? '#f0f8ff' : 'white',
-                    display: 'block'
-                  }}
-                  aria-current={i === turnIndex ? 'step' : undefined}
-                >
-                  <span className="sr-only">{i === turnIndex ? "Current Turn" : ""}</span>
-                  <strong>{u.initiative}</strong> - {u.name} {u.isPlayer ? '(Player)' : `(HP: ${u.currentHp}/${u.maxHp})`}
-                </button>
+              <li key={u.instanceId} style={{ marginBottom: '1rem', border: i === turnIndex ? '3px solid #000' : '1px solid #eee', padding: '0.5rem', backgroundColor: i === turnIndex ? '#f0f8ff' : 'white' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <button
+                    ref={(el) => { unitRefs.current[u.instanceId] = el; }}
+                    onClick={() => openUnitDetails(u)}
+                    style={{ flexGrow: 1, textAlign: 'left', background: 'transparent', border: 'none', padding: '0.5rem', fontSize: '1.1rem', fontWeight: 'bold' }}
+                    aria-current={i === turnIndex ? 'step' : undefined}
+                  >
+                    <span className="sr-only">{i === turnIndex ? "Current Turn" : ""}</span>
+                    {u.initiative} - {u.name} {u.isPlayer ? '(Player)' : `(HP: ${u.currentHp}/${u.maxHp})`}
+                  </button>
+                </div>
+                {!u.isPlayer && (
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', padding: '0 0.5rem' }}>
+                    <label htmlFor={`hpmod-${u.instanceId}`} className="sr-only">HP Modifier for {u.name}</label>
+                    <input 
+                      id={`hpmod-${u.instanceId}`}
+                      type="number"
+                      placeholder="Amount"
+                      value={hpMods[u.instanceId] || ''}
+                      onChange={e => setHpMods(prev => ({...prev, [u.instanceId]: e.target.value}))}
+                      style={{ width: '80px', padding: '0.25rem' }}
+                    />
+                    <button onClick={() => applyHpMod(u.instanceId, true)} style={{ padding: '0.25rem 0.5rem', fontSize: '0.9em' }}>Damage</button>
+                    <button onClick={() => applyHpMod(u.instanceId, false)} style={{ padding: '0.25rem 0.5rem', fontSize: '0.9em' }}>Heal</button>
+                  </div>
+                )}
               </li>
             ))}
           </ul>
@@ -223,6 +267,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
                 currentHp={selectedUnit.currentHp} 
                 maxHp={selectedUnit.maxHp} 
                 initiative={selectedUnit.initiative} 
+                onAnnounce={setAnnouncement}
               />
             ) : null}
 

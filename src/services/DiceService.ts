@@ -15,11 +15,24 @@ export interface DiceResult {
 export const DiceService = {
   /**
    * Parses a dice notation string and returns the result.
-   * Format: [count]d[sides][+/-modifier]
+   * Format: [count]d[sides][+/-modifier] or a flat number
    */
   roll(notation: string): DiceResult {
+    const cleanNotation = notation.replace(/\s+/g, '').replace(/[−–]/g, '-');
+    
+    // Check if it's a flat number
+    if (/^\d+$/.test(cleanNotation)) {
+      const val = parseInt(cleanNotation, 10);
+      return {
+        total: val,
+        rolls: [],
+        modifier: val,
+        notation
+      };
+    }
+
     const regex = /^(\d+)d(\d+)([+-]\d+)?$/i;
-    const match = notation.replace(/\s+/g, '').match(regex);
+    const match = cleanNotation.match(regex);
 
     if (!match) {
       throw new Error(`Invalid dice notation: ${notation}`);
