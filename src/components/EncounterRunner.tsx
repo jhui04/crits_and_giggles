@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { DiceService } from '../services/DiceService';
 import { MonsterDetails } from './MonsterDetails';
+import { QuickRoller } from './QuickRoller';
 import type { Encounter, EncounterUnit } from '../types';
 import { useCampaigns } from '../context/CampaignContext';
 
@@ -13,11 +14,15 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   const [announcement, setAnnouncement] = useState('');
   const [selectedUnit, setSelectedUnit] = useState<EncounterUnit | null>(null);
   const [hpMods, setHpMods] = useState<Record<string, string>>({});
+  
+  const [activeRoll, setActiveRoll] = useState<{ title: string, hit?: string, damage?: string, unitName?: string } | null>(null);
+  const rollModalRef = useRef<HTMLHeadingElement>(null);
 
   const unitRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const detailHeadingRef = useRef<HTMLHeadingElement>(null);
   const runnerHeadingRef = useRef<HTMLHeadingElement>(null);
   const lastFocusedUnitId = useRef<string | null>(null);
+  const lastActiveRollButtonRef = useRef<HTMLElement | null>(null);
 
   const loadEncounter = useCallback((encounter: Encounter) => {
     setActiveEncounter(encounter);
@@ -44,6 +49,15 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     }
   }, [targetEncounterId, activeCampaign, loadEncounter]);
 
+  useEffect(() => {
+    if (activeRoll && rollModalRef.current) {
+      rollModalRef.current.focus();
+    } else if (!activeRoll && lastActiveRollButtonRef.current) {
+      lastActiveRollButtonRef.current.focus();
+      lastActiveRollButtonRef.current = null;
+    }
+  }, [activeRoll]);
+
   const nextTurn = useCallback(() => {
     if (!isCombatStarted || combatants.length === 0) return;
     setTurnIndex((prev) => {
@@ -59,23 +73,33 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     setSelectedUnit(null);
   }, []);
 
+  const closeRollModal = useCallback(() => {
+    setActiveRoll(null);
+  }, []);
+
   // Global Keyboard Listeners
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Escape
+      if (e.key === 'Escape') {
+        if (activeRoll) {
+          e.preventDefault();
+          closeRollModal();
+        } else if (selectedUnit) {
+          e.preventDefault();
+          closeDetails();
+        }
+      }
+      
       // Alt + N for Next Turn
       if (e.altKey && e.key.toLowerCase() === 'n') {
         e.preventDefault();
         nextTurn();
       }
-      // Escape to close details
-      if (e.key === 'Escape' && selectedUnit) {
-        e.preventDefault();
-        closeDetails();
-      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [nextTurn, selectedUnit, closeDetails]);
+  }, [nextTurn, selectedUnit, activeRoll, closeDetails, closeRollModal]);
 
   // Focus management for details modal
   useEffect(() => {
@@ -154,6 +178,20 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     }
   };
 
+  const handleInlineRoll = (e: React.MouseEvent<HTMLElement>, unitName: string, title: string, hit: string) => {
+    lastActiveRollButtonRef.current = e.currentTarget as HTMLElement;
+    
+    // Announce to screen reader using the robust string format
+    const hitVal = hit.split(',')[0];
+    setAnnouncement(`${unitName} rolled ${title}: ${hitVal}`);
+
+    setActiveRoll({
+      title,
+      hit,
+      unitName
+    });
+  };
+
   if (!activeEncounter) {
     const campaignEncounters = activeCampaign?.encounters || [];
     return (
@@ -225,18 +263,23 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
                   </button>
                 </div>
                 {!u.isPlayer && (
-                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', padding: '0 0.5rem' }}>
-                    <label htmlFor={`hpmod-${u.instanceId}`} className="sr-only">HP Modifier for {u.name}</label>
-                    <input 
-                      id={`hpmod-${u.instanceId}`}
-                      type="number"
-                      placeholder="Amount"
-                      value={hpMods[u.instanceId] || ''}
-                      onChange={e => setHpMods(prev => ({...prev, [u.instanceId]: e.target.value}))}
-                      style={{ width: '80px', padding: '0.25rem' }}
-                    />
-                    <button onClick={() => applyHpMod(u.instanceId, true)} style={{ padding: '0.25rem 0.5rem', fontSize: '0.9em' }}>Damage</button>
-                    <button onClick={() => applyHpMod(u.instanceId, false)} style={{ padding: '0.25rem 0.5rem', fontSize: '0.9em' }}>Heal</button>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', padding: '0 0.5rem' }}>
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      <label htmlFor={`hpmod-${u.instanceId}`} className="sr-only">HP Modifier for {u.name}</label>
+                      <input 
+                        id={`hpmod-${u.instanceId}`}
+                        type="number"
+                        placeholder="Amount"
+                        value={hpMods[u.instanceId] || ''}
+                        onChange={e => setHpMods(prev => ({...prev, [u.instanceId]: e.target.value}))}
+                        style={{ width: '80px', padding: '0.25rem' }}
+                      />
+                      <button onClick={() => applyHpMod(u.instanceId, true)} style={{ padding: '0.25rem 0.5rem', fontSize: '0.9em' }}>Damage</button>
+                      <button onClick={() => applyHpMod(u.instanceId, false)} style={{ padding: '0.25rem 0.5rem', fontSize: '0.9em' }}>Heal</button>
+                    </div>
+                    {u.fullData && (
+                      <QuickRoller monster={u.fullData} onRoll={(title, hit) => handleInlineRoll(null as any, u.name, title, hit)} />
+                    )}
                   </div>
                 )}
               </li>
@@ -275,6 +318,26 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
               Close Details (Esc)
             </button>
           </div>
+        </div>
+      )}
+
+      {activeRoll && (
+        <div role="dialog" aria-modal="true" aria-labelledby="encounter-roll-result-title" style={{
+          position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+          backgroundColor: '#333', color: 'white', padding: '1.5rem', borderRadius: '8px',
+          boxShadow: '0 4px 6px rgba(0,0,0,0.3)', zIndex: 1002, minWidth: '250px', textAlign: 'center'
+        }}>
+          <h4 id="encounter-roll-result-title" ref={rollModalRef} tabIndex={-1} style={{ outline: 'none', margin: '0 0 1rem 0' }}>
+            {activeRoll.unitName} - {activeRoll.title}
+          </h4>
+          
+          <p style={{ fontSize: '1.2rem', marginBottom: '1rem' }}>
+            <strong>Result:</strong> {activeRoll.hit}
+          </p>
+
+          <button onClick={closeRollModal} style={{ padding: '0.5rem 1rem', fontSize: '1rem', backgroundColor: '#fff', color: '#333', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
+            Close (Esc)
+          </button>
         </div>
       )}
     </div>

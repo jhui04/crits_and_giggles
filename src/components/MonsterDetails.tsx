@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import type { Monster } from '../types';
 import { DiceService } from '../services/DiceService';
+import { QuickRoller } from './QuickRoller';
 
 interface MonsterDetailsProps {
   monster: Monster;
@@ -128,6 +129,17 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
         })}
       </div>
 
+      <div style={{ marginTop: '1rem', marginBottom: '1rem' }}>
+        <strong>Quick Roll:</strong>
+        <div style={{ marginTop: '0.5rem' }}>
+          <QuickRoller monster={monster} onRoll={(title, hit) => {
+             const hitVal = hit.split(',')[0];
+             if (onAnnounce) onAnnounce(`${monster.name} rolled ${title}: ${hitVal}`);
+             setActiveRoll({ title, hit });
+          }} />
+        </div>
+      </div>
+
       <div style={{ marginTop: '1rem' }}>
         <h4>Speeds</h4>
         <p>{Object.entries(monster.attributes.speeds)
@@ -245,11 +257,41 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
       {monster.legendary_actions && monster.legendary_actions.length > 0 && (
         <div style={{ marginTop: '1rem' }}>
           <h4>Legendary Actions</h4>
-          {monster.legendary_actions.map(a => (
-            <p key={a.name} style={{ marginBottom: '0.75rem' }}>
-              <strong>{a.name}:</strong> {a.content}
-            </p>
-          ))}
+          {monster.legendary_actions.map(a => {
+            const hasRoll = a.attack_bonus !== undefined || (a.damage && a.damage.length > 0);
+            const content = (
+              <>
+                <strong>{a.name}:</strong> {a.content}
+              </>
+            );
+
+            return (
+              <div key={a.name} style={{ marginBottom: '0.75rem' }}>
+                {hasRoll ? (
+                  <button 
+                    onClick={(e) => rollFullAttack(e, a.name, a.attack_bonus, a.damage as any)}
+                    style={{
+                      background: '#f8f9fa',
+                      border: '1px solid #ddd',
+                      borderRadius: '6px',
+                      padding: '0.5rem',
+                      textAlign: 'left',
+                      width: '100%',
+                      fontFamily: 'inherit',
+                      fontSize: 'inherit',
+                      cursor: 'pointer',
+                      display: 'block'
+                    }}
+                    title={`Roll ${a.name}`}
+                  >
+                    {content}
+                  </button>
+                ) : (
+                  <div>{content}</div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 

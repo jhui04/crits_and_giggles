@@ -187,7 +187,7 @@ def parse_monster_html(html_content):
                         if text.startswith('.'): text = text[1:].strip()
                         
                         current_item = {"name": name, "content": text}
-                        if target == monster["actions"]:
+                        if target in (monster["actions"], monster["legendary_actions"]):
                             current_item["is_attack"] = "Attack" in text
                             b_match = re.search(r'([+-]\d+) to hit', text)
                             if b_match: current_item["attack_bonus"] = int(b_match.group(1))
@@ -246,12 +246,24 @@ def main():
 
     while requests_made < max_requests:
         url = f"{BASE_URL}/monsters?page={current_page}"
-        response = make_request(url)
-        if response.status_code != 200:
-            print(f"Failed to fetch page {current_page}. Status: {response.status_code}")
-            break
+        page_filepath = os.path.join("dnd_beyond", "monsters", f"page{current_page}.html")
+        page_html = ""
 
-        soup = BeautifulSoup(response.text, 'html.parser')
+        if os.path.exists(page_filepath):
+            print(f"Found cached list page {current_page}, skipping web request...")
+            with open(page_filepath, 'r', encoding='utf-8') as f:
+                page_html = f.read()
+        else:
+            response = make_request(url)
+            if response.status_code != 200:
+                print(f"Failed to fetch page {current_page}. Status: {response.status_code}")
+                break
+            page_html = response.text
+            os.makedirs(os.path.dirname(page_filepath), exist_ok=True)
+            with open(page_filepath, 'w', encoding='utf-8') as f:
+                f.write(page_html)
+
+        soup = BeautifulSoup(page_html, 'html.parser')
         monster_rows = soup.select('.row.monster-name')
         
         if not monster_rows:
@@ -289,13 +301,13 @@ def main():
                 print(f"Skipping '{monster_name}' (Source blocked: {source})")
                 continue
 
-            if any(m.get('name') == monster_name for m in all_monsters):
-                print(f"Already have '{monster_name}', skipping...")
-                continue
-
+            safe_source = re.sub(r'[<>:"/\\|?*\x00-\x1F]', '', source).strip()
             safe_filename = slugify(monster_name) + ".html"
-            local_filepath = os.path.join("dnd_beyond", safe_filename)
+            local_dir = os.path.join("dnd_beyond", "monsters", safe_source)
+            local_filepath = os.path.join(local_dir, safe_filename)
             html_content = ""
+
+            already_in_json = any(m.get('name') == monster_name and m.get('source', 'Unknown') == source for m in all_monsters)
 
             if os.path.exists(local_filepath):
                 print(f"Found local file for '{monster_name}', skipping web request...")
@@ -321,12 +333,20 @@ def main():
                 monster_data = parse_monster_html(html_content)
                 if not monster_data.get('source') and source != "Unknown":
                     monster_data['source'] = source
-                all_monsters.append(monster_data)
-                success_count += 1
-                print(f"Successfully scraped '{monster_name}'.")
+                    
+                if already_in_json:
+                    for idx, m in enumerate(all_monsters):
+                        if m.get('name') == monster_name and m.get('source', 'Unknown') == source:
+                            all_monsters[idx] = monster_data
+                            break
+                    print(f"Updated '{monster_name}' ({source}) in JSON.")
+                else:
+                    all_monsters.append(monster_data)
+                    success_count += 1
+                    print(f"Successfully scraped '{monster_name}'.")
                 
                 if not os.path.exists(local_filepath):
-                    os.makedirs("dnd_beyond", exist_ok=True)
+                    os.makedirs(local_dir, exist_ok=True)
                     with open(local_filepath, 'w', encoding='utf-8') as f:
                         f.write(html_content)
                 

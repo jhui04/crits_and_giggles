@@ -84,6 +84,30 @@ describe('Monster Data Integrity', () => {
           }
         });
       });
+
+      it(`should correctly have attack rolls and damage for legendary attack actions for ${monster.name}`, () => {
+        // Separate exception lists for legendary actions
+        const noHitExceptions: string[] = []; 
+        const noDamageExceptions: string[] = []; 
+        
+        monster.legendary_actions.forEach(action => {
+          if (action.is_attack) {
+            const hasHit = action.attack_bonus !== undefined;
+            if (!hasHit && !noHitExceptions.some(e => action.name.includes(e))) {
+              console.warn(`WARNING: Monster '${monster.name}' Legendary Action '${action.name}' is an attack but has no hit roll.`);
+              expect(hasHit).toBe(true);
+            }
+          }
+
+          if (action.attack_bonus !== undefined && !noDamageExceptions.some(e => action.name.includes(e))) {
+            const hasDamage = action.damage && action.damage.length > 0;
+            if (!hasDamage) {
+               console.warn(`WARNING: Monster '${monster.name}' Legendary Action '${action.name}' has attack bonus but no damage.`);
+            }
+            expect(hasDamage).toBe(true);
+          }
+        });
+      });
     });
   });
 
