@@ -18,9 +18,10 @@ export function EncounterBuilder({ initialEncounter, onClose }: EncounterBuilder
   const [previewMonster, setPreviewMonster] = useState<Monster | null>(null);
 
   const addMonsterBtnRef = useRef<HTMLButtonElement>(null);
-  const modalFirstBtnRef = useRef<HTMLButtonElement>(null);
+  const selectMonsterHeadingRef = useRef<HTMLHeadingElement>(null);
   const previewHeadingRef = useRef<HTMLHeadingElement>(null);
   const builderHeadingRef = useRef<HTMLHeadingElement>(null);
+  const lastFocusedElementRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     fetch(`/data/monsters.json?t=${new Date().getTime()}`)
@@ -45,32 +46,36 @@ export function EncounterBuilder({ initialEncounter, onClose }: EncounterBuilder
 
   const closeModal = useCallback(() => {
     setIsModalOpen(false);
+  }, []);
+
+  const closePreview = useCallback(() => {
     setPreviewMonster(null);
+    setTimeout(() => lastFocusedElementRef.current?.focus(), 0);
   }, []);
 
   // Handle global Escape key for modal
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isModalOpen) {
+      if (e.key === 'Escape' && !e.defaultPrevented) {
         if (previewMonster) {
-          setPreviewMonster(null);
-        } else {
+          e.preventDefault();
+          closePreview();
+        } else if (isModalOpen) {
+          e.preventDefault();
           closeModal();
         }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isModalOpen, previewMonster, closeModal]);
+  }, [isModalOpen, previewMonster, closeModal, closePreview]);
 
   // Handle focus when modal opens/closes
   useEffect(() => {
-    if (isModalOpen) {
-      if (previewMonster) {
-        previewHeadingRef.current?.focus();
-      } else {
-        modalFirstBtnRef.current?.focus();
-      }
+    if (previewMonster) {
+      previewHeadingRef.current?.focus();
+    } else if (isModalOpen) {
+      selectMonsterHeadingRef.current?.focus();
     } else {
       addMonsterBtnRef.current?.focus();
     }
@@ -94,6 +99,7 @@ export function EncounterBuilder({ initialEncounter, onClose }: EncounterBuilder
     };
     setUnits([...units, newUnit]);
     closeModal();
+    setPreviewMonster(null);
   };
 
   const addPlayer = () => {
@@ -168,7 +174,7 @@ export function EncounterBuilder({ initialEncounter, onClose }: EncounterBuilder
       </section>
 
       {isModalOpen && (
-        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title" style={{
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="select-monster-title" style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, 
           backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', 
           alignItems: 'center', justifyContent: 'center', zIndex: 1000
@@ -177,53 +183,62 @@ export function EncounterBuilder({ initialEncounter, onClose }: EncounterBuilder
             backgroundColor: 'white', padding: '2rem', borderRadius: '8px', 
             maxWidth: '600px', width: '90%', maxHeight: '80vh', overflowY: 'auto'
           }}>
-            {!previewMonster ? (
-              <>
-                <h3 id="modal-title">Select Monster</h3>
-                <ul style={{ listStyle: 'none', padding: 0 }}>
-                  {monsters.map((m, index) => (
-                    <li key={m.id} style={{ marginBottom: '0.5rem', display: 'flex', gap: '0.5rem' }}>
-                      <button 
-                        ref={index === 0 ? modalFirstBtnRef : null}
-                        onClick={() => addMonster(m)} 
-                        style={{ flexGrow: 1, textAlign: 'left' }}
-                        aria-label={`Add ${m.name} to encounter`}
-                      >
-                        Add <strong>{m.name}</strong> (CR: {m.cr})
-                      </button>
-                      <button 
-                        onClick={() => setPreviewMonster(m)}
-                        aria-label={`View details for ${m.name}`}
-                      >
-                        View Details
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-                <button onClick={closeModal} style={{ marginTop: '1rem' }}>Cancel (Esc)</button>
-              </>
-            ) : (
-              <>
-                <h3 id="modal-title" ref={previewHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>
-                  {previewMonster.name} Preview
-                </h3>
-                <MonsterDetails monster={previewMonster} />
-                <div style={{ marginTop: '1.5rem', display: 'flex', gap: '1rem' }}>
+            <h3 id="select-monster-title" ref={selectMonsterHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>Select Monster</h3>
+            <ul style={{ listStyle: 'none', padding: 0 }}>
+              {monsters.map((m) => (
+                <li key={m.id} style={{ marginBottom: '0.5rem', display: 'flex', gap: '0.5rem' }}>
                   <button 
-                    onClick={() => addMonster(previewMonster)} 
-                    style={{ flex: 1, padding: '0.75rem', fontWeight: 'bold' }}
+                    onClick={() => addMonster(m)} 
+                    style={{ flexGrow: 1, textAlign: 'left' }}
+                    aria-label={`Add ${m.name} to encounter`}
                   >
-                    Add to Encounter
+                    Add <strong>{m.name}</strong> (CR: {m.cr})
                   </button>
                   <button 
-                    onClick={() => setPreviewMonster(null)} 
-                    style={{ flex: 1, padding: '0.75rem' }}
+                    onClick={(e) => {
+                      lastFocusedElementRef.current = e.currentTarget;
+                      setPreviewMonster(m);
+                    }}
+                    aria-label={`View details for ${m.name}`}
                   >
-                    Back to List
+                    View Details
                   </button>
-                </div>
-              </>
-            )}
+                </li>
+              ))}
+            </ul>
+            <button onClick={closeModal} style={{ marginTop: '1rem' }}>Cancel (Esc)</button>
+          </div>
+        </div>
+      )}
+
+      {previewMonster && (
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="preview-monster-title" style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, 
+          backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', 
+          alignItems: 'center', justifyContent: 'center', zIndex: 1001
+        }}>
+          <div className="modal-content" style={{
+            backgroundColor: 'white', padding: '2rem', borderRadius: '8px', 
+            maxWidth: '600px', width: '90%', maxHeight: '80vh', overflowY: 'auto'
+          }}>
+            <h3 id="preview-monster-title" ref={previewHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>
+              {previewMonster.name} Preview
+            </h3>
+            <MonsterDetails monster={previewMonster} />
+            <div style={{ marginTop: '1.5rem', display: 'flex', gap: '1rem' }}>
+              <button 
+                onClick={() => addMonster(previewMonster)} 
+                style={{ flex: 1, padding: '0.75rem', fontWeight: 'bold' }}
+              >
+                Add to Encounter
+              </button>
+              <button 
+                onClick={closePreview} 
+                style={{ flex: 1, padding: '0.75rem' }}
+              >
+                Close (Esc)
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -235,10 +250,10 @@ export function EncounterBuilder({ initialEncounter, onClose }: EncounterBuilder
             {units.map(u => (
               <li key={u.instanceId} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0', display: 'flex', alignItems: 'center' }}>
                 <button 
-                  onClick={() => {
+                  onClick={(e) => {
                     if (u.fullData) {
+                      lastFocusedElementRef.current = e.currentTarget;
                       setPreviewMonster(u.fullData);
-                      setIsModalOpen(true);
                     }
                   }}
                   disabled={!u.fullData}

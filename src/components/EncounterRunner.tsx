@@ -81,7 +81,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Escape
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && !e.defaultPrevented) {
         if (activeRoll) {
           e.preventDefault();
           closeRollModal();

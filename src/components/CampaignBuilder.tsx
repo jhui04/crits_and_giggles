@@ -41,11 +41,11 @@ export function CampaignBuilder() {
   const lastFocusedElement = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
-    if (showChapterForm) chapterTitleInputRef.current?.focus();
+    if (showChapterForm) chapterHeadingRef.current?.focus();
   }, [showChapterForm]);
 
   useEffect(() => {
-    if (showAssetForm) assetNameInputRef.current?.focus();
+    if (showAssetForm) assetHeadingRef.current?.focus();
   }, [showAssetForm]);
 
   useEffect(() => {
@@ -57,7 +57,7 @@ export function CampaignBuilder() {
   // Escape key handler for all modals
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && !e.defaultPrevented) {
         if (showChapterForm) closeChapterForm();
         else if (showAssetForm) closeAssetForm();
         else if (viewingAsset) closeAssetViewer();
@@ -72,7 +72,14 @@ export function CampaignBuilder() {
     setEditingChapterId(null);
     setChapterTitle('');
     setChapterContent('');
-    setTimeout(() => addChapterBtnRef.current?.focus(), 0);
+    setTimeout(() => {
+      if (lastFocusedElement.current) {
+        lastFocusedElement.current.focus();
+        lastFocusedElement.current = null;
+      } else {
+        addChapterBtnRef.current?.focus();
+      }
+    }, 0);
   };
 
   const closeAssetForm = () => {
@@ -81,7 +88,14 @@ export function CampaignBuilder() {
     setAssetName('');
     setAssetDesc('');
     setAssetType('NPC');
-    setTimeout(() => addAssetBtnRef.current?.focus(), 0);
+    setTimeout(() => {
+      if (lastFocusedElement.current) {
+        lastFocusedElement.current.focus();
+        lastFocusedElement.current = null;
+      } else {
+        addAssetBtnRef.current?.focus();
+      }
+    }, 0);
   };
 
   const closeEncounterForm = () => {

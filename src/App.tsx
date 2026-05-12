@@ -53,7 +53,7 @@ function App() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isCampaignModalOpen) {
+      if (e.key === 'Escape' && !e.defaultPrevented && isCampaignModalOpen) {
         closeCampaignModal();
       }
     };

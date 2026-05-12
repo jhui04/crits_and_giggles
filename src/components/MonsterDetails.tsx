@@ -21,7 +21,7 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
     CHA: 'Charisma'
   };
 
-  const [activeRoll, setActiveRoll] = useState<{ title: string, hit?: string, damage?: string } | null>(null);
+  const [activeRoll, setActiveRoll] = useState<{ title: string, hit?: string, damage?: string, result?: string } | null>(null);
   const rollModalRef = useRef<HTMLHeadingElement>(null);
   const lastActiveButtonRef = useRef<HTMLElement | null>(null);
 
@@ -40,6 +40,7 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape' && activeRoll) {
+      e.preventDefault();
       e.stopPropagation(); // Prevent closing the main details modal
       closeRollModal();
     }
@@ -53,18 +54,6 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
     if (base === 20) announceStr = `natural 20 (total ${result.total})`;
     const visualStr = `${result.total}, ${base}${mod >= 0 ? '+' : ''}${mod}`;
     return { announceStr, visualStr };
-  };
-
-  const rollSave = (name: string, saveMod: number) => {
-    const { announceStr } = getD20Details(saveMod);
-    const msg = `${monster.name} rolled a ${name} save: ${announceStr}`;
-    if (onAnnounce) onAnnounce(msg);
-  };
-
-  const rollSkill = (name: string, mod: number) => {
-    const { announceStr } = getD20Details(mod);
-    const msg = `${monster.name} rolled ${name}: ${announceStr}`;
-    if (onAnnounce) onAnnounce(msg);
   };
 
   const rollFullAttack = (e: React.MouseEvent<HTMLButtonElement>, actionName: string, bonus?: number, damageDice?: {dice: string, type: string}[]) => {
@@ -91,7 +80,7 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
       announceParts.push(`${damageResultString} damage`);
     }
 
-    const msg = `${monster.name} uses ${actionName}: ${announceParts.join(', ')}`;
+    const msg = `${monster.name} uses ${actionName}${announceParts.length > 0 ? ': ' + announceParts.join(', ') : ''}`;
     if (onAnnounce) onAnnounce(msg);
 
     setActiveRoll({
@@ -132,10 +121,11 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
       <div style={{ marginTop: '1rem', marginBottom: '1rem' }}>
         <strong>Quick Roll:</strong>
         <div style={{ marginTop: '0.5rem' }}>
-          <QuickRoller monster={monster} onRoll={(title, hit) => {
-             const hitVal = hit.split(',')[0];
-             if (onAnnounce) onAnnounce(`${monster.name} rolled ${title}: ${hitVal}`);
-             setActiveRoll({ title, hit });
+          <QuickRoller monster={monster} onRoll={(title, result) => {
+             const resultVal = result.split(',')[0];
+             if (onAnnounce) onAnnounce(`${monster.name} rolled ${title}: ${resultVal}`);
+             lastActiveButtonRef.current = document.getElementById(`quick-roller-${monster.id}`) as HTMLElement;
+             setActiveRoll({ title, result });
           }} />
         </div>
       </div>
@@ -148,34 +138,6 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
       </div>
 
       <div style={{ marginTop: '1rem' }}>
-        {Object.values(monster.stats).some(s => s.save !== s.modifier) && (
-          <div style={{ marginBottom: '0.25rem' }}><strong>Saving Throws:</strong>{' '} 
-            <ul style={{ display: 'inline', padding: 0, listStyle: 'none', margin: 0 }}>
-            {Object.entries(monster.stats)
-              .filter(([_, s]) => s.save !== s.modifier)
-              .map(([name, s]) => (
-                <li key={name} style={{ display: 'inline', marginRight: '0.5rem' }}>
-                  <button onClick={() => rollSave(name, s.save)} style={{ fontSize: '0.9em', padding: '0.1rem 0.3rem' }}>
-                    {name} {s.save >= 0 ? '+' : ''}{s.save}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-        {monster.skills && monster.skills.length > 0 && (
-          <div style={{ marginBottom: '0.25rem' }}><strong>Skills:</strong>{' '} 
-            <ul style={{ display: 'inline', padding: 0, listStyle: 'none', margin: 0 }}>
-            {monster.skills.map(s => (
-                <li key={s.name} style={{ display: 'inline', marginRight: '0.5rem' }}>
-                  <button onClick={() => rollSkill(s.name, s.modifier)} style={{ fontSize: '0.9em', padding: '0.1rem 0.3rem' }}>
-                    {s.name} {s.modifier >= 0 ? '+' : ''}{s.modifier}
-                  </button>
-                </li>
-            ))}
-            </ul>
-          </div>
-        )}
         {monster.vulnerabilities && monster.vulnerabilities.length > 0 && (
           <p style={{ marginBottom: '0.25rem' }}><strong>Damage Vulnerabilities:</strong> {monster.vulnerabilities.join(', ')}</p>
         )}
@@ -212,7 +174,6 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
           <h4>Actions</h4>
           {monster.actions.map(a => {
             const isSpellcasting = a.name.toLowerCase().includes('spellcasting');
-            const hasRoll = a.attack_bonus !== undefined || (a.damage && a.damage.length > 0);
             
             const content = (
               <>
@@ -226,7 +187,6 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
 
             return (
               <div key={a.name} style={{ marginBottom: '0.75rem' }}>
-                {hasRoll ? (
                   <button 
                     onClick={(e) => rollFullAttack(e, a.name, a.attack_bonus, a.damage as any)}
                     style={{
@@ -241,13 +201,10 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
                       cursor: 'pointer',
                       display: 'block'
                     }}
-                    title={`Roll ${a.name}`}
+                    title={`Use ${a.name}`}
                   >
                     {content}
                   </button>
-                ) : (
-                  <div>{content}</div>
-                )}
               </div>
             );
           })}
@@ -258,7 +215,6 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
         <div style={{ marginTop: '1rem' }}>
           <h4>Legendary Actions</h4>
           {monster.legendary_actions.map(a => {
-            const hasRoll = a.attack_bonus !== undefined || (a.damage && a.damage.length > 0);
             const content = (
               <>
                 <strong>{a.name}:</strong> {a.content}
@@ -267,7 +223,6 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
 
             return (
               <div key={a.name} style={{ marginBottom: '0.75rem' }}>
-                {hasRoll ? (
                   <button 
                     onClick={(e) => rollFullAttack(e, a.name, a.attack_bonus, a.damage as any)}
                     style={{
@@ -282,13 +237,10 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
                       cursor: 'pointer',
                       display: 'block'
                     }}
-                    title={`Roll ${a.name}`}
+                    title={`Use ${a.name}`}
                   >
                     {content}
                   </button>
-                ) : (
-                  <div>{content}</div>
-                )}
               </div>
             );
           })}
@@ -320,6 +272,12 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
           <h4 id="roll-result-title" ref={rollModalRef} tabIndex={-1} style={{ outline: 'none', margin: '0 0 1rem 0' }}>
             {activeRoll.title}
           </h4>
+
+          {activeRoll.result !== undefined && (
+            <p style={{ fontSize: '1.2rem', marginBottom: '0.5rem' }}>
+              <strong>Result:</strong> {activeRoll.result}
+            </p>
+          )}
           
           {activeRoll.hit !== undefined && (
             <p style={{ fontSize: '1.2rem', marginBottom: '0.5rem' }}>

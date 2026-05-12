@@ -4,9 +4,9 @@ import re
 import time
 import random
 import argparse
-import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
+from playwright.sync_api import sync_playwright
 
 STATE_FILE = "tools/scraper_state.json"
 DATA_FILE = "public/data/monsters.json"
@@ -203,172 +203,202 @@ def parse_monster_html(html_content):
 
     return monster
 
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--force', action='store_true', help='Ignore persistent state and start from page 1')
+    parser.add_argument('--test-google', action='store_true', help='Test playwright connection by fetching google.com')
     args = parser.parse_args()
 
-    state = {"last_page": 1, "blocked_sources": []}
-    if not args.force and os.path.exists(STATE_FILE):
-        with open(STATE_FILE, 'r', encoding='utf-8') as f:
-            state = json.load(f)
-
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, 'r', encoding='utf-8') as f:
-            all_monsters = json.load(f)
-    else:
-        all_monsters = []
-
-    requests_made = 0
-    max_requests = 200
-    success_count = 0
-
-    session = requests.Session()
-    session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-    })
-
-    def make_request(url):
-        nonlocal requests_made
-        print(f"Fetching {url}...")
-        response = session.get(url)
-        requests_made += 1
-        
-        if requests_made < max_requests:
-            delay = 5 + random.uniform(0, 30)
-            print(f"Sleeping for {delay:.2f} seconds... (Requests made: {requests_made})")
-            time.sleep(delay)
+    with sync_playwright() as p:
+        try:
+            print("Connecting to Chrome via remote debugging port 9222...")
+            browser = p.chromium.connect_over_cdp("http://127.0.0.1:9222")
+            context = browser.contexts[0]
             
-        return response
+            # Try to reuse an existing empty tab or a dndbeyond tab, otherwise just use the last open tab
+            page = None
+            for existing_page in context.pages:
+                if existing_page.url == "about:blank" or "dndbeyond.com" in existing_page.url:
+                    page = existing_page
+                    break
+            
+            if not page:
+                page = context.pages[-1] if context.pages else context.new_page()
 
-    current_page = state["last_page"]
-    previous_page_monsters = set()
+        except Exception as e:
+            print(f"Failed to connect to Chrome. Did you launch it with --remote-debugging-port=9222? Error: {e}")
+            return
 
-    while requests_made < max_requests:
-        url = f"{BASE_URL}/monsters?page={current_page}"
-        page_filepath = os.path.join("dnd_beyond", "monsters", f"page{current_page}.html")
-        page_html = ""
+        if args.test_google:
+            print("Test Mode: Navigating to https://www.google.com")
+            page.goto("https://www.google.com")
+            content = page.content()
+            print(f"Successfully fetched Google! HTML length: {len(content)}")
+            page.close()
+            browser.close()
+            return
 
-        if os.path.exists(page_filepath):
-            print(f"Found cached list page {current_page}, skipping web request...")
-            with open(page_filepath, 'r', encoding='utf-8') as f:
-                page_html = f.read()
+        state = {"last_page": 1, "blocked_sources": []}
+        if not args.force and os.path.exists(STATE_FILE):
+            with open(STATE_FILE, 'r', encoding='utf-8') as f:
+                state = json.load(f)
+
+        if os.path.exists(DATA_FILE):
+            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                all_monsters = json.load(f)
         else:
-            response = make_request(url)
-            if response.status_code != 200:
-                print(f"Failed to fetch page {current_page}. Status: {response.status_code}")
-                break
-            page_html = response.text
-            os.makedirs(os.path.dirname(page_filepath), exist_ok=True)
-            with open(page_filepath, 'w', encoding='utf-8') as f:
-                f.write(page_html)
+            all_monsters = []
 
-        soup = BeautifulSoup(page_html, 'html.parser')
-        monster_rows = soup.select('.row.monster-name')
-        
-        if not monster_rows:
-            print(f"No more monsters found on page {current_page}.")
-            break
+        requests_made = 0
+        max_requests = 200
+        success_count = 0
 
-        current_page_monsters = set()
-        for row in monster_rows:
-            name_elem = row.select_one('.name a.link')
-            if name_elem:
-                current_page_monsters.add(name_elem.get_text(strip=True))
-
-        if current_page_monsters == previous_page_monsters and len(current_page_monsters) > 0:
-            print(f"Page {current_page} has the exact same monsters as the previous page. We have reached the end of the list.")
-            break
+        def fetch_html(url):
+            nonlocal requests_made
+            print(f"Fetching {url}...")
+            page.goto(url)
+            # Give D&D Beyond a moment to render dynamic JS components
+            page.wait_for_timeout(1000) 
+            html = page.content()
+            requests_made += 1
             
-        previous_page_monsters = current_page_monsters
+            if requests_made < max_requests:
+                delay = 5 + random.uniform(0, 30)
+                print(f"Sleeping for {delay:.2f} seconds... (Requests made: {requests_made})")
+                time.sleep(delay)
+                
+            return html
 
-        for row in monster_rows:
+        current_page = state["last_page"]
+        previous_page_monsters = set()
+
+        while requests_made < max_requests:
+            url = f"{BASE_URL}/monsters?page={current_page}"
+            page_filepath = os.path.join("dnd_beyond", "monsters", f"page{current_page}.html")
+            page_html = ""
+
+            if os.path.exists(page_filepath):
+                print(f"Found cached list page {current_page}, skipping web request...")
+                with open(page_filepath, 'r', encoding='utf-8') as f:
+                    page_html = f.read()
+            else:
+                page_html = fetch_html(url)
+                
+                # Check for obvious bot protection flags
+                if "just a moment" in page_html.lower() and "cloudflare" in page_html.lower():
+                    print("Cloudflare block detected! Please solve it in the Chrome browser window.")
+                    time.sleep(15)
+                    page_html = page.content()
+
+                os.makedirs(os.path.dirname(page_filepath), exist_ok=True)
+                with open(page_filepath, 'w', encoding='utf-8') as f:
+                    f.write(page_html)
+
+            soup = BeautifulSoup(page_html, 'html.parser')
+            monster_rows = soup.select('.row.monster-name')
+            
+            if not monster_rows:
+                print(f"No more monsters found on page {current_page}.")
+                break
+
+            current_page_monsters = set()
+            for row in monster_rows:
+                name_elem = row.select_one('.name a.link')
+                if name_elem:
+                    current_page_monsters.add(name_elem.get_text(strip=True))
+
+            if current_page_monsters == previous_page_monsters and len(current_page_monsters) > 0:
+                print(f"Page {current_page} has the exact same monsters as the previous page. We have reached the end of the list.")
+                break
+                
+            previous_page_monsters = current_page_monsters
+
+            for row in monster_rows:
+                if requests_made >= max_requests:
+                    break
+                    
+                name_elem = row.select_one('.name a.link')
+                source_elem = row.select_one('.source')
+                
+                if not name_elem:
+                    continue
+                    
+                monster_url = urljoin(BASE_URL, name_elem['href'])
+                monster_name = name_elem.get_text(strip=True).strip('"')
+                source = source_elem.get_text(strip=True) if source_elem else "Unknown"
+
+                if source in state["blocked_sources"]:
+                    print(f"Skipping '{monster_name}' (Source blocked: {source})")
+                    continue
+
+                safe_source = re.sub(r'[<>:"/\\|?*\x00-\x1F]', '', source).strip()
+                safe_filename = slugify(monster_name) + ".html"
+                local_dir = os.path.join("dnd_beyond", "monsters", safe_source)
+                local_filepath = os.path.join(local_dir, safe_filename)
+                html_content = ""
+
+                already_in_json = any(m.get('name') == monster_name and m.get('source', 'Unknown') == source for m in all_monsters)
+
+                if os.path.exists(local_filepath):
+                    print(f"Found local file for '{monster_name}', skipping web request...")
+                    with open(local_filepath, 'r', encoding='utf-8') as f:
+                        html_content = f.read()
+                else:
+                    html_content = fetch_html(monster_url)
+
+                m_soup = BeautifulSoup(html_content, 'html.parser')
+                if m_soup.select_one('.mon-stat-block-2024') is None and m_soup.select_one('.mon-stat-block') is None:
+                    print(f"No stat block found for '{monster_name}'. Blocking source '{source}'.")
+                    if source not in state["blocked_sources"]:
+                        state["blocked_sources"].append(source)
+                        with open(STATE_FILE, 'w', encoding='utf-8') as f:
+                            json.dump(state, f, indent=2)
+                    continue
+
+                try:
+                    monster_data = parse_monster_html(html_content)
+                    if not monster_data.get('source') and source != "Unknown":
+                        monster_data['source'] = source
+                        
+                    if already_in_json:
+                        for idx, m in enumerate(all_monsters):
+                            if m.get('name') == monster_name and m.get('source', 'Unknown') == source:
+                                all_monsters[idx] = monster_data
+                                break
+                        print(f"Updated '{monster_name}' ({source}) in JSON.")
+                    else:
+                        all_monsters.append(monster_data)
+                        success_count += 1
+                        print(f"Successfully scraped '{monster_name}'.")
+                    
+                    if not os.path.exists(local_filepath):
+                        os.makedirs(local_dir, exist_ok=True)
+                        with open(local_filepath, 'w', encoding='utf-8') as f:
+                            f.write(html_content)
+                    
+                    with open(DATA_FILE, 'w', encoding='utf-8') as f:
+                        json.dump(all_monsters, f, indent=2)
+                        
+                except Exception as e:
+                    print(f"Failed to parse '{monster_name}': {e}")
+                    
             if requests_made >= max_requests:
                 break
                 
-            name_elem = row.select_one('.name a.link')
-            source_elem = row.select_one('.source')
-            
-            if not name_elem:
-                continue
-                
-            monster_url = urljoin(BASE_URL, name_elem['href'])
-            # D&D Beyond often surrounds name in quotes like "The Demogorgon"
-            monster_name = name_elem.get_text(strip=True).strip('"')
-            source = source_elem.get_text(strip=True) if source_elem else "Unknown"
+            current_page += 1
+            state["last_page"] = current_page
+            with open(STATE_FILE, 'w', encoding='utf-8') as f:
+                json.dump(state, f, indent=2)
 
-            if source in state["blocked_sources"]:
-                print(f"Skipping '{monster_name}' (Source blocked: {source})")
-                continue
-
-            safe_source = re.sub(r'[<>:"/\\|?*\x00-\x1F]', '', source).strip()
-            safe_filename = slugify(monster_name) + ".html"
-            local_dir = os.path.join("dnd_beyond", "monsters", safe_source)
-            local_filepath = os.path.join(local_dir, safe_filename)
-            html_content = ""
-
-            already_in_json = any(m.get('name') == monster_name and m.get('source', 'Unknown') == source for m in all_monsters)
-
-            if os.path.exists(local_filepath):
-                print(f"Found local file for '{monster_name}', skipping web request...")
-                with open(local_filepath, 'r', encoding='utf-8') as f:
-                    html_content = f.read()
-            else:
-                m_response = make_request(monster_url)
-                if m_response.status_code != 200:
-                    print(f"Failed to fetch '{monster_name}'. Status: {m_response.status_code}")
-                    continue
-                html_content = m_response.text
-
-            m_soup = BeautifulSoup(html_content, 'html.parser')
-            if m_soup.select_one('.mon-stat-block-2024') is None and m_soup.select_one('.mon-stat-block') is None:
-                print(f"No stat block found for '{monster_name}'. Blocking source '{source}'.")
-                if source not in state["blocked_sources"]:
-                    state["blocked_sources"].append(source)
-                    with open(STATE_FILE, 'w', encoding='utf-8') as f:
-                        json.dump(state, f, indent=2)
-                continue
-
-            try:
-                monster_data = parse_monster_html(html_content)
-                if not monster_data.get('source') and source != "Unknown":
-                    monster_data['source'] = source
-                    
-                if already_in_json:
-                    for idx, m in enumerate(all_monsters):
-                        if m.get('name') == monster_name and m.get('source', 'Unknown') == source:
-                            all_monsters[idx] = monster_data
-                            break
-                    print(f"Updated '{monster_name}' ({source}) in JSON.")
-                else:
-                    all_monsters.append(monster_data)
-                    success_count += 1
-                    print(f"Successfully scraped '{monster_name}'.")
-                
-                if not os.path.exists(local_filepath):
-                    os.makedirs(local_dir, exist_ok=True)
-                    with open(local_filepath, 'w', encoding='utf-8') as f:
-                        f.write(html_content)
-                
-                with open(DATA_FILE, 'w', encoding='utf-8') as f:
-                    json.dump(all_monsters, f, indent=2)
-                    
-            except Exception as e:
-                print(f"Failed to parse '{monster_name}': {e}")
-                
-        if requests_made >= max_requests:
-            break
-            
-        current_page += 1
         state["last_page"] = current_page
         with open(STATE_FILE, 'w', encoding='utf-8') as f:
             json.dump(state, f, indent=2)
-
-    state["last_page"] = current_page
-    with open(STATE_FILE, 'w', encoding='utf-8') as f:
-        json.dump(state, f, indent=2)
+            
+        print(f"Finished. Saved {success_count} new monsters. Total requests: {requests_made}.")
         
-    print(f"Finished. Saved {success_count} new monsters. Total requests: {requests_made}.")
+        page.close()
+        browser.close()
 
 if __name__ == "__main__":
     main()

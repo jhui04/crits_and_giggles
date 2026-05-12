@@ -53,7 +53,7 @@ export function CampaignRunner({ onGoToEncounter }: { onGoToEncounter?: (id: str
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isModalOpen) {
+      if (e.key === 'Escape' && !e.defaultPrevented && isModalOpen) {
         e.preventDefault();
         closeModal();
       }
