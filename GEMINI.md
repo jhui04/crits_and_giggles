@@ -33,9 +33,8 @@ To build a lightweight, high-performance, and maximally accessible web applicati
 5. **Variability:** Hit points and initiatives for monsters should be rolled at "Run" time, not "Create" time, to ensure encounters remain dynamic.
 
 ## Testing Strategy
-The project uses a tiered Playwright testing architecture:
-- **Fast CUJs (`npx playwright test --project="Fast CUJs"`):** These test Critical User Journeys (e.g., searching the Oracle, managing encounters). Run these frequently during development to ensure core functionality is intact.
-- **Slow Fuzzer (`npx playwright test --project="Slow Fuzzer"`):** This is an exhaustive deterministic accessibility fuzzer. It checks every modal for focus management compliance. Because it is extremely slow and heavy, **only run this test when specifically requested or when finalizing a major PR**. Do NOT run the slow fuzzer during normal iteration.
+The project uses Playwright for end-to-end testing, combining Fast CUJs and the Fuzzer test.
+- Run `npx playwright test` frequently during development to ensure core functionality is intact and accessibility standards are met.
 
 ## Onboarding Checklist for Agents
 - [ ] Run `npm run test` to ensure the dice engine is functional.

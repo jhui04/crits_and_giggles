@@ -10,21 +10,8 @@ export default defineConfig({
   use: {
     baseURL: 'http://localhost:5173',
     trace: 'on-first-retry',
+    ...devices['Desktop Chrome'],
   },
-  projects: [
-    {
-      name: 'Fast CUJs',
-      testDir: './tests/cuj',
-      timeout: 30 * 1000,
-      use: { ...devices['Desktop Chrome'] },
-    },
-    {
-      name: 'Slow Fuzzer',
-      testDir: './tests/fuzzer',
-      timeout: 180 * 1000,
-      use: { ...devices['Desktop Chrome'] },
-    },
-  ],
   webServer: {
     command: 'npm run dev',
     url: 'http://localhost:5173',
