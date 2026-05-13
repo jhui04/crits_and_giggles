@@ -15,6 +15,7 @@ export function SpellLink({ spellName }: SpellLinkProps) {
   const [foundSpell, setFoundSpell] = useState<Spell | null>(null);
   
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const modalHeadingRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
     if (spellCache) {
@@ -48,6 +49,14 @@ export function SpellLink({ spellName }: SpellLinkProps) {
     setTimeout(() => triggerRef.current?.focus(), 0);
   };
 
+  useEffect(() => {
+    if (isModalOpen) {
+      setTimeout(() => {
+        modalHeadingRef.current?.focus();
+      }, 50);
+    }
+  }, [isModalOpen]);
+
   if (!foundSpell) return <span>{spellName}</span>;
 
   return (
@@ -76,13 +85,20 @@ export function SpellLink({ spellName }: SpellLinkProps) {
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, 
           backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', 
           alignItems: 'center', justifyContent: 'center', zIndex: 2000
-        }}>
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            e.stopPropagation();
+            closeModal();
+          }
+        }}
+        >
           <div className="modal-content" style={{
             backgroundColor: 'white', padding: '2rem', borderRadius: '8px', 
             maxWidth: '600px', width: '90%', maxHeight: '90vh', overflowY: 'auto',
             color: '#333'
           }}>
-            <h3 id="spell-link-modal-title" className="sr-only">{foundSpell.name} Details</h3>
+            <h3 id="spell-link-modal-title" ref={modalHeadingRef} tabIndex={-1} className="sr-only" style={{ outline: 'none' }}>{foundSpell.name} Details</h3>
             <SpellDetail spell={foundSpell} />
             <button 
               type="button" 

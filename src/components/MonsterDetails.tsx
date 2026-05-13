@@ -44,11 +44,17 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
   const lastActiveButtonRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
-    if (activeRoll && rollModalRef.current) {
-      rollModalRef.current.focus();
+    if (activeRoll) {
+      const timer = setTimeout(() => {
+        rollModalRef.current?.focus();
+      }, 50);
+      return () => clearTimeout(timer);
     } else if (!activeRoll && lastActiveButtonRef.current) {
-      lastActiveButtonRef.current.focus();
-      lastActiveButtonRef.current = null;
+      const timer = setTimeout(() => {
+        lastActiveButtonRef.current?.focus();
+        lastActiveButtonRef.current = null;
+      }, 50);
+      return () => clearTimeout(timer);
     }
   }, [activeRoll]);
 
@@ -60,6 +66,10 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
     if (e.key === 'Escape' && activeRoll) {
       e.preventDefault();
       e.stopPropagation(); // Prevent closing the main details modal
+      if (lastActiveButtonRef.current) {
+        lastActiveButtonRef.current.focus();
+        lastActiveButtonRef.current = null;
+      }
       closeRollModal();
     }
     
@@ -186,9 +196,9 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
         <div style={{ marginTop: '1rem' }}>
           <h4>Traits</h4>
           {monster.traits.map(t => (
-            <p key={t.name} style={{ marginBottom: '0.75rem' }}>
+            <div key={t.name} style={{ marginBottom: '0.75rem' }}>
               <strong>{t.name}:</strong> {wrapSpells(t.content, spellNames)}
-            </p>
+            </div>
           ))}
         </div>
       )}
@@ -199,9 +209,7 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
           {monster.actions.map(a => {
             return (
               <div key={a.name} style={{ marginBottom: '0.75rem' }}>
-                  <button 
-                    type="button"
-                    onClick={(e) => rollFullAttack(e, a.name, a.attack_bonus, a.damage as any)}
+                  <div 
                     style={{
                       background: '#f8f9fa',
                       border: '1px solid #ddd',
@@ -211,17 +219,30 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
                       width: '100%',
                       fontFamily: 'inherit',
                       fontSize: 'inherit',
-                      cursor: 'pointer',
                       display: 'block'
                     }}
-                    title={`Use ${a.name}`}
                   >
-                    {a.name.toLowerCase().includes('spellcasting') ? (
-                      <strong style={{ display: 'block', fontSize: '1rem', marginBottom: '0.25rem' }}>{a.name}</strong>
-                    ) : (
-                      <strong>{a.name}:</strong>
-                    )} {wrapSpells(a.content, spellNames)}
-                  </button>
+                    <button 
+                      type="button"
+                      onClick={(e) => rollFullAttack(e, a.name, a.attack_bonus, a.damage as any)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
+                        font: 'inherit',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        fontWeight: 'bold',
+                        color: 'inherit',
+                        display: 'inline'
+                      }}
+                      aria-label={`${a.name}, roll action`}
+                    >
+                      {a.name.toLowerCase().includes('spellcasting') ? a.name : `${a.name}:`}
+                    </button>
+                    {' '}
+                    <span>{wrapSpells(a.content, spellNames)}</span>
+                  </div>
               </div>
             );
           })}
@@ -234,9 +255,7 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
           {monster.legendary_actions.map(a => {
             return (
               <div key={a.name} style={{ marginBottom: '0.75rem' }}>
-                  <button 
-                    type="button"
-                    onClick={(e) => rollFullAttack(e, a.name, a.attack_bonus, a.damage as any)}
+                  <div 
                     style={{
                       background: '#f8f9fa',
                       border: '1px solid #ddd',
@@ -246,17 +265,30 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
                       width: '100%',
                       fontFamily: 'inherit',
                       fontSize: 'inherit',
-                      cursor: 'pointer',
                       display: 'block'
                     }}
-                    title={`Use ${a.name}`}
                   >
-                    {a.name.toLowerCase().includes('spellcasting') ? (
-                      <strong style={{ display: 'block', fontSize: '1rem', marginBottom: '0.25rem' }}>{a.name}</strong>
-                    ) : (
-                      <strong>{a.name}:</strong>
-                    )} {wrapSpells(a.content, spellNames)}
-                  </button>
+                    <button 
+                      type="button"
+                      onClick={(e) => rollFullAttack(e, a.name, a.attack_bonus, a.damage as any)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
+                        font: 'inherit',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        fontWeight: 'bold',
+                        color: 'inherit',
+                        display: 'inline'
+                      }}
+                      aria-label={`${a.name}, roll legendary action`}
+                    >
+                      {a.name.toLowerCase().includes('spellcasting') ? a.name : `${a.name}:`}
+                    </button>
+                    {' '}
+                    <span>{wrapSpells(a.content, spellNames)}</span>
+                  </div>
               </div>
             );
           })}
@@ -267,9 +299,9 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
         <div style={{ marginTop: '1rem' }}>
           <h4>Reactions</h4>
           {monster.reactions.map(a => (
-            <p key={a.name} style={{ marginBottom: '0.75rem' }}>
+            <div key={a.name} style={{ marginBottom: '0.75rem' }}>
               <strong>{a.name}:</strong> {a.content}
-            </p>
+            </div>
           ))}
         </div>
       )}

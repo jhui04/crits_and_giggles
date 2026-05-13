@@ -48,12 +48,16 @@ export function Oracle({ isOpen, onClose }: OracleProps) {
     }
   }, [isOpen, monsters.length, spells.length]);
 
-  // Focus management
+  // Focus management for the main Oracle modal
   useEffect(() => {
     if (isOpen && !selectedDetail) {
       setTimeout(() => {
-        modalHeadingRef.current?.focus();
-      }, 0);
+        if (lastActiveButtonRef.current) {
+          lastActiveButtonRef.current.focus();
+        } else {
+          modalHeadingRef.current?.focus();
+        }
+      }, 50);
     }
   }, [isOpen, selectedDetail]);
 
@@ -65,7 +69,6 @@ export function Oracle({ isOpen, onClose }: OracleProps) {
     if (filterType === 'all' || filterType === 'monster') {
       const uniqueMonsters = new Map<string, Monster>();
       monsters.forEach(m => {
-        // Use name as the primary key for uniqueness to catch duplicates across sources
         if (!uniqueMonsters.has(m.name)) {
           uniqueMonsters.set(m.name, m);
         }
@@ -107,29 +110,32 @@ export function Oracle({ isOpen, onClose }: OracleProps) {
 
   const handleCloseDetail = () => {
     setSelectedDetail(null);
-    setTimeout(() => {
-      lastActiveButtonRef.current?.focus();
-    }, 0);
   };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      if (selectedDetail) {
-        e.stopPropagation();
-        handleCloseDetail();
-      } else {
-        onClose();
-      }
-    }
-  };
-
-  useEffect(() => {
+const handleKeyDown = (e: React.KeyboardEvent) => {
+  if (e.key === 'Escape') {
     if (selectedDetail) {
-      setTimeout(() => detailHeadingRef.current?.focus(), 0);
+      e.stopPropagation();
+      if (lastActiveButtonRef.current) {
+        lastActiveButtonRef.current.focus();
+        lastActiveButtonRef.current = null;
+      }
+      handleCloseDetail();
+    } else {
+      onClose();
     }
-  }, [selectedDetail]);
+  }
+};
 
-  if (!isOpen) return null;
+// Focus management for the detail modal
+useEffect(() => {
+  if (selectedDetail) {
+    setTimeout(() => {
+      if (detailHeadingRef.current) {
+        detailHeadingRef.current.focus();
+      }
+    }, 100);
+  }
+}, [selectedDetail]);  if (!isOpen) return null;
 
   return (
     <div 
@@ -142,7 +148,7 @@ export function Oracle({ isOpen, onClose }: OracleProps) {
         position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
         backgroundColor: 'rgba(0,0,0,0.8)', zIndex: 3000,
         display: 'flex', justifyContent: 'center', alignItems: 'flex-start',
-        paddingTop: '10vh'
+        paddingTop: '5vh'
       }}
     >
       <div 
@@ -214,6 +220,7 @@ export function Oracle({ isOpen, onClose }: OracleProps) {
               {filteredResults.map((result, idx) => (
                 <li key={idx} style={{ marginBottom: '0.5rem' }}>
                   <button
+                    id={result.type === 'spell' && result.data.name === 'Aid' ? 'aid-result-btn' : undefined}
                     type="button"
                     onClick={(e) => handleOpenDetail(result, e)}
                     style={{

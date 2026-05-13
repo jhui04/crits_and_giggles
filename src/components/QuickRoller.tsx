@@ -13,14 +13,23 @@ export function QuickRoller({ monster, onRoll, triggerId }: QuickRollerProps) {
   const [mode, setMode] = useState<'check' | 'save'>('check');
   const openButtonRef = useRef<HTMLButtonElement>(null);
   const modalHeadingRef = useRef<HTMLHeadingElement>(null);
+  const wasOpenRef = useRef(false);
 
   const buttonId = triggerId || `quick-roller-${monster.id}`;
 
   useEffect(() => {
-    if (isOpen && modalHeadingRef.current) {
-      modalHeadingRef.current.focus();
-    } else if (!isOpen && openButtonRef.current) {
-      openButtonRef.current.focus();
+    if (isOpen) {
+      wasOpenRef.current = true;
+      const timer = setTimeout(() => {
+        modalHeadingRef.current?.focus();
+      }, 50);
+      return () => clearTimeout(timer);
+    } else if (!isOpen && wasOpenRef.current && openButtonRef.current) {
+      wasOpenRef.current = false;
+      const timer = setTimeout(() => {
+        openButtonRef.current?.focus();
+      }, 50);
+      return () => clearTimeout(timer);
     }
   }, [isOpen]);
 
@@ -28,6 +37,8 @@ export function QuickRoller({ monster, onRoll, triggerId }: QuickRollerProps) {
     if (e.key === 'Escape' && isOpen) {
       e.preventDefault();
       e.stopPropagation();
+      wasOpenRef.current = false;
+      openButtonRef.current?.focus();
       setIsOpen(false);
     }
 
@@ -42,6 +53,8 @@ export function QuickRoller({ monster, onRoll, triggerId }: QuickRollerProps) {
     const mod = getSaveModifier(monster, stat);
     const { visualStr } = formatD20Roll(mod);
     onRoll(`${stat} Save`, visualStr);
+    wasOpenRef.current = false;
+    openButtonRef.current?.focus();
     setIsOpen(false);
   };
 
@@ -49,6 +62,8 @@ export function QuickRoller({ monster, onRoll, triggerId }: QuickRollerProps) {
     const mod = getSkillModifier(monster, skill);
     const { visualStr } = formatD20Roll(mod);
     onRoll(`${skill} Check`, visualStr);
+    wasOpenRef.current = false;
+    openButtonRef.current?.focus();
     setIsOpen(false);
   };
 
@@ -56,6 +71,8 @@ export function QuickRoller({ monster, onRoll, triggerId }: QuickRollerProps) {
     const mod = monster.stats[stat]?.modifier || 0;
     const { visualStr } = formatD20Roll(mod);
     onRoll(`${stat} Check`, visualStr);
+    wasOpenRef.current = false;
+    openButtonRef.current?.focus();
     setIsOpen(false);
   };
 
