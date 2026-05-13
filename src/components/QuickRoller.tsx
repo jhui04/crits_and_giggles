@@ -5,13 +5,16 @@ import { getSkillModifier, getSaveModifier, DND_SKILLS, DND_SAVES, formatD20Roll
 interface QuickRollerProps {
   monster: Monster;
   onRoll: (title: string, result: string) => void;
+  triggerId?: string;
 }
 
-export function QuickRoller({ monster, onRoll }: QuickRollerProps) {
+export function QuickRoller({ monster, onRoll, triggerId }: QuickRollerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [mode, setMode] = useState<'check' | 'save'>('check');
   const openButtonRef = useRef<HTMLButtonElement>(null);
   const modalHeadingRef = useRef<HTMLHeadingElement>(null);
+
+  const buttonId = triggerId || `quick-roller-${monster.id}`;
 
   useEffect(() => {
     if (isOpen && modalHeadingRef.current) {
@@ -26,6 +29,12 @@ export function QuickRoller({ monster, onRoll }: QuickRollerProps) {
       e.preventDefault();
       e.stopPropagation();
       setIsOpen(false);
+    }
+
+    // Prevent default behavior for Enter/Space on non-button focused elements (like the heading)
+    // to avoid potential page scroll/teleport issues.
+    if ((e.key === 'Enter' || e.key === ' ') && !(e.target instanceof HTMLButtonElement || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement)) {
+      e.preventDefault();
     }
   };
 
@@ -60,8 +69,8 @@ export function QuickRoller({ monster, onRoll }: QuickRollerProps) {
 
   return (
     <>
-      <button 
-        id={`quick-roller-${monster.id}`}
+      <button type="button" 
+        id={buttonId}
         ref={openButtonRef}
         onClick={() => setIsOpen(true)} 
         style={{ padding: '0.25rem 0.5rem', fontSize: '0.9em', cursor: 'pointer' }}
@@ -88,6 +97,7 @@ export function QuickRoller({ monster, onRoll }: QuickRollerProps) {
           
           <div style={{ marginBottom: '1rem' }}>
             <button 
+              type="button"
               onClick={() => setMode(mode === 'check' ? 'save' : 'check')}
               style={{ padding: '0.5rem', width: '100%', fontSize: '1rem', cursor: 'pointer' }}
             >
@@ -101,6 +111,7 @@ export function QuickRoller({ monster, onRoll }: QuickRollerProps) {
                 <h4 style={{ margin: '0 0 0.5rem 0' }}>{stat}</h4>
                 {mode === 'save' ? (
                   <button 
+                    type="button"
                     onClick={() => rollSave(stat)}
                     style={{ padding: '0.25rem 0.5rem', width: '100%', cursor: 'pointer' }}
                   >
@@ -108,11 +119,11 @@ export function QuickRoller({ monster, onRoll }: QuickRollerProps) {
                   </button>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                    <button onClick={() => rollStat(stat)} style={{ padding: '0.25rem 0.5rem', textAlign: 'left', cursor: 'pointer' }}>
+                    <button type="button" onClick={() => rollStat(stat)} style={{ padding: '0.25rem 0.5rem', textAlign: 'left', cursor: 'pointer' }}>
                       {stat} Check ({(monster.stats[stat]?.modifier || 0) >= 0 ? '+' : ''}{monster.stats[stat]?.modifier || 0})
                     </button>
                     {skillsByStat[stat].map(skill => (
-                      <button key={skill} onClick={() => rollSkill(skill)} style={{ padding: '0.25rem 0.5rem', textAlign: 'left', cursor: 'pointer' }}>
+                      <button type="button" key={skill} onClick={() => rollSkill(skill)} style={{ padding: '0.25rem 0.5rem', textAlign: 'left', cursor: 'pointer' }}>
                         {skill} ({getSkillModifier(monster, skill) >= 0 ? '+' : ''}{getSkillModifier(monster, skill)})
                       </button>
                     ))}
@@ -123,7 +134,7 @@ export function QuickRoller({ monster, onRoll }: QuickRollerProps) {
           </div>
 
           <div style={{ marginTop: '1rem', textAlign: 'right' }}>
-            <button onClick={() => setIsOpen(false)} style={{ padding: '0.5rem 1rem', cursor: 'pointer' }}>
+            <button type="button" onClick={() => setIsOpen(false)} style={{ padding: '0.5rem 1rem', cursor: 'pointer' }}>
               Close (Esc)
             </button>
           </div>

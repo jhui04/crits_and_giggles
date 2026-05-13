@@ -65,6 +65,30 @@ export interface Asset {
   description: string;
 }
 
+export interface Spell {
+  id: number;
+  name: string;
+  slug: string;
+  url: string;
+  level: number;
+  school: string;
+  class_spell_lists: string[];
+  casting_time: string;
+  range: string;
+  components: string;
+  required_materials: string | null;
+  duration: string;
+  concentration_required: number;
+  ritual: number;
+  melee_spell_attack: number;
+  ranged_spell_attack: number;
+  saving_throw: string | null;
+  damage: string | null;
+  description: string;
+  higher_level_description: string | null;
+  source: string;
+}
+
 export interface Campaign {
   id: string;
   name: string;

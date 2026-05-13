@@ -51,6 +51,7 @@ export function parseMarkdown(
 
       inlineElements.push(
         <button 
+          type="button"
           key={`${blockIndex}-${type}-${entityId}-${match.index}`}
           onClick={() => type === 'Asset' ? onAssetClick(entityId) : onEncounterClick(entityId)}
           className={`${type.toLowerCase()}-link-btn`}

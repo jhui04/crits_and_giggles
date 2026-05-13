@@ -53,6 +53,16 @@ export function CampaignRunner({ onGoToEncounter }: { onGoToEncounter?: (id: str
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Prevent default behavior for Enter and Space on non-interactive elements
+      const target = e.target as HTMLElement;
+      const isInteractive = ['BUTTON', 'INPUT', 'TEXTAREA', 'SELECT', 'A'].includes(target.tagName) || 
+                          target.hasAttribute('onclick') || 
+                          target.getAttribute('role') === 'button';
+      
+      if ((e.key === 'Enter' || e.key === ' ') && !isInteractive) {
+        e.preventDefault();
+      }
+
       if (e.key === 'Escape' && !e.defaultPrevented && isModalOpen) {
         e.preventDefault();
         closeModal();
@@ -86,6 +96,7 @@ export function CampaignRunner({ onGoToEncounter }: { onGoToEncounter?: (id: str
               {activeCampaign.chapters.sort((a, b) => a.order - b.order).map(chap => (
                 <li key={chap.id} style={{ marginBottom: '0.5rem' }}>
                   <button 
+                    type="button"
                     onClick={() => setActiveChapterId(chap.id)}
                     style={{ 
                       width: '100%', 
@@ -139,7 +150,7 @@ export function CampaignRunner({ onGoToEncounter }: { onGoToEncounter?: (id: str
               <p style={{ whiteSpace: 'pre-wrap' }}>{selectedAsset.description}</p>
             </div>
 
-            <button onClick={closeModal} style={{ marginTop: '2rem', width: '100%', padding: '0.5rem' }}>
+            <button type="button" onClick={closeModal} style={{ marginTop: '2rem', width: '100%', padding: '0.5rem' }}>
               Close (Esc)
             </button>
           </div>

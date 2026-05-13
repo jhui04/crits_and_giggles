@@ -96,6 +96,12 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
         e.preventDefault();
         nextTurn();
       }
+
+      // Prevent default behavior for Enter/Space on non-button focused elements (like the heading)
+      // to avoid potential page scroll/teleport issues.
+      if ((e.key === 'Enter' || e.key === ' ') && !(e.target instanceof HTMLButtonElement || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement)) {
+        e.preventDefault();
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
@@ -178,8 +184,12 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     }
   };
 
-  const handleInlineRoll = (e: React.MouseEvent<HTMLElement>, unitName: string, title: string, hit: string) => {
-    lastActiveRollButtonRef.current = e.currentTarget as HTMLElement;
+  const handleInlineRoll = (e: React.MouseEvent<HTMLElement> | null, unitName: string, title: string, hit: string) => {
+    if (e) {
+      lastActiveRollButtonRef.current = e.currentTarget as HTMLElement;
+    } else {
+      lastActiveRollButtonRef.current = document.activeElement as HTMLElement;
+    }
     
     // Announce to screen reader using the robust string format
     const hitVal = hit.split(',')[0];
@@ -202,7 +212,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
           <ul style={{ listStyle: 'none', padding: 0 }}>
             {campaignEncounters.map(e => (
               <li key={e.id}>
-                <button onClick={() => loadEncounter(e)}>Load "{e.name}"</button>
+                <button type="button" onClick={() => loadEncounter(e)}>Load "{e.name}"</button>
               </li>
             ))}
           </ul>
@@ -215,7 +225,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     <div className="encounter-runner">
       <header>
         <h3 ref={runnerHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>Running: {activeEncounter.name}</h3>
-        <button onClick={() => setActiveEncounter(null)}>Close Encounter</button>
+        <button type="button" onClick={() => setActiveEncounter(null)}>Close Encounter</button>
       </header>
 
       <div aria-live="assertive" className="sr-only">
@@ -240,19 +250,20 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
               </li>
             ))}
           </ul>
-          <button onClick={startCombat} style={{ marginTop: '1rem' }}>Start Combat</button>
+          <button type="button" onClick={startCombat} style={{ marginTop: '1rem' }}>Start Combat</button>
         </section>
       ) : (
         <section>
           <h4>Initiative Track</h4>
           <p>Use <strong>Tab</strong> to navigate. <strong>Enter</strong> for details. <strong>Alt + N</strong> for next turn.</p>
-          <button onClick={nextTurn} style={{ marginBottom: '1rem' }}>Next Turn (Alt+N)</button>
+          <button type="button" onClick={nextTurn} style={{ marginBottom: '1rem' }}>Next Turn (Alt+N)</button>
           
           <ul style={{ listStyle: 'none', padding: 0 }} role="list">
             {combatants.map((u, i) => (
               <li key={u.instanceId} style={{ marginBottom: '1rem', border: i === turnIndex ? '3px solid #000' : '1px solid #eee', padding: '0.5rem', backgroundColor: i === turnIndex ? '#f0f8ff' : 'white' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                   <button
+                    type="button"
                     ref={(el) => { unitRefs.current[u.instanceId] = el; }}
                     onClick={() => openUnitDetails(u)}
                     style={{ flexGrow: 1, textAlign: 'left', background: 'transparent', border: 'none', padding: '0.5rem', fontSize: '1.1rem', fontWeight: 'bold' }}
@@ -274,11 +285,15 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
                         onChange={e => setHpMods(prev => ({...prev, [u.instanceId]: e.target.value}))}
                         style={{ width: '80px', padding: '0.25rem' }}
                       />
-                      <button onClick={() => applyHpMod(u.instanceId, true)} style={{ padding: '0.25rem 0.5rem', fontSize: '0.9em' }}>Damage</button>
-                      <button onClick={() => applyHpMod(u.instanceId, false)} style={{ padding: '0.25rem 0.5rem', fontSize: '0.9em' }}>Heal</button>
+                      <button type="button" onClick={() => applyHpMod(u.instanceId, true)} style={{ padding: '0.25rem 0.5rem', fontSize: '0.9em' }}>Damage</button>
+                      <button type="button" onClick={() => applyHpMod(u.instanceId, false)} style={{ padding: '0.25rem 0.5rem', fontSize: '0.9em' }}>Heal</button>
                     </div>
                     {u.fullData && (
-                      <QuickRoller monster={u.fullData} onRoll={(title, hit) => handleInlineRoll(null as any, u.name, title, hit)} />
+                      <QuickRoller 
+                        monster={u.fullData} 
+                        triggerId={`quick-roller-${u.instanceId}`}
+                        onRoll={(title, hit) => handleInlineRoll(null, u.name, title, hit)} 
+                      />
                     )}
                   </div>
                 )}
@@ -314,7 +329,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
               />
             ) : null}
 
-            <button onClick={closeDetails} style={{ marginTop: '1.5rem', width: '100%', padding: '0.5rem' }}>
+            <button type="button" onClick={closeDetails} style={{ marginTop: '1.5rem', width: '100%', padding: '0.5rem' }}>
               Close Details (Esc)
             </button>
           </div>
@@ -335,7 +350,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
             <strong>Result:</strong> {activeRoll.hit}
           </p>
 
-          <button onClick={closeRollModal} style={{ padding: '0.5rem 1rem', fontSize: '1rem', backgroundColor: '#fff', color: '#333', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
+          <button type="button" onClick={closeRollModal} style={{ padding: '0.5rem 1rem', fontSize: '1rem', backgroundColor: '#fff', color: '#333', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
             Close (Esc)
           </button>
         </div>

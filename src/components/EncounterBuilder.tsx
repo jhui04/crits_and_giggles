@@ -65,6 +65,16 @@ export function EncounterBuilder({ initialEncounter, onClose }: EncounterBuilder
           closeModal();
         }
       }
+
+      // Prevent default behavior for Enter and Space on non-interactive elements
+      const target = e.target as HTMLElement;
+      const isInteractive = ['BUTTON', 'INPUT', 'TEXTAREA', 'SELECT', 'A'].includes(target.tagName) || 
+                          target.hasAttribute('onclick') || 
+                          target.getAttribute('role') === 'button';
+      
+      if ((e.key === 'Enter' || e.key === ' ') && !isInteractive) {
+        e.preventDefault();
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
@@ -152,7 +162,7 @@ export function EncounterBuilder({ initialEncounter, onClose }: EncounterBuilder
     <div className="encounter-builder">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
         <h2 id="builder-title" ref={builderHeadingRef} tabIndex={-1} style={{ margin: 0, outline: 'none' }}>Encounter Builder</h2>
-        <button onClick={handleCancel} style={{ padding: '0.5rem' }}>Back to Campaign</button>
+        <button type="button" onClick={handleCancel} style={{ padding: '0.5rem' }}>Back to Campaign</button>
       </div>
       <section aria-labelledby="builder-title">
         <label htmlFor="encounter-name">Encounter Name:</label>
@@ -164,13 +174,13 @@ export function EncounterBuilder({ initialEncounter, onClose }: EncounterBuilder
       </section>
 
       <section style={{ margin: '1rem 0' }}>
-        <button 
+        <button type="button" 
           ref={addMonsterBtnRef}
           onClick={() => setIsModalOpen(true)}
         >
           Add Monster...
         </button>
-        <button onClick={addPlayer} style={{ marginLeft: '1rem' }}>Add Player Placeholder</button>
+        <button type="button" onClick={addPlayer} style={{ marginLeft: '1rem' }}>Add Player Placeholder</button>
       </section>
 
       {isModalOpen && (
@@ -187,14 +197,14 @@ export function EncounterBuilder({ initialEncounter, onClose }: EncounterBuilder
             <ul style={{ listStyle: 'none', padding: 0 }}>
               {monsters.map((m) => (
                 <li key={m.id} style={{ marginBottom: '0.5rem', display: 'flex', gap: '0.5rem' }}>
-                  <button 
+                  <button type="button" 
                     onClick={() => addMonster(m)} 
                     style={{ flexGrow: 1, textAlign: 'left' }}
                     aria-label={`Add ${m.name} to encounter`}
                   >
                     Add <strong>{m.name}</strong> (CR: {m.cr})
                   </button>
-                  <button 
+                  <button type="button" 
                     onClick={(e) => {
                       lastFocusedElementRef.current = e.currentTarget;
                       setPreviewMonster(m);
@@ -206,7 +216,7 @@ export function EncounterBuilder({ initialEncounter, onClose }: EncounterBuilder
                 </li>
               ))}
             </ul>
-            <button onClick={closeModal} style={{ marginTop: '1rem' }}>Cancel (Esc)</button>
+            <button type="button" onClick={closeModal} style={{ marginTop: '1rem' }}>Cancel (Esc)</button>
           </div>
         </div>
       )}
@@ -226,13 +236,13 @@ export function EncounterBuilder({ initialEncounter, onClose }: EncounterBuilder
             </h3>
             <MonsterDetails monster={previewMonster} />
             <div style={{ marginTop: '1.5rem', display: 'flex', gap: '1rem' }}>
-              <button 
+              <button type="button" 
                 onClick={() => addMonster(previewMonster)} 
                 style={{ flex: 1, padding: '0.75rem', fontWeight: 'bold' }}
               >
                 Add to Encounter
               </button>
-              <button 
+              <button type="button" 
                 onClick={closePreview} 
                 style={{ flex: 1, padding: '0.75rem' }}
               >
@@ -249,7 +259,7 @@ export function EncounterBuilder({ initialEncounter, onClose }: EncounterBuilder
           <ul style={{ listStyle: 'none', padding: 0 }}>
             {units.map(u => (
               <li key={u.instanceId} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0', display: 'flex', alignItems: 'center' }}>
-                <button 
+                <button type="button" 
                   onClick={(e) => {
                     if (u.fullData) {
                       lastFocusedElementRef.current = e.currentTarget;
@@ -262,7 +272,7 @@ export function EncounterBuilder({ initialEncounter, onClose }: EncounterBuilder
                 >
                   <strong>{u.name}</strong> {u.isPlayer ? '(Player)' : `- HP Dice: ${u.hpDice}`}
                 </button>
-                <button 
+                <button type="button" 
                   onClick={() => removeUnit(u.instanceId)} 
                   aria-label={`Remove ${u.name}`}
                   style={{ marginLeft: '1rem' }}
@@ -275,7 +285,7 @@ export function EncounterBuilder({ initialEncounter, onClose }: EncounterBuilder
         )}
       </section>
 
-      <button 
+      <button type="button" 
         onClick={saveEncounter} 
         disabled={units.length === 0}
         style={{ marginTop: '1rem', fontWeight: 'bold' }}

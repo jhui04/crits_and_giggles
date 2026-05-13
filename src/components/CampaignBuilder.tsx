@@ -62,6 +62,16 @@ export function CampaignBuilder() {
         else if (showAssetForm) closeAssetForm();
         else if (viewingAsset) closeAssetViewer();
       }
+
+      // Prevent default behavior for Enter and Space on non-interactive elements
+      const target = e.target as HTMLElement;
+      const isInteractive = ['BUTTON', 'INPUT', 'TEXTAREA', 'SELECT', 'A'].includes(target.tagName) || 
+                          target.hasAttribute('onclick') || 
+                          target.getAttribute('role') === 'button';
+      
+      if ((e.key === 'Enter' || e.key === ' ') && !isInteractive) {
+        e.preventDefault();
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
@@ -225,7 +235,7 @@ export function CampaignBuilder() {
             {activeCampaign.chapters.map(c => (
               <li key={c.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0' }}>
                 <div style={{ display: 'flex', alignItems: 'center' }}>
-                  <button
+                  <button type="button"
                     aria-expanded={expandedChapterId === c.id}
                     aria-label={`${c.title}, ${expandedChapterId === c.id ? 'Expanded' : 'Collapsed'}`}
                     onClick={() => setExpandedChapterId(prev => prev === c.id ? null : c.id)}
@@ -233,7 +243,7 @@ export function CampaignBuilder() {
                   >
                     <span aria-hidden="true">{expandedChapterId === c.id ? '▼' : '▶'}</span> {c.title}
                   </button>
-                  <button onClick={() => handleEditChapter(c)} style={{ marginLeft: '0.5rem' }}>Edit</button>
+                  <button type="button" onClick={() => handleEditChapter(c)} style={{ marginLeft: '0.5rem' }}>Edit</button>
                 </div>
                 {expandedChapterId === c.id && (
                   <div style={{ padding: '1rem', borderLeft: '2px solid #0066cc', marginTop: '0.5rem' }}>
@@ -244,7 +254,7 @@ export function CampaignBuilder() {
             ))}
             {activeCampaign.chapters.length === 0 && <li>No chapters written yet.</li>}
           </ul>
-          <button ref={addChapterBtnRef} onClick={() => setShowChapterForm(true)}>+ Add Chapter</button>
+          <button type="button" ref={addChapterBtnRef} onClick={() => setShowChapterForm(true)}>+ Add Chapter</button>
         </section>
 
         {/* Asset Management */}
@@ -254,7 +264,7 @@ export function CampaignBuilder() {
             {activeCampaign.assets.map(a => (
               <li key={a.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0' }}>
                 <div style={{ display: 'flex', alignItems: 'center' }}>
-                  <button
+                  <button type="button"
                     aria-expanded={expandedAssetId === a.id}
                     aria-label={`${a.name} (${a.type}), ${expandedAssetId === a.id ? 'Expanded' : 'Collapsed'}`}
                     onClick={() => setExpandedAssetId(prev => prev === a.id ? null : a.id)}
@@ -262,7 +272,7 @@ export function CampaignBuilder() {
                   >
                     <span aria-hidden="true">{expandedAssetId === a.id ? '▼' : '▶'}</span> {a.name} ({a.type})
                   </button>
-                  <button onClick={() => handleEditAsset(a)} style={{ marginLeft: '0.5rem' }}>Edit</button>
+                  <button type="button" onClick={() => handleEditAsset(a)} style={{ marginLeft: '0.5rem' }}>Edit</button>
                 </div>
                 {expandedAssetId === a.id && (
                   <div style={{ padding: '1rem', borderLeft: '2px solid #0066cc', marginTop: '0.5rem' }}>
@@ -274,7 +284,7 @@ export function CampaignBuilder() {
             ))}
             {activeCampaign.assets.length === 0 && <li>No assets created yet.</li>}
           </ul>
-          <button ref={addAssetBtnRef} onClick={() => setShowAssetForm(true)}>+ Add Asset</button>
+          <button type="button" ref={addAssetBtnRef} onClick={() => setShowAssetForm(true)}>+ Add Asset</button>
         </section>
 
         {/* Encounter Management */}
@@ -284,13 +294,13 @@ export function CampaignBuilder() {
             {activeCampaign.encounters.map(e => (
               <li key={e.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0', display: 'flex', gap: '1rem', alignItems: 'center' }}>
                 <strong style={{ flexGrow: 1 }}>{e.name} ({e.units.length} units)</strong>
-                <button onClick={() => setEditingEncounter(e)}>Edit</button>
-                <button onClick={() => handleDeleteEncounter(e.id)}>Delete</button>
+                <button type="button" onClick={() => setEditingEncounter(e)}>Edit</button>
+                <button type="button" onClick={() => handleDeleteEncounter(e.id)}>Delete</button>
               </li>
             ))}
             {activeCampaign.encounters.length === 0 && <li>No encounters created yet.</li>}
           </ul>
-          <button ref={createEncounterBtnRef} onClick={() => setIsCreatingEncounter(true)}>+ Create Encounter</button>
+          <button type="button" ref={createEncounterBtnRef} onClick={() => setIsCreatingEncounter(true)}>+ Create Encounter</button>
         </section>
       </div>
 
@@ -330,8 +340,8 @@ export function CampaignBuilder() {
                 />
               </div>
               <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
-                <button onClick={handleAddChapter} disabled={!chapterTitle} style={{ flex: 1, fontWeight: 'bold' }}>Save</button>
-                <button onClick={closeChapterForm} style={{ flex: 1 }}>Cancel</button>
+                <button type="button" onClick={handleAddChapter} disabled={!chapterTitle} style={{ flex: 1, fontWeight: 'bold' }}>Save</button>
+                <button type="button" onClick={closeChapterForm} style={{ flex: 1 }}>Cancel</button>
               </div>
             </div>
           </div>
@@ -389,8 +399,8 @@ export function CampaignBuilder() {
                 />
               </div>
               <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
-                <button onClick={handleAddAsset} disabled={!assetName} style={{ flex: 1, fontWeight: 'bold' }}>Save</button>
-                <button onClick={closeAssetForm} style={{ flex: 1 }}>Cancel</button>
+                <button type="button" onClick={handleAddAsset} disabled={!assetName} style={{ flex: 1, fontWeight: 'bold' }}>Save</button>
+                <button type="button" onClick={closeAssetForm} style={{ flex: 1 }}>Cancel</button>
               </div>
             </div>
           </div>
@@ -414,7 +424,7 @@ export function CampaignBuilder() {
             <div style={{ marginTop: '1rem' }}>
               <p style={{ whiteSpace: 'pre-wrap' }}>{viewingAsset.description}</p>
             </div>
-            <button onClick={closeAssetViewer} style={{ marginTop: '2rem', width: '100%', padding: '0.5rem' }}>
+            <button type="button" onClick={closeAssetViewer} style={{ marginTop: '2rem', width: '100%', padding: '0.5rem' }}>
               Close (Esc)
             </button>
           </div>
