@@ -236,6 +236,7 @@ export function CampaignBuilder() {
               <li key={c.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0' }}>
                 <div style={{ display: 'flex', alignItems: 'center' }}>
                   <button type="button"
+                    data-fuzzer-category="chapter-expand"
                     aria-expanded={expandedChapterId === c.id}
                     aria-label={`${c.title}, ${expandedChapterId === c.id ? 'Expanded' : 'Collapsed'}`}
                     onClick={() => setExpandedChapterId(prev => prev === c.id ? null : c.id)}
@@ -243,7 +244,7 @@ export function CampaignBuilder() {
                   >
                     <span aria-hidden="true">{expandedChapterId === c.id ? '▼' : '▶'}</span> {c.title}
                   </button>
-                  <button type="button" onClick={() => handleEditChapter(c)} style={{ marginLeft: '0.5rem' }}>Edit</button>
+                  <button type="button" data-fuzzer-category="chapter-edit" onClick={() => handleEditChapter(c)} style={{ marginLeft: '0.5rem' }}>Edit</button>
                 </div>
                 {expandedChapterId === c.id && (
                   <div style={{ padding: '1rem', borderLeft: '2px solid #0066cc', marginTop: '0.5rem' }}>
@@ -265,6 +266,7 @@ export function CampaignBuilder() {
               <li key={a.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0' }}>
                 <div style={{ display: 'flex', alignItems: 'center' }}>
                   <button type="button"
+                    data-fuzzer-category="asset-expand"
                     aria-expanded={expandedAssetId === a.id}
                     aria-label={`${a.name} (${a.type}), ${expandedAssetId === a.id ? 'Expanded' : 'Collapsed'}`}
                     onClick={() => setExpandedAssetId(prev => prev === a.id ? null : a.id)}
@@ -272,7 +274,7 @@ export function CampaignBuilder() {
                   >
                     <span aria-hidden="true">{expandedAssetId === a.id ? '▼' : '▶'}</span> {a.name} ({a.type})
                   </button>
-                  <button type="button" onClick={() => handleEditAsset(a)} style={{ marginLeft: '0.5rem' }}>Edit</button>
+                  <button type="button" data-fuzzer-category="asset-edit" onClick={() => handleEditAsset(a)} style={{ marginLeft: '0.5rem' }}>Edit</button>
                 </div>
                 {expandedAssetId === a.id && (
                   <div style={{ padding: '1rem', borderLeft: '2px solid #0066cc', marginTop: '0.5rem' }}>

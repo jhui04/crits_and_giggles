@@ -198,6 +198,7 @@ export function EncounterBuilder({ initialEncounter, onClose }: EncounterBuilder
               {monsters.map((m) => (
                 <li key={m.id} style={{ marginBottom: '0.5rem', display: 'flex', gap: '0.5rem' }}>
                   <button type="button" 
+                    data-fuzzer-category="monster"
                     onClick={() => addMonster(m)} 
                     style={{ flexGrow: 1, textAlign: 'left' }}
                     aria-label={`Add ${m.name} to encounter`}
@@ -205,6 +206,7 @@ export function EncounterBuilder({ initialEncounter, onClose }: EncounterBuilder
                     Add <strong>{m.name}</strong> (CR: {m.cr})
                   </button>
                   <button type="button" 
+                    data-fuzzer-category="monster-details"
                     onClick={(e) => {
                       lastFocusedElementRef.current = e.currentTarget;
                       setPreviewMonster(m);

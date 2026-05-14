@@ -156,6 +156,7 @@ function App() {
             <button 
               type="button" 
               onClick={openOracle}
+              data-fuzzer-category="main-oracle"
               aria-label="Open Oracle Search (Alt+O)"
             >
               The Oracle

@@ -97,6 +97,7 @@ export function CampaignRunner({ onGoToEncounter }: { onGoToEncounter?: (id: str
                 <li key={chap.id} style={{ marginBottom: '0.5rem' }}>
                   <button 
                     type="button"
+                    data-fuzzer-category="chapter-nav"
                     onClick={() => setActiveChapterId(chap.id)}
                     style={{ 
                       width: '100%', 

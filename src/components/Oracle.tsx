@@ -165,17 +165,20 @@ useEffect(() => {
         
         <div style={{ marginBottom: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div>
-            <label id="search-label" htmlFor="oracle-search" aria-hidden="true" style={{ display: 'block', marginBottom: '0.5rem' }}>
+            <div 
+              aria-hidden="true" 
+              onClick={() => document.getElementById('oracle-search')?.focus()}
+              style={{ display: 'block', marginBottom: '0.5rem', cursor: 'pointer' }}
+            >
               Search for Monsters or Spells
-            </label>
+            </div>
             <input 
               id="oracle-search"
+              aria-label="Search for Monsters or Spells (e.g. Fireball or Goblin)"
               ref={inputRef}
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="e.g. Fireball or Goblin"
-              aria-labelledby="search-label"
               style={{
                 width: '100%', padding: '0.75rem', fontSize: '1.2rem',
                 backgroundColor: '#333', color: '#fff', border: '1px solid #666',
@@ -190,14 +193,18 @@ useEffect(() => {
           </div>
 
           <div>
-            <label id="filter-label" htmlFor="oracle-filter" style={{ display: 'block', marginBottom: '0.5rem' }}>
+            <div 
+              aria-hidden="true" 
+              onClick={() => document.getElementById('oracle-filter')?.focus()}
+              style={{ display: 'block', marginBottom: '0.5rem', cursor: 'pointer' }}
+            >
               Filter by Type
-            </label>
+            </div>
             <select 
               id="oracle-filter"
+              aria-label="Filter by Type"
               value={filterType}
               onChange={(e) => setFilterType(e.target.value as any)}
-              aria-labelledby="filter-label"
               style={{
                 width: '100%', padding: '0.5rem', fontSize: '1rem',
                 backgroundColor: '#333', color: '#fff', border: '1px solid #666',
@@ -221,6 +228,7 @@ useEffect(() => {
                 <li key={idx} style={{ marginBottom: '0.5rem' }}>
                   <button
                     id={result.type === 'spell' && result.data.name === 'Aid' ? 'aid-result-btn' : undefined}
+                    data-fuzzer-category={result.type}
                     type="button"
                     onClick={(e) => handleOpenDetail(result, e)}
                     style={{

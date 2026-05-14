@@ -97,17 +97,40 @@ test.describe('Modal Accessibility Deterministic Fuzzer', () => {
       if (!valid) continue;
 
       let container = await getContainer(page);
-      const btnsCount = await container.locator('button:visible, [role="button"]:visible').filter({ hasNot: page.locator('[disabled]') }).count();
+      const btns = container.locator('button:visible, [role="button"]:visible').filter({ hasNot: page.locator('[disabled]') });
+      const btnsCount = await btns.count();
+
+      // Enforcement Check: Lists with > 3 buttons MUST use data-fuzzer-category
+      const lists = container.locator('ul, ol');
+      const listCount = await lists.count();
+      for (let j = 0; j < listCount; j++) {
+        const list = lists.nth(j);
+        const listBtns = list.locator('button:visible');
+        if (await listBtns.count() > 3) {
+          const untaggedCount = await list.locator('button:visible:not([data-fuzzer-category])').count();
+          expect(untaggedCount, 'Lists with >3 buttons must have data-fuzzer-category for fuzzer sampling').toBe(0);
+        }
+      }
 
       // Determine which buttons to test to avoid exhaustive 50+ item loops (like the Oracle)
-      // Test the first, the middle, and the last.
+      // Group by data-fuzzer-category and test the first, middle, and last of each group.
       const indicesToTest = new Set<number>();
-      if (btnsCount <= 3) {
-        for (let i = 0; i < btnsCount; i++) indicesToTest.add(i);
-      } else {
-        indicesToTest.add(0);
-        indicesToTest.add(Math.floor(btnsCount / 2));
-        indicesToTest.add(btnsCount - 1);
+      
+      const categoryMap = new Map<string, number[]>();
+      for (let i = 0; i < btnsCount; i++) {
+        const cat = await btns.nth(i).getAttribute('data-fuzzer-category') || 'default';
+        if (!categoryMap.has(cat)) categoryMap.set(cat, []);
+        categoryMap.get(cat)!.push(i);
+      }
+
+      for (const indices of categoryMap.values()) {
+        if (indices.length <= 3) {
+          for (const idx of indices) indicesToTest.add(idx);
+        } else {
+          indicesToTest.add(indices[0]);
+          indicesToTest.add(indices[Math.floor(indices.length / 2)]);
+          indicesToTest.add(indices[indices.length - 1]);
+        }
       }
 
       // 2. Test selected buttons sequentially with full state resets

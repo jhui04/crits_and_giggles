@@ -96,6 +96,7 @@ export function SpellBrowser() {
               <li key={s.id}>
                 <button 
                   type="button"
+                  data-fuzzer-category="spell"
                   onClick={() => handleSelectSpell(s)}
                   style={{
                     width: '100%', textAlign: 'left', padding: '0.75rem', 
@@ -131,6 +132,7 @@ export function SpellDetail({ spell, onAnnounce }: { spell: Spell, onAnnounce?: 
   const [activeRoll, setActiveRoll] = useState<{ title: string, result: string } | null>(null);
   const rollModalRef = useRef<HTMLHeadingElement>(null);
   const detailHeadingRef = useRef<HTMLHeadingElement>(null);
+  const lastRollButtonRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (detailHeadingRef.current) {
@@ -144,7 +146,8 @@ export function SpellDetail({ spell, onAnnounce }: { spell: Spell, onAnnounce?: 
     }
   }, [activeRoll]);
 
-  const handleRoll = (title: string, diceNotation: string) => {
+  const handleRoll = (e: React.MouseEvent<HTMLButtonElement>, title: string, diceNotation: string) => {
+    lastRollButtonRef.current = e.currentTarget;
     // Basic extraction of dice part: "1d6 Acid" -> "1d6"
     const diceMatch = diceNotation.match(/(\d+d\d+([+-]\d+)?)/i);
     if (diceMatch) {
@@ -153,6 +156,18 @@ export function SpellDetail({ spell, onAnnounce }: { spell: Spell, onAnnounce?: 
       setActiveRoll({ title, result: resultStr });
       if (onAnnounce) onAnnounce(`${spell.name} ${title} roll: ${res.total}`);
     }
+  };
+
+  const closeRollModal = () => {
+    setActiveRoll(null);
+    setTimeout(() => {
+      if (lastRollButtonRef.current) {
+        lastRollButtonRef.current.focus();
+        lastRollButtonRef.current = null;
+      } else {
+        detailHeadingRef.current?.focus();
+      }
+    }, 50);
   };
 
   return (
@@ -175,7 +190,7 @@ export function SpellDetail({ spell, onAnnounce }: { spell: Spell, onAnnounce?: 
             <strong>Damage/Effect:</strong> {spell.damage}
             <button 
               type="button" 
-              onClick={() => handleRoll('Damage', spell.damage!)}
+              onClick={(e) => handleRoll(e, 'Damage', spell.damage!)}
               style={{ marginLeft: '1rem', padding: '0.25rem 0.75rem', cursor: 'pointer' }}
             >
               Roll Damage
@@ -204,7 +219,17 @@ export function SpellDetail({ spell, onAnnounce }: { spell: Spell, onAnnounce?: 
       </p>
 
       {activeRoll && (
-        <div role="dialog" aria-modal="true" aria-labelledby="spell-roll-title" style={{
+        <div 
+          role="dialog" 
+          aria-modal="true" 
+          aria-labelledby="spell-roll-title" 
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.stopPropagation();
+              closeRollModal();
+            }
+          }}
+          style={{
           position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
           backgroundColor: '#333', color: 'white', padding: '1.5rem', borderRadius: '8px',
           boxShadow: '0 4px 6px rgba(0,0,0,0.3)', zIndex: 1005, minWidth: '250px', textAlign: 'center'
@@ -213,7 +238,11 @@ export function SpellDetail({ spell, onAnnounce }: { spell: Spell, onAnnounce?: 
             {activeRoll.title} Result
           </h4>
           <p style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{activeRoll.result}</p>
-          <button type="button" onClick={() => setActiveRoll(null)} style={{ marginTop: '1rem', padding: '0.5rem 1rem', cursor: 'pointer' }}>
+          <button 
+            type="button" 
+            onClick={closeRollModal} 
+            style={{ marginTop: '1rem', padding: '0.5rem 1rem', cursor: 'pointer' }}
+          >
             Close (Esc)
           </button>
         </div>

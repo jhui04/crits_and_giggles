@@ -212,7 +212,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
           <ul style={{ listStyle: 'none', padding: 0 }}>
             {campaignEncounters.map(e => (
               <li key={e.id}>
-                <button type="button" onClick={() => loadEncounter(e)}>Load "{e.name}"</button>
+                <button type="button" data-fuzzer-category="encounter-load" onClick={() => loadEncounter(e)}>Load "{e.name}"</button>
               </li>
             ))}
           </ul>
