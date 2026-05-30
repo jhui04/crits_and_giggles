@@ -29,9 +29,16 @@ export interface Monster {
   reactions: { name: string; content: string }[];
 }
 
+export interface PlayerCharacter {
+  id: string;
+  name: string;
+  description: string;
+}
+
 export interface EncounterUnit {
   instanceId: string;
   monsterId?: string;
+  playerId?: string;
   name: string;
   maxHp?: number;
   currentHp?: number;
@@ -95,5 +102,6 @@ export interface Campaign {
   description: string;
   chapters: Chapter[];
   assets: Asset[];
+  players: PlayerCharacter[];
   encounters: Encounter[];
 }

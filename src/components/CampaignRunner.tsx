@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useCampaigns } from '../context/CampaignContext';
 import { parseMarkdown } from '../utils/markdownParser';
 import type { Asset, Monster, Spell } from '../types';
@@ -25,11 +25,20 @@ export function CampaignRunner({ onGoToEncounter }: { onGoToEncounter?: (id: str
   // Set the first chapter as active when a campaign is loaded
   useEffect(() => {
     if (activeCampaign && activeCampaign.chapters.length > 0 && !activeChapterId) {
-      setActiveChapterId(activeCampaign.chapters[0].id);
+      const firstChapterId = activeCampaign.chapters[0].id;
+      setActiveChapterId(firstChapterId);
     }
   }, [activeCampaign, activeChapterId]);
 
-  const handleAssetClick = (assetId: string) => {
+  const closeModal = useCallback(() => {
+    setIsModalOpen(false);
+    setSelectedAsset(null);
+    setTimeout(() => {
+      lastFocusedElement.current?.focus();
+    }, 0);
+  }, []);
+
+  const handleAssetClick = useCallback((assetId: string) => {
     const asset = activeCampaign?.assets.find(a => a.id === assetId);
     if (asset) {
       lastFocusedElement.current = document.activeElement as HTMLElement;
@@ -38,21 +47,13 @@ export function CampaignRunner({ onGoToEncounter }: { onGoToEncounter?: (id: str
     } else {
       alert(`Asset not found: ${assetId}`);
     }
-  };
+  }, [activeCampaign]);
 
-  const handleEncounterClick = (encounterId: string) => {
+  const handleEncounterClick = useCallback((encounterId: string) => {
     if (onGoToEncounter) {
       onGoToEncounter(encounterId);
     }
-  };
-
-  const closeModal = () => {
-    setIsModalOpen(false);
-    setSelectedAsset(null);
-    setTimeout(() => {
-      lastFocusedElement.current?.focus();
-    }, 0);
-  };
+  }, [onGoToEncounter]);
 
   // Focus management and escape key
   useEffect(() => {

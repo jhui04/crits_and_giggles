@@ -26,11 +26,29 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
 
   const loadEncounter = useCallback((encounter: Encounter) => {
     setActiveEncounter(encounter);
-    setCombatants(encounter.units.map(u => ({ ...u })));
+    
+    // Start with monsters from the encounter
+    const monsterUnits = encounter.units
+      .filter(u => !u.isPlayer)
+      .map(u => ({ ...u }));
+    
+    // Inject players from the campaign
+    const playerUnits: EncounterUnit[] = (activeCampaign?.players || []).map(p => ({
+      instanceId: crypto.randomUUID(),
+      playerId: p.id,
+      name: p.name,
+      dexMod: 0,
+      isPlayer: true,
+      currentHp: 1,
+      maxHp: 1,
+      passivePerception: 10
+    }));
+
+    setCombatants([...monsterUnits, ...playerUnits]);
     setIsCombatStarted(false);
     setTurnIndex(0);
     setHpMods({});
-  }, []);
+  }, [activeCampaign]);
 
   useEffect(() => {
     if (activeEncounter) {
@@ -44,7 +62,8 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     if (targetEncounterId && activeCampaign) {
       const encounter = activeCampaign.encounters.find(e => e.id === targetEncounterId);
       if (encounter) {
-        loadEncounter(encounter);
+        // Use a timeout or functional update to avoid synchronous setState in effect
+        setTimeout(() => loadEncounter(encounter), 0);
       }
     }
   }, [targetEncounterId, activeCampaign, loadEncounter]);
@@ -124,7 +143,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
 
   const startCombat = () => {
     const rolledCombatants = combatants.map(u => {
-      let hp = { max: u.maxHp || 1, current: u.currentHp || 1 };
+      const hp = { max: u.maxHp || 1, current: u.currentHp || 1 };
       
       if (!u.isPlayer && u.hpDice) {
         const roll = DiceService.roll(u.hpDice).total;

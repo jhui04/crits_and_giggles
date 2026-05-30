@@ -95,7 +95,7 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
     
     let hitVisual: string | undefined;
     let damageResultString: string | undefined;
-    let announceParts = [];
+    const announceParts = [];
 
     if (bonus !== undefined) {
       const { announceStr, visualStr } = getD20Details(bonus);
@@ -167,7 +167,7 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
       <div style={{ marginTop: '1rem' }}>
         <h4>Speeds</h4>
         <p>{Object.entries(monster.attributes.speeds)
-          .filter(([_, v]) => v !== false)
+          .filter(([, v]) => v !== false)
           .map(([k, v]) => typeof v === 'number' ? `${k}: ${v}ft` : k).join(', ')}</p>
       </div>
 

@@ -1,8 +1,8 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useCampaigns } from '../context/CampaignContext';
 import { EncounterBuilder } from './EncounterBuilder';
 import { parseMarkdown } from '../utils/markdownParser';
-import type { AssetType, Asset, Chapter, Encounter, Monster, Spell } from '../types';
+import type { AssetType, Asset, Chapter, Encounter, Monster, Spell, PlayerCharacter } from '../types';
 import { MonsterDetails } from './MonsterDetails';
 import { SpellDetail } from './SpellBrowser';
 import { dataService } from '../services/DataService';
@@ -18,6 +18,15 @@ export function CampaignBuilder() {
     dataService.getAllMonsters().then(setMonsters);
     dataService.getAllSpells().then(setSpells);
   }, []);
+
+  // Campaign Settings State
+  const [showCampaignForm, setShowCampaignForm] = useState(false);
+
+  // Player State
+  const [showPlayerForm, setShowPlayerForm] = useState(false);
+  const [editingPlayerId, setEditingPlayerId] = useState<string | null>(null);
+  const [playerName, setPlayerName] = useState('');
+  const [playerDesc, setPlayerDesc] = useState('');
   
   // Asset State
   const [showAssetForm, setShowAssetForm] = useState(false);
@@ -40,17 +49,92 @@ export function CampaignBuilder() {
   const [editingEncounter, setEditingEncounter] = useState<Encounter | null>(null);
 
   // Refs for focus management
+  const campaignHeadingRef = useRef<HTMLHeadingElement>(null);
+  const editCampaignBtnRef = useRef<HTMLButtonElement>(null);
+
+  const playerHeadingRef = useRef<HTMLHeadingElement>(null);
+  const addPlayerBtnRef = useRef<HTMLButtonElement>(null);
+
   const addChapterBtnRef = useRef<HTMLButtonElement>(null);
   const chapterHeadingRef = useRef<HTMLHeadingElement>(null);
-  const chapterTitleInputRef = useRef<HTMLInputElement>(null);
 
   const addAssetBtnRef = useRef<HTMLButtonElement>(null);
   const assetHeadingRef = useRef<HTMLHeadingElement>(null);
-  const assetNameInputRef = useRef<HTMLInputElement>(null);
 
   const createEncounterBtnRef = useRef<HTMLButtonElement>(null);
   const assetViewerHeadingRef = useRef<HTMLHeadingElement>(null);
   const lastFocusedElement = useRef<HTMLElement | null>(null);
+
+  const closeCampaignForm = useCallback(() => {
+    setShowCampaignForm(false);
+    setTimeout(() => {
+      if (lastFocusedElement.current) {
+        lastFocusedElement.current.focus();
+        lastFocusedElement.current = null;
+      } else {
+        editCampaignBtnRef.current?.focus();
+      }
+    }, 0);
+  }, []);
+
+  const closePlayerForm = useCallback(() => {
+    setShowPlayerForm(false);
+    setEditingPlayerId(null);
+    setPlayerName('');
+    setPlayerDesc('');
+    setTimeout(() => {
+      if (lastFocusedElement.current) {
+        lastFocusedElement.current.focus();
+        lastFocusedElement.current = null;
+      } else {
+        addPlayerBtnRef.current?.focus();
+      }
+    }, 0);
+  }, []);
+
+  const closeChapterForm = useCallback(() => {
+    setShowChapterForm(false);
+    setEditingChapterId(null);
+    setChapterTitle('');
+    setChapterContent('');
+    setTimeout(() => {
+      if (lastFocusedElement.current) {
+        lastFocusedElement.current.focus();
+        lastFocusedElement.current = null;
+      } else {
+        addChapterBtnRef.current?.focus();
+      }
+    }, 0);
+  }, []);
+
+  const closeAssetForm = useCallback(() => {
+    setShowAssetForm(false);
+    setEditingAssetId(null);
+    setAssetName('');
+    setAssetDesc('');
+    setAssetType('NPC');
+    setTimeout(() => {
+      if (lastFocusedElement.current) {
+        lastFocusedElement.current.focus();
+        lastFocusedElement.current = null;
+      } else {
+        addAssetBtnRef.current?.focus();
+      }
+    }, 0);
+  }, []);
+
+  const closeAssetViewer = useCallback(() => {
+    setViewingAsset(null);
+    setTimeout(() => lastFocusedElement.current?.focus(), 0);
+  }, []);
+
+  useEffect(() => {
+    if (showCampaignForm) campaignHeadingRef.current?.focus();
+  }, [showCampaignForm]);
+
+  useEffect(() => {
+    if (showPlayerForm) playerHeadingRef.current?.focus();
+  }, [showPlayerForm]);
 
   useEffect(() => {
     if (showChapterForm) chapterHeadingRef.current?.focus();
@@ -70,7 +154,9 @@ export function CampaignBuilder() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !e.defaultPrevented) {
-        if (showChapterForm) closeChapterForm();
+        if (showCampaignForm) closeCampaignForm();
+        else if (showPlayerForm) closePlayerForm();
+        else if (showChapterForm) closeChapterForm();
         else if (showAssetForm) closeAssetForm();
         else if (viewingAsset) closeAssetViewer();
       }
@@ -87,43 +173,34 @@ export function CampaignBuilder() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showChapterForm, showAssetForm, viewingAsset]);
-
-  const closeChapterForm = () => {
-    setShowChapterForm(false);
-    setEditingChapterId(null);
-    setChapterTitle('');
-    setChapterContent('');
-    setTimeout(() => {
-      if (lastFocusedElement.current) {
-        lastFocusedElement.current.focus();
-        lastFocusedElement.current = null;
-      } else {
-        addChapterBtnRef.current?.focus();
-      }
-    }, 0);
-  };
-
-  const closeAssetForm = () => {
-    setShowAssetForm(false);
-    setEditingAssetId(null);
-    setAssetName('');
-    setAssetDesc('');
-    setAssetType('NPC');
-    setTimeout(() => {
-      if (lastFocusedElement.current) {
-        lastFocusedElement.current.focus();
-        lastFocusedElement.current = null;
-      } else {
-        addAssetBtnRef.current?.focus();
-      }
-    }, 0);
-  };
+  }, [showCampaignForm, showPlayerForm, showChapterForm, showAssetForm, viewingAsset, closeCampaignForm, closePlayerForm, closeChapterForm, closeAssetForm, closeAssetViewer]);
 
   const closeEncounterForm = () => {
     setIsCreatingEncounter(false);
     setEditingEncounter(null);
     setTimeout(() => createEncounterBtnRef.current?.focus(), 0);
+  };
+
+  const handleAddPlayer = () => {
+    if (!activeCampaign || !playerName) return;
+    
+    let newPlayers;
+    if (editingPlayerId) {
+      newPlayers = activeCampaign.players.map(p => p.id === editingPlayerId ? { ...p, name: playerName, description: playerDesc } : p);
+    } else {
+      const newPlayer: PlayerCharacter = {
+        id: crypto.randomUUID(),
+        name: playerName,
+        description: playerDesc
+      };
+      newPlayers = [...activeCampaign.players, newPlayer];
+    }
+
+    updateCampaign({
+      ...activeCampaign,
+      players: newPlayers
+    });
+    closePlayerForm();
   };
 
   const handleAddAsset = () => {
@@ -172,6 +249,29 @@ export function CampaignBuilder() {
     closeChapterForm();
   };
 
+  const handleOpenSettings = () => {
+    lastFocusedElement.current = document.activeElement as HTMLElement;
+    setShowCampaignForm(true);
+  };
+
+  const handleEditPlayer = (player: PlayerCharacter) => {
+    lastFocusedElement.current = document.activeElement as HTMLElement;
+    setEditingPlayerId(player.id);
+    setPlayerName(player.name);
+    setPlayerDesc(player.description);
+    setShowPlayerForm(true);
+  };
+
+  const handleDeletePlayer = (id: string) => {
+    if (!activeCampaign) return;
+    if (confirm("Are you sure you want to delete this player character?")) {
+      updateCampaign({
+        ...activeCampaign,
+        players: activeCampaign.players.filter(p => p.id !== id)
+      });
+    }
+  };
+
   const handleEditChapter = (chapter: Chapter) => {
     lastFocusedElement.current = document.activeElement as HTMLElement;
     setEditingChapterId(chapter.id);
@@ -199,26 +299,21 @@ export function CampaignBuilder() {
     }
   };
 
-  const handleAssetLinkClick = (id: string) => {
+  const handleAssetLinkClick = useCallback((id: string) => {
     const asset = activeCampaign?.assets.find(a => a.id === id);
     if (asset) {
       lastFocusedElement.current = document.activeElement as HTMLElement;
       setViewingAsset(asset);
     }
-  };
+  }, [activeCampaign]);
 
-  const handleEncounterLinkClick = (id: string) => {
+  const handleEncounterLinkClick = useCallback((id: string) => {
     const encounter = activeCampaign?.encounters.find(e => e.id === id);
     if (encounter) {
       lastFocusedElement.current = document.activeElement as HTMLElement;
       setEditingEncounter(encounter);
     }
-  };
-
-  const closeAssetViewer = () => {
-    setViewingAsset(null);
-    setTimeout(() => lastFocusedElement.current?.focus(), 0);
-  };
+  }, [activeCampaign]);
 
   if (!activeCampaign) {
     return <p>Please select or create a campaign from the "Switch Campaign" menu in the header.</p>;
@@ -234,12 +329,16 @@ export function CampaignBuilder() {
   }
 
   // Calculate global aria-hidden for the main content when modals are open
-  const isAnyModalOpen = showChapterForm || showAssetForm || viewingAsset;
+  const isAnyModalOpen = showCampaignForm || showPlayerForm || showChapterForm || showAssetForm || viewingAsset;
 
   return (
     <>
+      <nav className="sub-nav" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+        <h2 style={{ margin: 0 }}>Campaign Builder</h2>
+        <button type="button" ref={editCampaignBtnRef} onClick={handleOpenSettings}>Campaign Settings</button>
+      </nav>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2rem' }} aria-hidden={!!isAnyModalOpen}>
-        
+
         {/* Chapter Management */}
         <section style={{ flex: '1 1 300px' }}>
           <h3 id="chapters-heading">Manage Chapters</h3>
@@ -343,7 +442,6 @@ export function CampaignBuilder() {
                 <label htmlFor="chap-title" style={{ display: 'block', fontWeight: 'bold' }}>Chapter Title</label>
                 <input 
                   id="chap-title"
-                  ref={chapterTitleInputRef}
                   value={chapterTitle}
                   onChange={e => setChapterTitle(e.target.value)}
                   style={{ width: '100%', padding: '0.5rem' }}
@@ -387,7 +485,6 @@ export function CampaignBuilder() {
                 <label htmlFor="asset-name" style={{ display: 'block', fontWeight: 'bold' }}>Asset Name</label>
                 <input 
                   id="asset-name"
-                  ref={assetNameInputRef}
                   placeholder="e.g. King Bruenor"
                   value={assetName}
                   onChange={e => setAssetName(e.target.value)}
@@ -421,6 +518,114 @@ export function CampaignBuilder() {
               <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
                 <button type="button" onClick={handleAddAsset} disabled={!assetName} style={{ flex: 1, fontWeight: 'bold' }}>Save</button>
                 <button type="button" onClick={closeAssetForm} style={{ flex: 1 }}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Campaign Form Modal */}
+      {showCampaignForm && (
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="campaign-modal-title" style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, 
+          backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', 
+          alignItems: 'center', justifyContent: 'center', zIndex: 2000
+        }}>
+          <div className="modal-content" style={{
+            backgroundColor: 'white', padding: '2rem', borderRadius: '8px', 
+            maxWidth: '600px', width: '90%', maxHeight: '90vh', overflowY: 'auto'
+          }}>
+            <h3 id="campaign-modal-title" ref={campaignHeadingRef} tabIndex={-1} style={{ outline: 'none', marginTop: 0 }}>
+              Campaign Settings
+            </h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div>
+                <label htmlFor="camp-name" style={{ display: 'block', fontWeight: 'bold' }}>Campaign Name</label>
+                <input 
+                  id="camp-name"
+                  value={activeCampaign.name}
+                  onChange={e => updateCampaign({ ...activeCampaign, name: e.target.value })}
+                  style={{ width: '100%', padding: '0.5rem' }}
+                />
+              </div>
+              <div>
+                <label htmlFor="camp-desc" style={{ display: 'block', fontWeight: 'bold' }}>Description</label>
+                <textarea 
+                  id="camp-desc"
+                  value={activeCampaign.description}
+                  onChange={e => updateCampaign({ ...activeCampaign, description: e.target.value })}
+                  rows={3}
+                  style={{ width: '100%', padding: '0.5rem' }}
+                />
+              </div>
+
+              {/* Player Management */}
+              <section style={{ marginTop: '1rem' }}>
+                <h4 id="players-heading" style={{ margin: '0 0 0.5rem 0' }}>Manage Players</h4>
+                <ul style={{ listStyle: 'none', padding: 0, marginBottom: '1rem' }}>
+                  {activeCampaign.players.map(p => (
+                    <li key={p.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <strong>{p.name}</strong>
+                        <p style={{ margin: 0, fontSize: '0.9rem', color: '#666' }}>{p.description}</p>
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <button type="button" onClick={() => handleEditPlayer(p)}>Edit</button>
+                        <button type="button" onClick={() => handleDeletePlayer(p.id)}>Delete</button>
+                      </div>
+                    </li>
+                  ))}
+                  {activeCampaign.players.length === 0 && <li>No players configured yet.</li>}
+                </ul>
+                <button type="button" ref={addPlayerBtnRef} onClick={() => setShowPlayerForm(true)}>+ Add Player</button>
+              </section>
+
+              <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
+                <button type="button" onClick={closeCampaignForm} style={{ flex: 1 }}>Close</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Player Form Modal */}
+      {showPlayerForm && (
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="player-modal-title" style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, 
+          backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', 
+          alignItems: 'center', justifyContent: 'center', zIndex: 2000
+        }}>
+          <div className="modal-content" style={{
+            backgroundColor: 'white', padding: '2rem', borderRadius: '8px', 
+            maxWidth: '500px', width: '90%'
+          }}>
+            <h3 id="player-modal-title" ref={playerHeadingRef} tabIndex={-1} style={{ outline: 'none', marginTop: 0 }}>
+              {editingPlayerId ? 'Edit Player' : 'Add New Player'}
+            </h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div>
+                <label htmlFor="player-name" style={{ display: 'block', fontWeight: 'bold' }}>Player Name</label>
+                <input 
+                  id="player-name"
+                  value={playerName}
+                  onChange={e => setPlayerName(e.target.value)}
+                  placeholder="e.g. Grog"
+                  style={{ width: '100%', padding: '0.5rem' }}
+                />
+              </div>
+              <div>
+                <label htmlFor="player-desc" style={{ display: 'block', fontWeight: 'bold' }}>Description / Class</label>
+                <input 
+                  id="player-desc"
+                  value={playerDesc}
+                  onChange={e => setPlayerDesc(e.target.value)}
+                  placeholder="e.g. Goliath Barbarian"
+                  style={{ width: '100%', padding: '0.5rem' }}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
+                <button type="button" onClick={handleAddPlayer} disabled={!playerName} style={{ flex: 1, fontWeight: 'bold' }}>Save</button>
+                <button type="button" onClick={closePlayerForm} style={{ flex: 1 }}>Cancel</button>
               </div>
             </div>
           </div>

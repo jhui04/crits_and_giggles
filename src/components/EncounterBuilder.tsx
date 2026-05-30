@@ -80,19 +80,6 @@ export function EncounterBuilder({ initialEncounter, onClose }: EncounterBuilder
     closeModal();
   };
 
-  const addPlayer = () => {
-    const newUnit: EncounterUnit = {
-      instanceId: crypto.randomUUID(),
-      name: `Player ${units.filter(u => u.isPlayer).length + 1}`,
-      maxHp: 1,
-      currentHp: 1,
-      dexMod: 0,
-      passivePerception: 10,
-      isPlayer: true
-    };
-    setUnits([...units, newUnit]);
-  };
-
   const removeUnit = (instanceId: string) => {
     setUnits(units.filter(u => u.instanceId !== instanceId));
   };
@@ -148,7 +135,6 @@ export function EncounterBuilder({ initialEncounter, onClose }: EncounterBuilder
         >
           Add Monster...
         </button>
-        <button type="button" onClick={addPlayer} style={{ marginLeft: '1rem', padding: '0.75rem' }}>Add Player Placeholder</button>
       </section>
 
       <section aria-label="Current Units">

@@ -22,7 +22,13 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
   // Load on mount
   useEffect(() => {
     const saved = localStorage.getItem('crits_campaigns');
-    const parsedCampaigns = saved ? JSON.parse(saved) : [];
+    let parsedCampaigns: Campaign[] = saved ? JSON.parse(saved) : [];
+
+    // Ensure all campaigns have the players field (migration)
+    parsedCampaigns = parsedCampaigns.map(c => ({
+      ...c,
+      players: c.players || []
+    }));
 
     if (parsedCampaigns.length === 0) {
       // Only seed default if there's genuinely no saved data
@@ -48,6 +54,7 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
           { id: 'npc-commander-zara', name: 'Commander Zara', type: 'NPC', description: 'A stern, no-nonsense commander with cybernetic implants.' },
           { id: 'item-glowing-orb', name: 'Glowing Orb', type: 'Item', description: 'A mysterious orb emitting a faint blue light. It hums with energy.' }
         ],
+        players: [],
         encounters: [
           {
             id: 'enc-breach',
@@ -92,6 +99,7 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
       description,
       chapters: template?.chapters || [],
       assets: template?.assets || [],
+      players: template?.players || [],
       encounters: template?.encounters || []
     };
     setCampaigns(prev => [...prev, newCamp]);

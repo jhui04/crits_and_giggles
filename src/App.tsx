@@ -371,9 +371,6 @@ function CreateLayout() {
 
   return (
     <div className="layout-create">
-      <nav className="sub-nav">
-        <h2 style={{ margin: 0 }}>Campaign Builder</h2>
-      </nav>
       <div className="tab-content">
         <CampaignBuilder />
       </div>

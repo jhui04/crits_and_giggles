@@ -1,9 +1,6 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
-import type { Spell } from '../types';
-import { SpellDetail } from './SpellBrowser';
+import { useState, useEffect, useRef } from 'react';
 import { MonsterBrowser } from './MonsterBrowser';
 import { SpellBrowser } from './SpellBrowser';
-import { dataService } from '../services/DataService';
 
 interface OracleProps {
   isOpen: boolean;

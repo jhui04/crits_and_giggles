@@ -127,11 +127,14 @@ export function MonsterBrowser({ onSelect, ctaLabel = "Add to Encounter", autoFo
                 border: 'none', background: 'none', cursor: 'pointer',
                 display: 'block', color: 'inherit'
               }}
-              aria-label={`View details for ${m.name}, CR ${m.cr}, ${m.meta?.size} ${m.meta?.type}, from ${m.source}`}
             >
               <div style={{ pointerEvents: 'none' }}>
-                <strong>{m.name}</strong> <br/>
-                <small>CR {m.cr} | {m.meta?.size} {m.meta?.type} | {m.source}</small>
+                <strong style={{ fontSize: '1.1rem' }}>{m.name}</strong>
+                <div style={{ fontSize: '0.9rem', color: '#555', marginTop: '0.25rem' }}>
+                  <span className="sr-only">Challenge Rating</span>
+                  <span aria-hidden="true">CR</span> {m.cr} | {m.meta?.size} {m.meta?.type} | {m.source}
+                  <span className="sr-only">. Click to view details.</span>
+                </div>
               </div>
             </button>
           </li>
