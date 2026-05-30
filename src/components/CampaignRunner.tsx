@@ -1,16 +1,26 @@
 import { useState, useRef, useEffect } from 'react';
 import { useCampaigns } from '../context/CampaignContext';
 import { parseMarkdown } from '../utils/markdownParser';
-import type { Asset } from '../types';
+import type { Asset, Monster, Spell } from '../types';
+import { MonsterDetails } from './MonsterDetails';
+import { SpellDetail } from './SpellBrowser';
+import { dataService } from '../services/DataService';
 
 export function CampaignRunner({ onGoToEncounter }: { onGoToEncounter?: (id: string) => void }) {
   const { activeCampaign } = useCampaigns();
   const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [monsters, setMonsters] = useState<Monster[]>([]);
+  const [spells, setSpells] = useState<Spell[]>([]);
 
   const modalHeadingRef = useRef<HTMLHeadingElement>(null);
   const lastFocusedElement = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    dataService.getAllMonsters().then(setMonsters);
+    dataService.getAllSpells().then(setSpells);
+  }, []);
 
   // Set the first chapter as active when a campaign is loaded
   useEffect(() => {
@@ -143,13 +153,45 @@ export function CampaignRunner({ onGoToEncounter }: { onGoToEncounter?: (id: str
             backgroundColor: 'white', padding: '2rem', borderRadius: '8px', 
             maxWidth: '500px', width: '90%', maxHeight: '80vh', overflowY: 'auto'
           }}>
-            <h3 id="asset-modal-title" ref={modalHeadingRef} tabIndex={-1} style={{ outline: 'none', marginBottom: '0.5rem' }}>
-              {selectedAsset.name} ({selectedAsset.type})
-            </h3>
-            
-            <div style={{ marginTop: '1rem' }}>
-              <p style={{ whiteSpace: 'pre-wrap' }}>{selectedAsset.description}</p>
-            </div>
+            {(() => {
+              let matchedMonster = monsters.find(m => m.id === selectedAsset.id);
+              if (!matchedMonster) {
+                matchedMonster = monsters.find(m => m.name.toLowerCase() === selectedAsset.name.toLowerCase());
+              }
+              if (matchedMonster) {
+                return (
+                  <div>
+                    <h3 id="asset-modal-title" ref={modalHeadingRef} tabIndex={-1} className="sr-only">
+                      Monster Details: {matchedMonster.name}
+                    </h3>
+                    <MonsterDetails monster={matchedMonster} />
+                  </div>
+                );
+              }
+
+              let matchedSpell = spells.find(s => s.id.toString() === selectedAsset.id);
+              if (!matchedSpell) {
+                matchedSpell = spells.find(s => s.name.toLowerCase() === selectedAsset.name.toLowerCase());
+              }
+              if (matchedSpell) {
+                return (
+                  <div>
+                    <SpellDetail spell={matchedSpell} id="asset-modal-title" />
+                  </div>
+                );
+              }
+
+              return (
+                <>
+                  <h3 id="asset-modal-title" ref={modalHeadingRef} tabIndex={-1} style={{ outline: 'none', marginBottom: '0.5rem' }}>
+                    {selectedAsset.name} ({selectedAsset.type})
+                  </h3>
+                  <div style={{ marginTop: '1rem' }}>
+                    <p style={{ whiteSpace: 'pre-wrap' }}>{selectedAsset.description}</p>
+                  </div>
+                </>
+              );
+            })()}
 
             <button type="button" onClick={closeModal} style={{ marginTop: '2rem', width: '100%', padding: '0.5rem' }}>
               Close (Esc)

@@ -4,11 +4,9 @@ import { CampaignRunner } from './components/CampaignRunner';
 import { EncounterRunner } from './components/EncounterRunner';
 import { Oracle } from './components/Oracle';
 import { ShortcutsHelp } from './components/ShortcutsHelp';
-import { SpellBrowser } from './components/SpellBrowser';
 import { useCampaigns } from './context/CampaignContext';
 
 type AppMode = 'create' | 'run';
-type RunTab = 'story' | 'combat' | 'spells';
 
 function App() {
   const [mode, setMode] = useState<AppMode>('create');
@@ -17,19 +15,48 @@ function App() {
   const [isCampaignModalOpen, setIsCampaignModalOpen] = useState(false);
   const [isOracleOpen, setIsOracleOpen] = useState(false);
   const [isShortcutsHelpOpen, setIsShortcutsHelpOpen] = useState(false);
+  const [isMainMenuOpen, setIsMainMenuOpen] = useState(false);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [newCampName, setNewCampName] = useState('');
   const [newCampDesc, setNewCampDesc] = useState('');
-  const [createTab, setCreateTab] = useState<'campaign' | 'spells'>('campaign');
+
+  const [scrapedCampaigns, setScrapedCampaigns] = useState<any[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState<string>('none');
+
+  useEffect(() => {
+    fetch('/data/scraped_campaign.json')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setScrapedCampaigns(data);
+        } else if (data) {
+          setScrapedCampaigns([data]);
+        }
+      })
+      .catch(err => console.log('No scraped campaign available.', err));
+  }, []);
 
   const switchCampBtnRef = useRef<HTMLButtonElement>(null);
   const switchCampHeadingRef = useRef<HTMLHeadingElement>(null);
+  const mainMenuBtnRef = useRef<HTMLButtonElement>(null);
+  const mainMenuHeadingRef = useRef<HTMLHeadingElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
   const lastFocusedBeforeOracle = useRef<HTMLElement | null>(null);
   const lastFocusedBeforeHelp = useRef<HTMLElement | null>(null);
 
   const toggleMode = () => {
     setMode((prevMode) => (prevMode === 'create' ? 'run' : 'create'));
+  };
+
+  const openMainMenu = () => {
+    setIsMainMenuOpen(true);
+  };
+
+  const closeMainMenu = (restoreFocus = true) => {
+    setIsMainMenuOpen(false);
+    if (restoreFocus) {
+      setTimeout(() => mainMenuBtnRef.current?.focus(), 0);
+    }
   };
 
   const openCampaignModal = () => {
@@ -68,9 +95,15 @@ function App() {
 
   const handleCreate = () => {
     if (newCampName) {
-      createCampaign(newCampName, newCampDesc);
+      const selectedCamp = scrapedCampaigns.find(c => c.id === selectedTemplate);
+      if (selectedCamp) {
+        createCampaign(newCampName, newCampDesc, selectedCamp);
+      } else {
+        createCampaign(newCampName, newCampDesc);
+      }
       setNewCampName('');
       setNewCampDesc('');
+      setSelectedTemplate('none');
       closeCampaignModal();
     }
   };
@@ -83,9 +116,15 @@ function App() {
   // Focus management and escape key for modal
   useEffect(() => {
     if (isCampaignModalOpen) {
-      switchCampHeadingRef.current?.focus();
+      setTimeout(() => switchCampHeadingRef.current?.focus(), 50);
     }
   }, [isCampaignModalOpen, isCreatingNew]);
+
+  useEffect(() => {
+    if (isMainMenuOpen) {
+      setTimeout(() => mainMenuHeadingRef.current?.focus(), 0);
+    }
+  }, [isMainMenuOpen]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -116,15 +155,6 @@ function App() {
           else openCampaignModal();
           return;
         }
-        if (key === 's') {
-          e.preventDefault();
-          if (mode === 'run') {
-            window.dispatchEvent(new CustomEvent('switch-tab', { detail: 'spells' }));
-          } else {
-            setCreateTab('spells');
-          }
-          return;
-        }
       }
 
       // Prevent default behavior for Enter and Space on non-interactive elements
@@ -132,46 +162,44 @@ function App() {
         e.preventDefault();
       }
 
-      if (e.key === 'Escape' && !e.defaultPrevented && isCampaignModalOpen) {
-        closeCampaignModal();
+      if (e.key === 'Escape' && !e.defaultPrevented) {
+        if (isCampaignModalOpen) {
+          closeCampaignModal();
+        } else if (isMainMenuOpen) {
+          closeMainMenu();
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isCampaignModalOpen, isOracleOpen, isShortcutsHelpOpen]);
+  }, [isCampaignModalOpen, isOracleOpen, isShortcutsHelpOpen, isMainMenuOpen]);
 
   return (
     <React.Fragment>
-      <div className="app-container" aria-hidden={isCampaignModalOpen || isOracleOpen || isShortcutsHelpOpen}>
+      <div className="app-container" aria-hidden={isMainMenuOpen || isCampaignModalOpen || isOracleOpen || isShortcutsHelpOpen}>  
         <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h1 aria-label="Crits & Giggles Main Menu">Crits & Giggles</h1>
+          <h1 style={{ margin: 0 }}>
+            <button
+              type="button"
+              ref={mainMenuBtnRef}
+              onClick={openMainMenu}
+              aria-label="Open Main Menu"
+              style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit', font: 'inherit' }}
+            >
+              Crits & Giggles
+            </button>
+          </h1>
           <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-            <button 
-              type="button" 
-              onClick={openShortcutsHelp}
-              aria-label="Keyboard Shortcuts (Alt+H)"
-            >
-              Shortcuts
-            </button>
-            <button 
-              type="button" 
-              onClick={openOracle}
-              data-fuzzer-category="main-oracle"
-              aria-label="Open Oracle Search (Alt+O)"
-            >
-              The Oracle
-            </button>
-            <div>
-              <span style={{ marginRight: '1rem' }}>
-                <strong>Campaign:</strong> {activeCampaign ? activeCampaign.name : 'None Selected'}
-              </span>
-              <button type="button" ref={switchCampBtnRef} onClick={openCampaignModal}>Switch Campaign</button>
-            </div>
+            <span style={{ marginRight: '1rem' }}>
+              <strong>Campaign:</strong> {activeCampaign ? activeCampaign.name : 'None Selected'}
+            </span>
           </div>
         </header>
-
         <main>
-          {mode === 'create' ? <CreateLayout tab={createTab} setTab={setCreateTab} /> : <RunLayout />}
+          <div className="sr-only" aria-live="polite">
+            Current Mode: {mode === 'create' ? 'Create Mode' : 'Run Mode'}
+          </div>
+          {mode === 'create' ? <CreateLayout /> : <RunLayout />}
         </main>
 
         <footer className="mode-toggle-footer">
@@ -188,6 +216,53 @@ function App() {
 
       <Oracle isOpen={isOracleOpen} onClose={closeOracle} />
       <ShortcutsHelp isOpen={isShortcutsHelpOpen} onClose={closeShortcutsHelp} />
+
+      {/* Main Menu Modal */}
+      {isMainMenuOpen && (
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="main-menu-title" style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex',
+          alignItems: 'center', justifyContent: 'center', zIndex: 1500
+        }}>
+          <div className="modal-content" style={{
+            backgroundColor: 'white', padding: '2rem', borderRadius: '8px',
+            maxWidth: '400px', width: '90%', maxHeight: '80vh', overflowY: 'auto'
+          }}>
+            <h3 id="main-menu-title" ref={mainMenuHeadingRef} tabIndex={-1} style={{ outline: 'none', marginTop: 0 }}>Main Menu</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1.5rem' }}>
+              <button
+                type="button"
+                onClick={() => { closeMainMenu(false); openOracle(); }}
+                data-fuzzer-category="main-oracle"
+                style={{ padding: '0.75rem', fontSize: '1.1rem' }}
+              >
+                The Oracle (Alt+O)
+              </button>
+              <button
+                type="button"
+                onClick={() => { closeMainMenu(false); openCampaignModal(); }}
+                style={{ padding: '0.75rem', fontSize: '1.1rem' }}
+              >
+                Switch Campaign (Alt+C)
+              </button>
+              <button
+                type="button"
+                onClick={() => { closeMainMenu(false); openShortcutsHelp(); }}
+                style={{ padding: '0.75rem', fontSize: '1.1rem' }}
+              >
+                Keyboard Shortcuts (Alt+H)
+              </button>
+              <button
+                type="button"
+                onClick={() => closeMainMenu(true)}
+                style={{ padding: '0.75rem', fontSize: '1.1rem', backgroundColor: '#eee', marginTop: '1rem' }}
+              >
+                Close (Esc)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Switch Campaign Modal */}
       {isCampaignModalOpen && (
@@ -216,15 +291,9 @@ function App() {
                         </button>
                         <button 
                           type="button"
-                          onClick={() => {
-                            if (confirm(`Are you sure you want to delete the campaign "${c.name}"?`)) {
-                              // We need to import useCampaigns and use deleteCampaign from it.
-                              // Assuming deleteCampaign is destructured from useCampaigns at the top of App()
-                              deleteCampaign(c.id);
-                            }
-                          }}
-                          aria-label={`Delete campaign ${c.name}`}
-                          style={{ padding: '0.75rem', backgroundColor: '#fee' }}
+                          onClick={() => deleteCampaign(c.id)}
+                          style={{ background: '#ff4444', color: 'white', border: 'none', padding: '0 1rem' }}
+                          aria-label={`Delete ${c.name}`}
                         >
                           Delete
                         </button>
@@ -233,36 +302,50 @@ function App() {
                   </ul>
                 )}
                 <div style={{ marginTop: '2rem', display: 'flex', gap: '1rem' }}>
-                  <button type="button" onClick={() => setIsCreatingNew(true)} style={{ flex: 1, fontWeight: 'bold' }}>Create New Campaign</button>
-                  <button type="button" onClick={closeCampaignModal} style={{ flex: 1 }}>Cancel</button>
+                  <button type="button" onClick={() => setIsCreatingNew(true)} style={{ flex: 1, padding: '1rem', fontWeight: 'bold' }}>+ Create New Campaign</button>
+                  <button type="button" onClick={closeCampaignModal} style={{ flex: 1, padding: '1rem', background: '#eee' }}>Cancel</button>
                 </div>
               </>
             ) : (
               <>
-                <h3 id="switch-camp-title" ref={switchCampHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>Create New Campaign</h3>
+                <h3 id="switch-camp-title" ref={switchCampHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>New Campaign</h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                   <div>
-                    <label htmlFor="new-camp-name" style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.25rem' }}>Campaign Name</label>
+                    <label htmlFor="new-camp-name">Campaign Name:</label>
                     <input 
-                      id="new-camp-name"
+                      id="new-camp-name" 
+                      type="text" 
                       value={newCampName} 
                       onChange={e => setNewCampName(e.target.value)} 
-                      style={{ width: '100%', padding: '0.5rem' }}
+                      style={{ width: '100%', padding: '0.75rem' }}
                     />
                   </div>
                   <div>
-                    <label htmlFor="new-camp-desc" style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.25rem' }}>Description</label>
+                    <label htmlFor="new-camp-desc">Description:</label>
                     <textarea 
-                      id="new-camp-desc"
+                      id="new-camp-desc" 
                       value={newCampDesc} 
                       onChange={e => setNewCampDesc(e.target.value)} 
-                      rows={4}
-                      style={{ width: '100%', padding: '0.5rem' }}
+                      style={{ width: '100%', padding: '0.75rem', minHeight: '100px' }}
                     />
                   </div>
+                  <div>
+                    <label htmlFor="camp-template">Select Template (Optional):</label>
+                    <select 
+                      id="camp-template" 
+                      value={selectedTemplate} 
+                      onChange={e => setSelectedTemplate(e.target.value)}
+                      style={{ width: '100%', padding: '0.75rem' }}
+                    >
+                      <option value="none">Blank Campaign</option>
+                      {scrapedCampaigns.map(c => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
                   <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
-                    <button type="button" onClick={handleCreate} disabled={!newCampName} style={{ flex: 1, fontWeight: 'bold' }}>Create & Select</button>
-                    <button type="button" onClick={() => setIsCreatingNew(false)} style={{ flex: 1 }}>Back</button>
+                    <button type="button" onClick={handleCreate} style={{ flex: 1, padding: '1rem', background: '#1976d2', color: 'white', fontWeight: 'bold' }}>Create & Select</button>
+                    <button type="button" onClick={() => setIsCreatingNew(false)} style={{ flex: 1, padding: '1rem', background: '#eee' }}>Back</button>
                   </div>
                 </div>
               </>
@@ -274,87 +357,71 @@ function App() {
   );
 }
 
-function CreateLayout({ tab, setTab }: { tab: 'campaign' | 'spells', setTab: (t: 'campaign' | 'spells') => void }) {
-  return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-        <div style={{ fontWeight: 'bold', fontSize: '1.2rem' }}>Create Mode</div>
-        <div style={{ borderBottom: '1px solid #ccc', paddingBottom: '0.5rem' }}>
-          <button 
-            type="button"
-            onClick={() => setTab('campaign')}
-            style={{ fontWeight: tab === 'campaign' ? 'bold' : 'normal', marginRight: '1rem' }}
-            aria-current={tab === 'campaign' ? 'page' : undefined}
-          >
-            Campaign Builder
-          </button>
-          <button 
-            type="button"
-            onClick={() => setTab('spells')}
-            style={{ fontWeight: tab === 'spells' ? 'bold' : 'normal' }}
-            aria-current={tab === 'spells' ? 'page' : undefined}
-          >
-            Spell Browser
-          </button>
-        </div>
+function CreateLayout() {
+  const { activeCampaign } = useCampaigns();
+  
+  if (!activeCampaign) {
+    return (
+      <div style={{ padding: '2rem', textAlign: 'center' }}>
+        <h2>Welcome to Crits & Giggles</h2>
+        <p>Please select or create a campaign to get started.</p>
       </div>
-      {tab === 'campaign' ? <CampaignBuilder /> : <SpellBrowser />}
+    );
+  }
+
+  return (
+    <div className="layout-create">
+      <nav className="sub-nav">
+        <h2 style={{ margin: 0 }}>Campaign Builder</h2>
+      </nav>
+      <div className="tab-content">
+        <CampaignBuilder />
+      </div>
     </div>
   );
 }
 
 function RunLayout() {
-  const [tab, setTab] = useState<RunTab>('story');
-  const [targetEncounterId, setTargetEncounterId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'story' | 'combat'>('story');
+  const { activeCampaign } = useCampaigns();
 
   useEffect(() => {
     const handleSwitchTab = (e: any) => {
-      setTab(e.detail);
+      if (e.detail === 'combat' || e.detail === 'story') {
+        setActiveTab(e.detail);
+      }
     };
     window.addEventListener('switch-tab', handleSwitchTab);
     return () => window.removeEventListener('switch-tab', handleSwitchTab);
   }, []);
 
-  const handleGoToEncounter = (id: string) => {
-    setTargetEncounterId(id);
-    setTab('combat');
-  };
+  if (!activeCampaign) return <div style={{ padding: '2rem' }}>No active campaign.</div>;
 
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-        <div style={{ fontWeight: 'bold', fontSize: '1.2rem' }}>Run Mode</div>
-        <div style={{ borderBottom: '1px solid #ccc', paddingBottom: '0.5rem' }}>
-          <button 
-            type="button"
-            onClick={() => setTab('story')}
-            style={{ fontWeight: tab === 'story' ? 'bold' : 'normal', marginRight: '1rem' }}
-            aria-current={tab === 'story' ? 'page' : undefined}
-          >
-            Story
-          </button>
-          <button 
-            type="button"
-            onClick={() => setTab('combat')}
-            style={{ fontWeight: tab === 'combat' ? 'bold' : 'normal', marginRight: '1rem' }}
-            aria-current={tab === 'combat' ? 'page' : undefined}
-          >
-            Combat
-          </button>
-          <button 
-            type="button"
-            onClick={() => setTab('spells')}
-            style={{ fontWeight: tab === 'spells' ? 'bold' : 'normal' }}
-            aria-current={tab === 'spells' ? 'page' : undefined}
-          >
-            Spells
-          </button>
-        </div>
-      </div>
+    <div className="layout-run">
+      <nav className="sub-nav" role="tablist">
+        <button 
+          role="tab" 
+          aria-selected={activeTab === 'story'} 
+          onClick={() => setActiveTab('story')}
+          className={activeTab === 'story' ? 'active' : ''}
+        >
+          Story
+        </button>
+        <button 
+          role="tab" 
+          aria-selected={activeTab === 'combat'} 
+          onClick={() => setActiveTab('combat')}
+          className={activeTab === 'combat' ? 'active' : ''}
+        >
+          Combat
+        </button>
+      </nav>
 
-      {tab === 'story' && <CampaignRunner onGoToEncounter={handleGoToEncounter} />}
-      {tab === 'combat' && <EncounterRunner targetEncounterId={targetEncounterId} />}
-      {tab === 'spells' && <SpellBrowser />}
+      <div className="tab-content">
+        {activeTab === 'story' && <CampaignRunner />}
+        {activeTab === 'combat' && <EncounterRunner />}
+      </div>
     </div>
   );
 }

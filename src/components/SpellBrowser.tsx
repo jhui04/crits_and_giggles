@@ -1,51 +1,69 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import type { Spell } from '../types';
 import { DiceService } from '../services/DiceService';
+import { dataService } from '../services/DataService';
 
 export function SpellBrowser() {
   const [spells, setSpells] = useState<Spell[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [levelFilter, setLevelFilter] = useState<string>('all');
-  const [schoolFilter, setSchoolFilter] = useState<string>('all');
+  const [filters, setFilters] = useState({ search: '', levels: [] as string[], schools: [] as string[] });
   const [selectedSpell, setSelectedSpell] = useState<Spell | null>(null);
+  const [isFiltersOpen, setIsFiltersOpen] = useState(false);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const listHeadingRef = useRef<HTMLHeadingElement>(null);
+  const filtersHeadingRef = useRef<HTMLHeadingElement>(null);
+  const lastFocusedElementRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
-    fetch('/data/spells.json')
-      .then(res => res.json())
+    let isMounted = true;
+    dataService.getAllSpells()
       .then(data => {
-        setSpells(data.spells || data);
-        setIsLoading(false);
+        if (isMounted) {
+          setSpells(data);
+          setIsLoading(false);
+        }
       })
       .catch(err => {
-        console.error('Failed to load spells:', err);
-        setError('Failed to load spells.');
-        setIsLoading(false);
+        if (isMounted) {
+          console.error('Failed to load spells:', err);
+          setError('Failed to load spells.');
+          setIsLoading(false);
+        }
       });
+    return () => { isMounted = false; };
   }, []);
 
-  const filteredSpells = useMemo(() => {
-    return spells.filter(s => {
-      const matchesSearch = s.name.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesLevel = levelFilter === 'all' || s.level.toString() === levelFilter;
-      const matchesSchool = schoolFilter === 'all' || s.school === schoolFilter;
-      return matchesSearch && matchesLevel && matchesSchool;
-    }).sort((a, b) => a.name.localeCompare(b.name));
-  }, [spells, searchQuery, levelFilter, schoolFilter]);
+  useEffect(() => {
+    if (isFiltersOpen && filtersHeadingRef.current) {
+      filtersHeadingRef.current.focus();
+    }
+  }, [isFiltersOpen]);
 
-  const schools = useMemo(() => {
-    const s = new Set(spells.map(spell => spell.school));
-    return Array.from(s).sort();
-  }, [spells]);
+  const availableFilters = useMemo(() => dataService.getSpellFilters(spells), [spells]);
+
+  const filteredSpells = useMemo(() => {
+    return dataService.filterSpells(spells, filters);
+  }, [spells, filters]);
 
   const handleSelectSpell = (spell: Spell) => {
     setSelectedSpell(spell);
-    // Announcement for screen readers
-    // We could use a live region for this if needed
+  };
+
+  const toggleFilter = (category: 'levels' | 'schools', value: string) => {
+    setFilters(prev => {
+      const currentList = prev[category];
+      const updatedList = currentList.includes(value) 
+        ? currentList.filter(v => v !== value) 
+        : [...currentList, value];
+      return { ...prev, [category]: updatedList };
+    });
+  };
+
+  const handleCloseFilters = () => {
+    setIsFiltersOpen(false);
+    setTimeout(() => lastFocusedElementRef.current?.focus(), 0);
   };
 
   if (isLoading) return <p aria-live="polite">Loading spells...</p>;
@@ -55,36 +73,30 @@ export function SpellBrowser() {
     <section aria-labelledby="spell-browser-title">
       <h2 id="spell-browser-title" className="sr-only">Spell Browser</h2>
       
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.5rem', backgroundColor: '#f4f4f4', padding: '1rem', borderRadius: '8px' }}>
-        <div style={{ flex: '1 1 300px' }}>
+      <form onSubmit={(e) => e.preventDefault()} className="search-bar" style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', alignItems: 'flex-end', backgroundColor: '#f4f4f4', padding: '1rem', borderRadius: '8px' }}>
+        <div style={{ flexGrow: 1 }}>
           <label htmlFor="spell-search" style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.25rem' }}>Search Spells</label>
           <input 
             id="spell-search"
             ref={searchInputRef}
             type="text"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
+            value={filters.search}
+            onChange={e => setFilters({ ...filters, search: e.target.value })}
             placeholder="e.g. Fireball"
             style={{ width: '100%', padding: '0.5rem' }}
           />
         </div>
-        <div>
-          <label htmlFor="level-filter" style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.25rem' }}>Level</label>
-          <select id="level-filter" value={levelFilter} onChange={e => setLevelFilter(e.target.value)} style={{ padding: '0.5rem' }}>
-            <option value="all">All Levels</option>
-            {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(l => (
-              <option key={l} value={l.toString()}>{l === 0 ? 'Cantrip' : `Level ${l}`}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label htmlFor="school-filter" style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.25rem' }}>School</label>
-          <select id="school-filter" value={schoolFilter} onChange={e => setSchoolFilter(e.target.value)} style={{ padding: '0.5rem' }}>
-            <option value="all">All Schools</option>
-            {schools.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
-      </div>
+        <button 
+          type="button" 
+          onClick={(e) => {
+            lastFocusedElementRef.current = e.currentTarget;
+            setIsFiltersOpen(true);
+          }}
+          style={{ padding: '0.5rem 1rem', height: 'fit-content' }}
+        >
+          Filters
+        </button>
+      </form>
 
       <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap' }}>
         <div style={{ flex: '1 1 300px', maxHeight: '600px', overflowY: 'auto', border: '1px solid #ccc', borderRadius: '4px' }}>
@@ -124,11 +136,71 @@ export function SpellBrowser() {
           )}
         </div>
       </div>
+
+      {isFiltersOpen && (
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="filters-title" style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex',
+          alignItems: 'center', justifyContent: 'center', zIndex: 10000
+        }}>
+          <div className="modal-content" style={{
+            backgroundColor: 'white', padding: '2rem', borderRadius: '8px',
+            maxWidth: '600px', width: '90%', maxHeight: '90vh', overflowY: 'auto'
+          }}>
+            <h3 id="filters-title" ref={filtersHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>
+              Filter Spells
+            </h3>
+            <form onSubmit={(e) => { e.preventDefault(); handleCloseFilters(); }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
+                <details>
+                  <summary style={{ fontWeight: 'bold', cursor: 'pointer', padding: '0.5rem', backgroundColor: '#f5f5f5' }}>Level</summary>
+                  <fieldset style={{ border: 'none', padding: '0.5rem 0 0 0', margin: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '200px', overflowY: 'auto' }}>
+                    <legend className="sr-only">Level</legend>
+                    {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(l => (
+                      <label key={l} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <input
+                          type="checkbox"
+                          checked={filters.levels.includes(l.toString())}
+                          onChange={() => toggleFilter('levels', l.toString())}
+                        />
+                        {l === 0 ? 'Cantrip' : `Level ${l}`}
+                      </label>
+                    ))}
+                  </fieldset>
+                </details>
+
+                <details>
+                  <summary style={{ fontWeight: 'bold', cursor: 'pointer', padding: '0.5rem', backgroundColor: '#f5f5f5' }}>School</summary>
+                  <fieldset style={{ border: 'none', padding: '0.5rem 0 0 0', margin: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '200px', overflowY: 'auto' }}>
+                    <legend className="sr-only">School</legend>
+                    {availableFilters.schools.map(s => (
+                      <label key={s} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <input
+                          type="checkbox"
+                          checked={filters.schools.includes(s)}
+                          onChange={() => toggleFilter('schools', s)}
+                        />
+                        {s}
+                      </label>
+                    ))}
+                  </fieldset>
+                </details>
+              </div>
+
+              <div style={{ marginTop: '1.5rem', display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
+                <button type="submit" style={{ padding: '0.75rem 1.5rem', fontWeight: 'bold' }}>
+                  Apply Filters
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
 
-export function SpellDetail({ spell, onAnnounce }: { spell: Spell, onAnnounce?: (msg: string) => void }) {
+export function SpellDetail({ spell, onAnnounce, id }: { spell: Spell, onAnnounce?: (msg: string) => void, id?: string }) {
   const [activeRoll, setActiveRoll] = useState<{ title: string, result: string } | null>(null);
   const rollModalRef = useRef<HTMLHeadingElement>(null);
   const detailHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -172,38 +244,42 @@ export function SpellDetail({ spell, onAnnounce }: { spell: Spell, onAnnounce?: 
 
   return (
     <div style={{ padding: '1.5rem', border: '1px solid #ccc', borderRadius: '8px', backgroundColor: '#fff' }}>
-      <h3 ref={detailHeadingRef} tabIndex={-1} style={{ marginTop: 0, borderBottom: '2px solid #333', paddingBottom: '0.5rem', outline: 'none' }}>
+      <h3 id={id} ref={detailHeadingRef} tabIndex={-1} style={{ marginTop: 0, borderBottom: '2px solid #333', paddingBottom: '0.5rem', outline: 'none' }}>
         {spell.name}
       </h3>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem', marginBottom: '1.5rem', fontSize: '0.9rem' }}>
-        <div><strong>Level:</strong> {spell.level === 0 ? 'Cantrip' : spell.level}</div>
-        <div><strong>School:</strong> {spell.school}</div>
-        <div><strong>Casting Time:</strong> {spell.casting_time}</div>
-        <div><strong>Range:</strong> {spell.range}</div>
-        <div><strong>Duration:</strong> {spell.duration}{spell.concentration_required ? ' (Concentration)' : ''}</div>
-        <div><strong>Components:</strong> {spell.components}</div>
-      </div>
-
-      <div style={{ marginBottom: '1.5rem' }}>
-        {spell.damage && (
-          <div style={{ marginBottom: '1rem', padding: '0.75rem', backgroundColor: '#fff8f0', border: '1px solid #f0d0b0', borderRadius: '4px' }}>
-            <strong>Damage/Effect:</strong> {spell.damage}
-            <button 
-              type="button" 
-              onClick={(e) => handleRoll(e, 'Damage', spell.damage!)}
-              style={{ marginLeft: '1rem', padding: '0.25rem 0.75rem', cursor: 'pointer' }}
-            >
-              Roll Damage
-            </button>
+      <details style={{ marginBottom: '1.5rem', border: '1px solid #eee', padding: '0.5rem', borderRadius: '4px' }}>
+        <summary style={{ fontWeight: 'bold', cursor: 'pointer', outline: 'none' }}>Details</summary>
+        <div style={{ marginTop: '1rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem', marginBottom: '1.5rem', fontSize: '0.9rem' }}>
+            <div><strong>Level:</strong> {spell.level === 0 ? 'Cantrip' : spell.level}</div>
+            <div><strong>School:</strong> {spell.school}</div>
+            <div><strong>Casting Time:</strong> {spell.casting_time}</div>
+            <div><strong>Range:</strong> {spell.range}</div>
+            <div><strong>Duration:</strong> {spell.duration}{spell.concentration_required ? ' (Concentration)' : ''}</div>
+            <div><strong>Components:</strong> {spell.components}</div>
           </div>
-        )}
-        {spell.saving_throw && (
-          <p><strong>Saving Throw:</strong> {spell.saving_throw}</p>
-        )}
-      </div>
+
+          <div style={{ marginBottom: '1.5rem' }}>
+            {spell.damage && (
+              <div style={{ marginBottom: '1rem', padding: '0.75rem', backgroundColor: '#fff8f0', border: '1px solid #f0d0b0', borderRadius: '4px' }}>
+                <strong>Damage/Effect:</strong> {spell.damage}
+                <button 
+                  type="button" 
+                  onClick={(e) => handleRoll(e, 'Damage', spell.damage!)}
+                  style={{ marginLeft: '1rem', padding: '0.25rem 0.75rem', cursor: 'pointer' }}
+                >
+                  Roll Damage
+                </button>
+              </div>
+            )}
+            {spell.saving_throw && (
+              <p><strong>Saving Throw:</strong> {spell.saving_throw}</p>
+            )}
+          </div>
+        </div>
+      </details>
 
       <div style={{ lineHeight: '1.6' }}>
-        <h4 style={{ marginBottom: '0.5rem' }}>Description</h4>
         <p style={{ whiteSpace: 'pre-wrap' }}>{spell.description}</p>
         
         {spell.higher_level_description && (

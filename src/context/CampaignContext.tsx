@@ -7,7 +7,7 @@ interface CampaignContextType {
   activeCampaignId: string | null;
   activeCampaign: Campaign | undefined;
   setActiveCampaignId: (id: string | null) => void;
-  createCampaign: (name: string, description: string) => void;
+  createCampaign: (name: string, description: string, template?: Partial<Campaign>) => void;
   updateCampaign: (campaign: Campaign) => void;
   deleteCampaign: (id: string) => void;
 }
@@ -85,14 +85,14 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
     }
   }, [activeCampaignId]);
 
-  const createCampaign = (name: string, description: string) => {
+  const createCampaign = (name: string, description: string, template?: Partial<Campaign>) => {
     const newCamp: Campaign = {
       id: crypto.randomUUID(),
       name,
       description,
-      chapters: [],
-      assets: [],
-      encounters: []
+      chapters: template?.chapters || [],
+      assets: template?.assets || [],
+      encounters: template?.encounters || []
     };
     setCampaigns(prev => [...prev, newCamp]);
     setActiveCampaignId(newCamp.id);

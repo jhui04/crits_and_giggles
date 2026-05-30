@@ -17,6 +17,9 @@ test.describe('Core User Journeys', () => {
   });
 
   test('User can create a new campaign and switch to it', async ({ page }) => {
+    // Open Main Menu
+    await page.click('button[aria-label="Open Main Menu"]');
+    
     // Open Switch Campaign modal
     await page.click('text=Switch Campaign');
     await expect(page.locator('[role="dialog"]')).toBeVisible();

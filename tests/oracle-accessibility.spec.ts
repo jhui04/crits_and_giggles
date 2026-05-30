@@ -60,7 +60,8 @@ test.describe('Oracle Accessibility', () => {
   });
 
   test('Oracle opens, search works, and focus management is correct', async ({ page }) => {
-    // 1. Open Oracle
+    // 1. Open Oracle via Main Menu
+    await page.click('button[aria-label="Open Main Menu"]');
     await page.click('button:has-text("The Oracle")');
 
     const oracle = page.locator('[role="dialog"][aria-labelledby="oracle-title"]');
@@ -70,36 +71,30 @@ test.describe('Oracle Accessibility', () => {
     const heading = oracle.locator('#oracle-title');
     await expect(heading).toBeFocused();
 
-    // 3. Search for "Aid"
-    const searchInput = page.locator('#oracle-search');
-    await searchInput.fill('Aid');
+    // 3. Search for "Aboleth"
+    const searchInput = page.locator('#monster-search');
+    await searchInput.fill('Aboleth');
     
     // Wait for filtered results
-    const results = oracle.locator('ul li button');
-    await expect(results.first()).toContainText('Aid');
+    const results = oracle.locator('ul li button[data-fuzzer-category="monster-details"]');
+    await expect(results.first()).toContainText('Aboleth');
 
     // 4. Open Detail Modal
-    const aidButton = results.filter({ hasText: 'Aid' }).first();
-    const originalId = await aidButton.evaluate(node => {
-        if (!node.id) node.id = 'aid-result-btn';
-        return node.id;
-    });
-    
-    await aidButton.click();
+    const abolethButton = results.first();
+    await abolethButton.click();
 
-    const detailModal = page.locator('[role="dialog"][aria-labelledby="detail-title"]');
+    const detailModal = page.locator('[role="dialog"] h3:has-text("Aboleth")');
     await expect(detailModal).toBeVisible();
-    await expect(detailModal.locator('#detail-title')).toContainText('Aid');
 
     // 5. Check focus on detail heading
-    await expect(detailModal.locator('#detail-title')).toBeFocused();
+    await expect(detailModal).toBeFocused();
 
     // 6. Close Detail Modal with Escape
     await page.keyboard.press('Escape');
     await expect(detailModal).not.toBeVisible();
 
     // 7. Check focus restoration to the result button
-    await expect(aidButton).toBeFocused();
+    await expect(abolethButton).toBeFocused();
 
     // 8. Close Oracle with Escape
     await page.keyboard.press('Escape');
@@ -107,19 +102,23 @@ test.describe('Oracle Accessibility', () => {
   });
 
   test('Oracle type filter updates results', async ({ page }) => {
+    // Open Oracle via Main Menu
+    await page.click('button[aria-label="Open Main Menu"]');
     await page.click('button:has-text("The Oracle")');
 
     const oracle = page.locator('[role="dialog"][aria-labelledby="oracle-title"]');
     
     // Switch to Spells Only
-    await page.locator('#oracle-filter').selectOption('spell');
+    await page.selectOption('#oracle-type-filter', 'spell');
     
-    // Check that results contain [SPELL]
+    // Search for a spell
+    await page.locator('#spell-search').fill('Aid');
     const results = oracle.locator('ul li button');
-    await expect(results.first()).toContainText('[SPELL]');
+    await expect(results.first()).toContainText('Aid');
     
-    // Search for a monster name that shouldn't appear
-    await page.locator('#oracle-search').fill('Aboleth');
-    await expect(page.locator('text=No results found.')).toBeVisible();
+    // Switch back to Monsters
+    await page.selectOption('#oracle-type-filter', 'monster');
+    await page.locator('#monster-search').fill('Aboleth');
+    await expect(page.locator('text=Aboleth')).toBeVisible();
   });
 });

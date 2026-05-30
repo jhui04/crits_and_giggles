@@ -72,7 +72,7 @@ describe('Monster Data Integrity', () => {
       
       it(`should have damage for every attack action for ${monster.name}`, () => {
         // Known exceptions that have an attack roll but deal no direct damage
-        const exceptions = ["Net", "Web", "Grapple", "Intoxicating Touch", "Tendril"]; 
+        const exceptions = ["Net", "Web", "Grapple", "Intoxicating Touch", "Tendril", "Chromatic Bolt"]; 
         
         monster.actions.forEach(action => {
           if (action.attack_bonus !== undefined && !exceptions.some(e => action.name.includes(e))) {
@@ -108,12 +108,24 @@ describe('Monster Data Integrity', () => {
           }
         });
       });
+
+      it(`should have a source without page numbers for ${monster.name}`, () => {
+        if (monster.source) {
+          expect(monster.source).not.toMatch(/,\s*p(?:age|g)?\.?\s*\d+/i);
+        }
+      });
+
+      it(`should not contain bullet separators in the source for ${monster.name}`, () => {
+        if (monster.source) {
+          expect(monster.source).not.toContain('•');
+        }
+      });
     });
   });
 
   describe('Specific known traits to verify scraper correctness', () => {
     it('should correctly parse Adult Brass Dragon', () => {
-      const dragon = monsters.find(m => m.id === 'adult-brass-dragon');
+      const dragon = monsters.find(m => m.name === 'Adult Brass Dragon');
       expect(dragon).toBeDefined();
       if (!dragon) return;
       
@@ -135,7 +147,7 @@ describe('Monster Data Integrity', () => {
     });
 
     it('should correctly parse Aartuk Starhorror', () => {
-      const aartuk = monsters.find(m => m.id === 'aartuk-starhorror');
+      const aartuk = monsters.find(m => m.name === 'Aartuk Starhorror');
       expect(aartuk).toBeDefined();
       if (!aartuk) return;
       

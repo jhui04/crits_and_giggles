@@ -2,10 +2,22 @@ import { useState, useRef, useEffect } from 'react';
 import { useCampaigns } from '../context/CampaignContext';
 import { EncounterBuilder } from './EncounterBuilder';
 import { parseMarkdown } from '../utils/markdownParser';
-import type { AssetType, Asset, Chapter, Encounter } from '../types';
+import type { AssetType, Asset, Chapter, Encounter, Monster, Spell } from '../types';
+import { MonsterDetails } from './MonsterDetails';
+import { SpellDetail } from './SpellBrowser';
+import { dataService } from '../services/DataService';
 
 export function CampaignBuilder() {
   const { activeCampaign, updateCampaign } = useCampaigns();
+  
+  // Global Data
+  const [monsters, setMonsters] = useState<Monster[]>([]);
+  const [spells, setSpells] = useState<Spell[]>([]);
+
+  useEffect(() => {
+    dataService.getAllMonsters().then(setMonsters);
+    dataService.getAllSpells().then(setSpells);
+  }, []);
   
   // Asset State
   const [showAssetForm, setShowAssetForm] = useState(false);
@@ -244,10 +256,12 @@ export function CampaignBuilder() {
                   >
                     <span aria-hidden="true">{expandedChapterId === c.id ? '▼' : '▶'}</span> {c.title}
                   </button>
-                  <button type="button" data-fuzzer-category="chapter-edit" onClick={() => handleEditChapter(c)} style={{ marginLeft: '0.5rem' }}>Edit</button>
                 </div>
                 {expandedChapterId === c.id && (
                   <div style={{ padding: '1rem', borderLeft: '2px solid #0066cc', marginTop: '0.5rem' }}>
+                    <div style={{ marginBottom: '1rem' }}>
+                      <button type="button" data-fuzzer-category="chapter-edit" onClick={() => handleEditChapter(c)}>Edit Chapter</button>
+                    </div>
                     {parseMarkdown(c.content, handleAssetLinkClick, handleEncounterLinkClick, 4)}
                   </div>
                 )}
@@ -274,12 +288,16 @@ export function CampaignBuilder() {
                   >
                     <span aria-hidden="true">{expandedAssetId === a.id ? '▼' : '▶'}</span> {a.name} ({a.type})
                   </button>
-                  <button type="button" data-fuzzer-category="asset-edit" onClick={() => handleEditAsset(a)} style={{ marginLeft: '0.5rem' }}>Edit</button>
                 </div>
                 {expandedAssetId === a.id && (
                   <div style={{ padding: '1rem', borderLeft: '2px solid #0066cc', marginTop: '0.5rem' }}>
-                    <p style={{ margin: '0 0 0.5rem 0', fontSize: '0.85rem', color: '#666' }}>ID: {a.id}</p>
-                    <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{a.description}</p>
+                    <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+                      <button type="button" data-fuzzer-category="asset-edit" onClick={() => handleEditAsset(a)}>Edit Asset</button>
+                      <button type="button" data-fuzzer-category="asset-view" onClick={() => handleAssetLinkClick(a.id)}>View Details</button>
+                    </div>
+                    {!a.description.startsWith('Scraped') && (
+                      <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{a.description}</p>
+                    )}
                   </div>
                 )}
               </li>
@@ -420,12 +438,46 @@ export function CampaignBuilder() {
             backgroundColor: 'white', padding: '2rem', borderRadius: '8px', 
             maxWidth: '500px', width: '90%', maxHeight: '80vh', overflowY: 'auto'
           }}>
-            <h3 id="asset-viewer-title" ref={assetViewerHeadingRef} tabIndex={-1} style={{ outline: 'none', marginBottom: '0.5rem' }}>
-              {viewingAsset.name} ({viewingAsset.type})
-            </h3>
-            <div style={{ marginTop: '1rem' }}>
-              <p style={{ whiteSpace: 'pre-wrap' }}>{viewingAsset.description}</p>
-            </div>
+            {(() => {
+              let matchedMonster = monsters.find(m => m.id === viewingAsset.id);
+              if (!matchedMonster) {
+                matchedMonster = monsters.find(m => m.name.toLowerCase() === viewingAsset.name.toLowerCase());
+              }
+              if (matchedMonster) {
+                return (
+                  <div>
+                    <h3 id="asset-viewer-title" ref={assetViewerHeadingRef} tabIndex={-1} className="sr-only">
+                      Monster Details: {matchedMonster.name}
+                    </h3>
+                    <MonsterDetails monster={matchedMonster} />
+                  </div>
+                );
+              }
+
+              let matchedSpell = spells.find(s => s.id.toString() === viewingAsset.id);
+              if (!matchedSpell) {
+                matchedSpell = spells.find(s => s.name.toLowerCase() === viewingAsset.name.toLowerCase());
+              }
+              if (matchedSpell) {
+                return (
+                  <div>
+                    <SpellDetail spell={matchedSpell} id="asset-viewer-title" />
+                  </div>
+                );
+              }
+
+              return (
+                <>
+                  <h3 id="asset-viewer-title" ref={assetViewerHeadingRef} tabIndex={-1} style={{ outline: 'none', marginBottom: '0.5rem' }}>
+                    {viewingAsset.name} ({viewingAsset.type})
+                  </h3>
+                  <div style={{ marginTop: '1rem' }}>
+                    <p style={{ whiteSpace: 'pre-wrap' }}>{viewingAsset.description}</p>
+                  </div>
+                </>
+              );
+            })()}
+
             <button type="button" onClick={closeAssetViewer} style={{ marginTop: '2rem', width: '100%', padding: '0.5rem' }}>
               Close (Esc)
             </button>

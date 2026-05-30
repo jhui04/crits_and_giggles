@@ -84,9 +84,8 @@ test.describe('Modal Accessibility Deterministic Fuzzer', () => {
     return true;
   };
 
-  const fuzzView = async (page: Page, setupFn: () => Promise<void>) => {
+  const fuzzView = async (page: Page, setupFn: () => Promise<void>, maxDepth = 2) => {
     const pathsToExplore: number[][] = [ [] ];
-    const maxDepth = 2;
 
     while (pathsToExplore.length > 0) {
       const currentPath = pathsToExplore.shift()!;
@@ -257,5 +256,12 @@ test.describe('Modal Accessibility Deterministic Fuzzer', () => {
         await page.click('text=Switch to Run Mode');
         await page.click('text=Combat');
     });
+  });
+
+  test('Fuzz View 4: Main Menu Focus Management', async ({ page }) => {
+    await fuzzView(page, async () => {
+        await page.click('text=Crits & Giggles'); // Open main menu
+        await page.waitForSelector('#main-menu-title');
+    }, 1); // Only explore 1 level deep to avoid timing out when opening the massive Oracle
   });
 });
