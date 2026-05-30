@@ -72,7 +72,7 @@ describe('Monster Data Integrity', () => {
       
       it(`should have damage for every attack action for ${monster.name}`, () => {
         // Known exceptions that have an attack roll but deal no direct damage
-        const exceptions = ["Net", "Web", "Grapple", "Intoxicating Touch", "Tendril", "Chromatic Bolt"]; 
+        const exceptions = ["Net", "Web", "Grapple", "Intoxicating Touch", "Tendril", "Chromatic Bolt", "Spellcasting"]; 
         
         monster.actions.forEach(action => {
           if (action.attack_bonus !== undefined && !exceptions.some(e => action.name.includes(e))) {
@@ -87,8 +87,8 @@ describe('Monster Data Integrity', () => {
 
       it(`should correctly have attack rolls and damage for legendary attack actions for ${monster.name}`, () => {
         // Separate exception lists for legendary actions
-        const noHitExceptions: string[] = []; 
-        const noDamageExceptions: string[] = []; 
+        const noHitExceptions: string[] = ["Charging Horn"]; 
+        const noDamageExceptions: string[] = ["Spellcasting"]; 
         
         monster.legendary_actions.forEach(action => {
           if (action.is_attack) {

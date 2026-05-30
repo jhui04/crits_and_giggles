@@ -208,10 +208,17 @@ def parse_monster_html(html_content, url=""):
                         current_item = {"name": name, "content": text}
                         if target in (monster["actions"], monster["legendary_actions"]):
                             current_item["is_attack"] = "Attack" in text
-                            b_match = re.search(r'([+-]\d+) to hit', text)
-                            if b_match: current_item["attack_bonus"] = int(b_match.group(1))
-                            d_matches = re.findall(r'(?:(\d+d\d+(?:\s*[-+−–]\s*\d+)?)\)?|(\d+))\s+(\w+)\s+damage', text)
-                            if d_matches: current_item["damage"] = [{"dice": d[0] if d[0] else d[1], "type": d[2]} for d in d_matches]
+                            # Handle both 2014 ("+X to hit") and 2024 ("Attack Roll: +X") styles
+                            b_match = re.search(r'([+-]\d+)\s+to\s+hit|Attack\s+Roll:\s*([+-]\d+)', text)
+                            if b_match:
+                                bonus = b_match.group(1) if b_match.group(1) else b_match.group(2)
+                                current_item["attack_bonus"] = int(bonus)
+                            
+                            # Handle complex damage types like "bludgeoning or slashing damage"
+                            # and multiple damage instances
+                            d_matches = re.findall(r'(?:(\d+d\d+(?:\s*[-+−–]\s*\d+)?)\)?|(\d+))\s+([\w\s,/-]+?)\s+damage', text)
+                            if d_matches:
+                                current_item["damage"] = [{"dice": d[0] if d[0] else d[1], "type": d[2].strip()} for d in d_matches]
                         target.append(current_item)
                     elif current_item:
                         current_item["content"] += " " + clean_text(child.get_text())
