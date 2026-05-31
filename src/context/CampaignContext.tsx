@@ -21,60 +21,58 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
 
   // Load on mount
   useEffect(() => {
-    const saved = localStorage.getItem('crits_campaigns');
-    let parsedCampaigns: Campaign[] = saved ? JSON.parse(saved) : [];
+    const init = async () => {
+      try {
+        const saved = localStorage.getItem('crits_campaigns');
+        let parsedCampaigns: Campaign[] = saved ? JSON.parse(saved) : [];
 
-    // Ensure all campaigns have the players field (migration)
-    parsedCampaigns = parsedCampaigns.map(c => ({
-      ...c,
-      players: c.players || []
-    }));
+        // Ensure all campaigns have the players field (migration)
+        parsedCampaigns = parsedCampaigns.map(c => ({
+          ...c,
+          players: c.players || []
+        }));
 
-    if (parsedCampaigns.length === 0) {
-      // Only seed default if there's genuinely no saved data
-      const defaultCampaign: Campaign = {
-        id: crypto.randomUUID(),
-        name: 'Starlight Vagabonds',
-        description: 'A sci-fi adventure on the edge of the galaxy.',
-        chapters: [
-          {
-            id: crypto.randomUUID(),
-            title: 'Arrival at Station 9',
-            content: 'The crew arrives at # Station 9.\n\nThey are met by @Asset[npc-commander-zara]{Commander Zara} who briefs them on the situation. "We have a breach in sector 4," she says. \n\nSuddenly, an alarm blares. @Encounter[enc-breach]{Sector 4 Breach} has begun!',
-            order: 0
-          },
-          {
-            id: crypto.randomUUID(),
-            title: 'The Aftermath',
-            content: 'With the breach contained, the crew inspects the damage. They find a strange @Asset[item-glowing-orb]{Glowing Orb} pulsing in the wreckage.',
-            order: 1
+        if (parsedCampaigns.length === 0) {
+          const res = await fetch('/data/scraped_campaign.json');
+          if (!res.ok) throw new Error(`Failed to fetch default campaign: ${res.status}`);
+          
+          const data = await res.json();
+          const templates = Array.isArray(data) ? data : [data];
+          
+          if (templates.length > 0) {
+            const template = templates[0];
+            const newId = (typeof crypto !== 'undefined' && crypto.randomUUID) 
+              ? crypto.randomUUID() 
+              : Math.random().toString(36).substring(2, 15);
+              
+            const defaultCampaign: Campaign = {
+              ...template,
+              id: newId,
+              players: [],
+              encounters: []
+            };
+            setCampaigns([defaultCampaign]);
+            setActiveCampaignId(defaultCampaign.id);
+          } else {
+            setCampaigns([]);
           }
-        ],
-        assets: [
-          { id: 'npc-commander-zara', name: 'Commander Zara', type: 'NPC', description: 'A stern, no-nonsense commander with cybernetic implants.' },
-          { id: 'item-glowing-orb', name: 'Glowing Orb', type: 'Item', description: 'A mysterious orb emitting a faint blue light. It hums with energy.' }
-        ],
-        players: [],
-        encounters: [
-          {
-            id: 'enc-breach',
-            name: 'Sector 4 Breach',
-            units: []
+        } else {
+          setCampaigns(parsedCampaigns);
+          
+          const savedActive = localStorage.getItem('crits_active_campaign');
+          if (savedActive) {
+            setActiveCampaignId(savedActive);
           }
-        ]
-      };
-      setCampaigns([defaultCampaign]);
-      setActiveCampaignId(defaultCampaign.id);
-    } else {
-      setCampaigns(parsedCampaigns);
-    }
-    
-    const savedActive = localStorage.getItem('crits_active_campaign');
-    if (savedActive) {
-      setActiveCampaignId(savedActive);
-    }
-    
-    isLoaded.current = true;
+        }
+      } catch (err) {
+        console.error('CampaignContext initialization error:', err);
+        setCampaigns([]);
+      } finally {
+        isLoaded.current = true;
+      }
+    };
+
+    init();
   }, []);
 
   // Save on change
