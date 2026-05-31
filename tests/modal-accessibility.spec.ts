@@ -1,4 +1,4 @@
-import { test, expect, Page, Locator } from '@playwright/test';
+import { test, expect, Page } from '@playwright/test';
 import fs from 'fs';
 import path from 'path';
 
@@ -164,7 +164,7 @@ test.describe('Modal Accessibility Deterministic Fuzzer', () => {
         // Click!
         try {
           await btnToClick.click({ force: true, timeout: 500 });
-        } catch (e) {
+        } catch {
           // Fallback to dispatching a click event if standard click fails (e.g. viewport issues)
           await btnToClick.evaluate(node => node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })));
         }

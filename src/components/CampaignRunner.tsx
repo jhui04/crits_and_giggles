@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useCampaigns } from '../context/CampaignContext';
-import { parseMarkdown } from '../utils/markdownParser';
+import { Markdown } from './Markdown';
 import type { Asset, Monster, Spell } from '../types';
 import { MonsterDetails } from './MonsterDetails';
 import { SpellDetail } from './SpellBrowser';
@@ -21,14 +21,6 @@ export function CampaignRunner({ onGoToEncounter }: { onGoToEncounter?: (id: str
     dataService.getAllMonsters().then(setMonsters);
     dataService.getAllSpells().then(setSpells);
   }, []);
-
-  // Set the first chapter as active when a campaign is loaded
-  useEffect(() => {
-    if (activeCampaign && activeCampaign.chapters.length > 0 && !activeChapterId) {
-      const firstChapterId = activeCampaign.chapters[0].id;
-      setActiveChapterId(firstChapterId);
-    }
-  }, [activeCampaign, activeChapterId]);
 
   const closeModal = useCallback(() => {
     setIsModalOpen(false);
@@ -81,13 +73,14 @@ export function CampaignRunner({ onGoToEncounter }: { onGoToEncounter?: (id: str
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isModalOpen]);
+  }, [isModalOpen, closeModal]);
 
   if (!activeCampaign) {
     return <p>No active campaign selected. Go to Create Mode to select one.</p>;
   }
 
-  const activeChapter = activeCampaign.chapters.find(c => c.id === activeChapterId);
+  const currentChapterId = activeChapterId || (activeCampaign.chapters.length > 0 ? activeCampaign.chapters[0].id : null);
+  const activeChapter = activeCampaign.chapters.find(c => c.id === currentChapterId);
 
   return (
     <div>
@@ -113,12 +106,12 @@ export function CampaignRunner({ onGoToEncounter }: { onGoToEncounter?: (id: str
                     style={{ 
                       width: '100%', 
                       textAlign: 'left',
-                      fontWeight: activeChapterId === chap.id ? 'bold' : 'normal',
-                      backgroundColor: activeChapterId === chap.id ? '#f0f8ff' : 'transparent',
+                      fontWeight: currentChapterId === chap.id ? 'bold' : 'normal',
+                      backgroundColor: currentChapterId === chap.id ? '#f0f8ff' : 'transparent',
                       border: '1px solid transparent',
                       padding: '0.5rem'
                     }}
-                    aria-current={activeChapterId === chap.id ? 'page' : undefined}
+                    aria-current={currentChapterId === chap.id ? 'page' : undefined}
                   >
                     {chap.title}
                   </button>
@@ -134,7 +127,12 @@ export function CampaignRunner({ onGoToEncounter }: { onGoToEncounter?: (id: str
             <div>
               <h3 style={{ borderBottom: '1px solid #ccc', paddingBottom: '0.5rem' }}>{activeChapter.title}</h3>
               <div style={{ marginTop: '1rem' }}>
-                {parseMarkdown(activeChapter.content, handleAssetClick, handleEncounterClick, 3)}
+                <Markdown 
+                  content={activeChapter.content} 
+                  onAssetClick={handleAssetClick} 
+                  onEncounterClick={handleEncounterClick} 
+                  baseHeadingLevel={3} 
+                />
               </div>
             </div>
           ) : (

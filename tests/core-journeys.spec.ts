@@ -1,10 +1,4 @@
 import { test, expect } from '@playwright/test';
-import fs from 'fs';
-import path from 'path';
-
-// Load seed data for predictable tests
-const monstersData = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'public/data/monsters.json'), 'utf-8'));
-const mockMonster = monstersData[0]; 
 
 test.describe('Core User Journeys', () => {
 

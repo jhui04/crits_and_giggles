@@ -5,6 +5,7 @@ import { EncounterRunner } from './components/EncounterRunner';
 import { Oracle } from './components/Oracle';
 import { ShortcutsHelp } from './components/ShortcutsHelp';
 import { useCampaigns } from './context/CampaignContext';
+import type { Campaign } from './types';
 
 type AppMode = 'create' | 'run';
 
@@ -20,7 +21,7 @@ function App() {
   const [newCampName, setNewCampName] = useState('');
   const [newCampDesc, setNewCampDesc] = useState('');
 
-  const [scrapedCampaigns, setScrapedCampaigns] = useState<any[]>([]);
+  const [scrapedCampaigns, setScrapedCampaigns] = useState<Partial<Campaign>[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<string>('none');
 
   useEffect(() => {
@@ -383,9 +384,10 @@ function RunLayout() {
   const { activeCampaign } = useCampaigns();
 
   useEffect(() => {
-    const handleSwitchTab = (e: any) => {
-      if (e.detail === 'combat' || e.detail === 'story') {
-        setActiveTab(e.detail);
+    const handleSwitchTab = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail === 'combat' || detail === 'story') {
+        setActiveTab(detail);
       }
     };
     window.addEventListener('switch-tab', handleSwitchTab);

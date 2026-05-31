@@ -1,18 +1,7 @@
-import { createContext, useState, useEffect, useContext, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import type { Campaign } from '../types';
-
-interface CampaignContextType {
-  campaigns: Campaign[];
-  activeCampaignId: string | null;
-  activeCampaign: Campaign | undefined;
-  setActiveCampaignId: (id: string | null) => void;
-  createCampaign: (name: string, description: string, template?: Partial<Campaign>) => void;
-  updateCampaign: (campaign: Campaign) => void;
-  deleteCampaign: (id: string) => void;
-}
-
-const CampaignContext = createContext<CampaignContextType | undefined>(undefined);
+import { CampaignContext } from './CampaignContext';
 
 export function CampaignProvider({ children }: { children: ReactNode }) {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -125,12 +114,4 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
       {children}
     </CampaignContext.Provider>
   );
-}
-
-export function useCampaigns() {
-  const context = useContext(CampaignContext);
-  if (context === undefined) {
-    throw new Error('useCampaigns must be used within a CampaignProvider');
-  }
-  return context;
 }

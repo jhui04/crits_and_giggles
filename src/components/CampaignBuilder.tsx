@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useCampaigns } from '../context/CampaignContext';
 import { EncounterBuilder } from './EncounterBuilder';
-import { parseMarkdown } from '../utils/markdownParser';
+import { Markdown } from './Markdown';
 import type { AssetType, Asset, Chapter, Encounter, Monster, Spell, PlayerCharacter } from '../types';
 import { MonsterDetails } from './MonsterDetails';
 import { SpellDetail } from './SpellBrowser';
@@ -265,15 +265,15 @@ export function CampaignBuilder() {
     setShowCampaignForm(true);
   };
 
-  const handleEditPlayer = (player: PlayerCharacter) => {
+  const handleEditPlayer = useCallback((player: PlayerCharacter) => {
     lastFocusedElement.current = document.activeElement as HTMLElement;
     setEditingPlayerId(player.id);
     setPlayerName(player.name);
     setPlayerDesc(player.description);
     setShowPlayerForm(true);
-  };
+  }, []);
 
-  const handleDeletePlayer = (id: string) => {
+  const handleDeletePlayer = useCallback((id: string) => {
     if (!activeCampaign) return;
     if (confirm("Are you sure you want to delete this player character?")) {
       updateCampaign({
@@ -281,26 +281,26 @@ export function CampaignBuilder() {
         players: activeCampaign.players.filter(p => p.id !== id)
       });
     }
-  };
+  }, [activeCampaign, updateCampaign]);
 
-  const handleEditChapter = (chapter: Chapter) => {
+  const handleEditChapter = useCallback((chapter: Chapter) => {
     lastFocusedElement.current = document.activeElement as HTMLElement;
     setEditingChapterId(chapter.id);
     setChapterTitle(chapter.title);
     setChapterContent(chapter.content);
     setShowChapterForm(true);
-  };
+  }, []);
 
-  const handleEditAsset = (asset: Asset) => {
+  const handleEditAsset = useCallback((asset: Asset) => {
     lastFocusedElement.current = document.activeElement as HTMLElement;
     setEditingAssetId(asset.id);
     setAssetName(asset.name);
     setAssetType(asset.type);
     setAssetDesc(asset.description);
     setShowAssetForm(true);
-  };
+  }, []);
 
-  const handleDeleteEncounter = (id: string) => {
+  const handleDeleteEncounter = useCallback((id: string) => {
     if (!activeCampaign) return;
     if (confirm("Are you sure you want to delete this encounter?")) {
       updateCampaign({
@@ -308,7 +308,7 @@ export function CampaignBuilder() {
         encounters: activeCampaign.encounters.filter(e => e.id !== id)
       });
     }
-  };
+  }, [activeCampaign, updateCampaign]);
 
   const handleAssetLinkClick = useCallback((id: string) => {
     const asset = activeCampaign?.assets.find(a => a.id === id);
@@ -372,7 +372,12 @@ export function CampaignBuilder() {
                     <div style={{ marginBottom: '1rem' }}>
                       <button type="button" data-fuzzer-category="chapter-edit" onClick={() => handleEditChapter(c)}>Edit Chapter</button>
                     </div>
-                    {parseMarkdown(c.content, handleAssetLinkClick, handleEncounterLinkClick, 4)}
+                    <Markdown 
+                      content={c.content} 
+                      onAssetClick={handleAssetLinkClick} 
+                      onEncounterClick={handleEncounterLinkClick} 
+                      baseHeadingLevel={4} 
+                    />
                   </div>
                 )}
               </li>
@@ -406,6 +411,7 @@ export function CampaignBuilder() {
                     {expandedAssetId === a.id && (
                       <div style={{ padding: '1rem', borderLeft: '2px solid #0066cc', marginTop: '0.5rem' }}>
                         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+                          {/* eslint-disable-next-line react-hooks/refs */}
                           <button type="button" data-fuzzer-category="asset-edit" onClick={() => handleEditAsset(a)}>Edit Asset</button>
                           <button type="button" data-fuzzer-category="asset-view" onClick={() => handleAssetLinkClick(a.id)}>View Details</button>
                         </div>

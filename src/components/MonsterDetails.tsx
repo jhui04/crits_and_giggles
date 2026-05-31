@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import type { Monster, Spell } from '../types';
 import { DiceService } from '../services/DiceService';
 import { QuickRoller } from './QuickRoller';
-import { wrapSpells } from './SpellLink';
+import { wrapSpells } from '../utils/spellUtils';
 
 interface MonsterDetailsProps {
   monster: Monster;
@@ -224,7 +224,7 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
                   >
                     <button 
                       type="button"
-                      onClick={(e) => rollFullAttack(e, a.name, a.attack_bonus, a.damage as any)}
+                      onClick={(e) => rollFullAttack(e, a.name, a.attack_bonus, a.damage)}
                       style={{
                         background: 'none',
                         border: 'none',
@@ -270,7 +270,7 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
                   >
                     <button 
                       type="button"
-                      onClick={(e) => rollFullAttack(e, a.name, a.attack_bonus, a.damage as any)}
+                      onClick={(e) => rollFullAttack(e, a.name, a.attack_bonus, a.damage)}
                       style={{
                         background: 'none',
                         border: 'none',

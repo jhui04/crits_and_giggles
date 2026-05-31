@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import type { Spell } from '../types';
 import { SpellDetail } from './SpellBrowser';
 
@@ -12,15 +12,12 @@ let spellCache: Spell[] | null = null;
 export function SpellLink({ spellName }: SpellLinkProps) {
   const [spells, setSpells] = useState<Spell[]>(spellCache || []);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [foundSpell, setFoundSpell] = useState<Spell | null>(null);
   
   const triggerRef = useRef<HTMLButtonElement>(null);
   const modalHeadingRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
-    if (spellCache) {
-      setSpells(spellCache);
-    } else {
+    if (!spellCache) {
       fetch('/data/spells.json')
         .then(res => res.json())
         .then(data => {
@@ -32,12 +29,12 @@ export function SpellLink({ spellName }: SpellLinkProps) {
     }
   }, []);
 
-  useEffect(() => {
+  const foundSpell = useMemo(() => {
     if (spells.length > 0) {
       const name = spellName.toLowerCase().replace(/[.,!?;:]/g, '').trim();
-      const spell = spells.find(s => s.name.toLowerCase() === name);
-      setFoundSpell(spell || null);
+      return spells.find(s => s.name.toLowerCase() === name) || null;
     }
+    return null;
   }, [spells, spellName]);
 
   const openModal = () => {
@@ -114,37 +111,3 @@ export function SpellLink({ spellName }: SpellLinkProps) {
   );
 }
 
-/**
- * Utility to wrap spell names in text with SpellLink components.
- * This is a naive implementation that looks for capitalized words that match spell names.
- * For production, we might want a more sophisticated approach.
- */
-export function wrapSpells(text: string, spellNames: string[]): React.ReactNode[] {
-  if (!text || spellNames.length === 0) return [text];
-
-  // Sort spell names by length descending to match longer ones first (e.g. "Hold Person" before "Hold")
-  const sortedNames = [...spellNames].sort((a, b) => b.length - a.length);
-  
-  // Create a regex that matches any of the spell names
-  // We use word boundaries \b to avoid matching parts of words
-  const escapedNames = sortedNames.map(name => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-  const regex = new RegExp(`\\b(${escapedNames.join('|')})\\b`, 'gi');
-
-  const parts: React.ReactNode[] = [];
-  let lastIndex = 0;
-  let match;
-
-  while ((match = regex.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(text.slice(lastIndex, match.index));
-    }
-    parts.push(<SpellLink key={match.index} spellName={match[1]} />);
-    lastIndex = regex.lastIndex;
-  }
-
-  if (lastIndex < text.length) {
-    parts.push(text.slice(lastIndex));
-  }
-
-  return parts;
-}
