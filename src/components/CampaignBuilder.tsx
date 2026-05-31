@@ -181,6 +181,17 @@ export function CampaignBuilder() {
     setTimeout(() => createEncounterBtnRef.current?.focus(), 0);
   };
 
+  const getAssetDisplayName = useCallback((asset: Asset) => {
+    if (asset.type === 'NPC') {
+      const monster = monsters.find(m => m.id === asset.id);
+      if (monster) return monster.name;
+    } else if (asset.type === 'Spell') {
+      const spell = spells.find(s => s.id.toString() === asset.id);
+      if (spell) return spell.name;
+    }
+    return asset.name;
+  }, [monsters, spells]);
+
   const handleAddPlayer = () => {
     if (!activeCampaign || !playerName) return;
     
@@ -375,32 +386,38 @@ export function CampaignBuilder() {
         <section style={{ flex: '1 1 300px' }}>
           <h3 id="assets-heading">Manage Assets</h3>
           <ul style={{ listStyle: 'none', padding: 0, marginBottom: '1rem' }}>
-            {activeCampaign.assets.map(a => (
-              <li key={a.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0' }}>
-                <div style={{ display: 'flex', alignItems: 'center' }}>
-                  <button type="button"
-                    data-fuzzer-category="asset-expand"
-                    aria-expanded={expandedAssetId === a.id}
-                    aria-label={`${a.name} (${a.type}), ${expandedAssetId === a.id ? 'Expanded' : 'Collapsed'}`}
-                    onClick={() => setExpandedAssetId(prev => prev === a.id ? null : a.id)}
-                    style={{ width: '100%', textAlign: 'left', fontWeight: 'bold', background: 'none', border: 'none', padding: '0.5rem', cursor: 'pointer' }}
-                  >
-                    <span aria-hidden="true">{expandedAssetId === a.id ? '▼' : '▶'}</span> {a.name} ({a.type})
-                  </button>
-                </div>
-                {expandedAssetId === a.id && (
-                  <div style={{ padding: '1rem', borderLeft: '2px solid #0066cc', marginTop: '0.5rem' }}>
-                    <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-                      <button type="button" data-fuzzer-category="asset-edit" onClick={() => handleEditAsset(a)}>Edit Asset</button>
-                      <button type="button" data-fuzzer-category="asset-view" onClick={() => handleAssetLinkClick(a.id)}>View Details</button>
+            {(() => {
+              const uniqueAssets = Array.from(new Map(activeCampaign.assets.map(a => [a.id, a])).values());
+              return uniqueAssets.map(a => {
+                const displayName = getAssetDisplayName(a);
+                return (
+                  <li key={a.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0' }}>
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                      <button type="button"
+                        data-fuzzer-category="asset-expand"
+                        aria-expanded={expandedAssetId === a.id}
+                        aria-label={`${displayName} (${a.type}), ${expandedAssetId === a.id ? 'Expanded' : 'Collapsed'}`}
+                        onClick={() => setExpandedAssetId(prev => prev === a.id ? null : a.id)}
+                        style={{ width: '100%', textAlign: 'left', fontWeight: 'bold', background: 'none', border: 'none', padding: '0.5rem', cursor: 'pointer' }}
+                      >
+                        <span aria-hidden="true">{expandedAssetId === a.id ? '▼' : '▶'}</span> {displayName} ({a.type})
+                      </button>
                     </div>
-                    {!a.description.startsWith('Scraped') && (
-                      <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{a.description}</p>
+                    {expandedAssetId === a.id && (
+                      <div style={{ padding: '1rem', borderLeft: '2px solid #0066cc', marginTop: '0.5rem' }}>
+                        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+                          <button type="button" data-fuzzer-category="asset-edit" onClick={() => handleEditAsset(a)}>Edit Asset</button>
+                          <button type="button" data-fuzzer-category="asset-view" onClick={() => handleAssetLinkClick(a.id)}>View Details</button>
+                        </div>
+                        {!a.description.startsWith('Scraped') && (
+                          <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{a.description}</p>
+                        )}
+                      </div>
                     )}
-                  </div>
-                )}
-              </li>
-            ))}
+                  </li>
+                );
+              });
+            })()}
             {activeCampaign.assets.length === 0 && <li>No assets created yet.</li>}
           </ul>
           <button type="button" ref={addAssetBtnRef} onClick={() => setShowAssetForm(true)}>+ Add Asset</button>
@@ -503,6 +520,7 @@ export function CampaignBuilder() {
                   <option value="PC">PC</option>
                   <option value="Location">Location</option>
                   <option value="Item">Item</option>
+                  <option value="Spell">Spell</option>
                 </select>
               </div>
               <div>

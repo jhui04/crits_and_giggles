@@ -63,7 +63,7 @@ export interface Chapter {
   order: number;
 }
 
-export type AssetType = 'NPC' | 'PC' | 'Location' | 'Item';
+export type AssetType = 'NPC' | 'PC' | 'Location' | 'Item' | 'Spell';
 
 export interface Asset {
   id: string;
