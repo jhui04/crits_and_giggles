@@ -229,7 +229,7 @@ function App() {
             backgroundColor: 'white', padding: '2rem', borderRadius: '8px',
             maxWidth: '400px', width: '90%', maxHeight: '80vh', overflowY: 'auto'
           }}>
-            <h3 id="main-menu-title" ref={mainMenuHeadingRef} tabIndex={-1} style={{ outline: 'none', marginTop: 0 }}>Main Menu</h3>
+            <h2 id="main-menu-title" ref={mainMenuHeadingRef} tabIndex={-1} style={{ outline: 'none', marginTop: 0 }}>Main Menu</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1.5rem' }}>
               <button
                 type="button"
@@ -278,7 +278,7 @@ function App() {
           }}>
             {!isCreatingNew ? (
               <>
-                <h3 id="switch-camp-title" ref={switchCampHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>Select Campaign</h3>
+                <h2 id="switch-camp-title" ref={switchCampHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>Select Campaign</h2>
                 {campaigns.length === 0 ? <p>No campaigns found.</p> : (
                   <ul style={{ listStyle: 'none', padding: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                     {campaigns.map(c => (
@@ -293,7 +293,7 @@ function App() {
                         <button 
                           type="button"
                           onClick={() => deleteCampaign(c.id)}
-                          style={{ background: '#ff4444', color: 'white', border: 'none', padding: '0 1rem' }}
+                          style={{ background: '#d32f2f', color: 'white', border: 'none', padding: '0 1rem' }}
                           aria-label={`Delete ${c.name}`}
                         >
                           Delete
@@ -309,7 +309,7 @@ function App() {
               </>
             ) : (
               <>
-                <h3 id="switch-camp-title" ref={switchCampHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>New Campaign</h3>
+                <h2 id="switch-camp-title" ref={switchCampHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>New Campaign</h2>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                   <div>
                     <label htmlFor="new-camp-name">Campaign Name:</label>

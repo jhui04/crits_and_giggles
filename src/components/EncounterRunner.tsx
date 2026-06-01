@@ -225,7 +225,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     const campaignEncounters = activeCampaign?.encounters || [];
     return (
       <section>
-        <h3 ref={runnerHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>Load Encounter</h3>
+        <h2 ref={runnerHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>Load Encounter</h2>
         {!activeCampaign ? <p>Please select a campaign in Create Mode.</p> :
          campaignEncounters.length === 0 ? <p>No saved encounters found. Go to Create Mode to build one.</p> : (
           <ul style={{ listStyle: 'none', padding: 0 }}>
@@ -243,7 +243,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   return (
     <div className="encounter-runner">
       <header>
-        <h3 ref={runnerHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>Running: {activeEncounter.name}</h3>
+        <h2 ref={runnerHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>Running: {activeEncounter.name}</h2>
         <button type="button" onClick={() => setActiveEncounter(null)}>Close Encounter</button>
       </header>
 
@@ -253,7 +253,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
 
       {!isCombatStarted ? (
         <section>
-          <h4>Initiative Setup</h4>
+          <h3>Initiative Setup</h3>
           <p>Enter player initiatives and click Start. Monsters will auto-roll health and initiative.</p>
           <ul style={{ listStyle: 'none', padding: 0 }}>
             {combatants.map(u => (
@@ -273,7 +273,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
         </section>
       ) : (
         <section>
-          <h4>Initiative Track</h4>
+          <h3>Initiative Track</h3>
           <p>Use <strong>Tab</strong> to navigate. <strong>Enter</strong> for details. <strong>Alt + N</strong> for next turn.</p>
           <button type="button" onClick={nextTurn} style={{ marginBottom: '1rem' }}>Next Turn (Alt+N)</button>
           

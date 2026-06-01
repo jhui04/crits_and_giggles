@@ -457,9 +457,9 @@ export function CampaignBuilder() {
             backgroundColor: 'white', padding: '2rem', borderRadius: '8px', 
             maxWidth: '600px', width: '90%', maxHeight: '90vh', display: 'flex', flexDirection: 'column'
           }}>
-            <h3 id="chapter-modal-title" ref={chapterHeadingRef} tabIndex={-1} style={{ outline: 'none', marginTop: 0 }}>
+            <h2 id="chapter-modal-title" ref={chapterHeadingRef} tabIndex={-1} style={{ outline: 'none', marginTop: 0 }}>
               {editingChapterId ? 'Edit Chapter' : 'Add New Chapter'}
-            </h3>
+            </h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', flexGrow: 1 }}>
               <div>
                 <label htmlFor="chap-title" style={{ display: 'block', fontWeight: 'bold' }}>Chapter Title</label>
@@ -500,9 +500,9 @@ export function CampaignBuilder() {
             backgroundColor: 'white', padding: '2rem', borderRadius: '8px', 
             maxWidth: '500px', width: '90%', maxHeight: '80vh', overflowY: 'auto'
           }}>
-            <h3 id="asset-modal-title" ref={assetHeadingRef} tabIndex={-1} style={{ outline: 'none', marginTop: 0 }}>
+            <h2 id="asset-modal-title" ref={assetHeadingRef} tabIndex={-1} style={{ outline: 'none', marginTop: 0 }}>
               {editingAssetId ? 'Edit Asset' : 'Add New Asset'}
-            </h3>
+            </h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <div>
                 <label htmlFor="asset-name" style={{ display: 'block', fontWeight: 'bold' }}>Asset Name</label>
@@ -559,9 +559,9 @@ export function CampaignBuilder() {
             backgroundColor: 'white', padding: '2rem', borderRadius: '8px', 
             maxWidth: '600px', width: '90%', maxHeight: '90vh', overflowY: 'auto'
           }}>
-            <h3 id="campaign-modal-title" ref={campaignHeadingRef} tabIndex={-1} style={{ outline: 'none', marginTop: 0 }}>
+            <h2 id="campaign-modal-title" ref={campaignHeadingRef} tabIndex={-1} style={{ outline: 'none', marginTop: 0 }}>
               Campaign Settings
-            </h3>
+            </h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <div>
                 <label htmlFor="camp-name" style={{ display: 'block', fontWeight: 'bold' }}>Campaign Name</label>
@@ -623,9 +623,9 @@ export function CampaignBuilder() {
             backgroundColor: 'white', padding: '2rem', borderRadius: '8px', 
             maxWidth: '500px', width: '90%'
           }}>
-            <h3 id="player-modal-title" ref={playerHeadingRef} tabIndex={-1} style={{ outline: 'none', marginTop: 0 }}>
+            <h2 id="player-modal-title" ref={playerHeadingRef} tabIndex={-1} style={{ outline: 'none', marginTop: 0 }}>
               {editingPlayerId ? 'Edit Player' : 'Add New Player'}
-            </h3>
+            </h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <div>
                 <label htmlFor="player-name" style={{ display: 'block', fontWeight: 'bold' }}>Player Name</label>
@@ -675,9 +675,9 @@ export function CampaignBuilder() {
               if (matchedMonster) {
                 return (
                   <div>
-                    <h3 id="asset-viewer-title" ref={assetViewerHeadingRef} tabIndex={-1} className="sr-only">
+                    <h2 id="asset-viewer-title" ref={assetViewerHeadingRef} tabIndex={-1} className="sr-only">
                       Monster Details: {matchedMonster.name}
-                    </h3>
+                    </h2>
                     <MonsterDetails monster={matchedMonster} />
                   </div>
                 );
@@ -697,9 +697,9 @@ export function CampaignBuilder() {
 
               return (
                 <>
-                  <h3 id="asset-viewer-title" ref={assetViewerHeadingRef} tabIndex={-1} style={{ outline: 'none', marginBottom: '0.5rem' }}>
+                  <h2 id="asset-viewer-title" ref={assetViewerHeadingRef} tabIndex={-1} style={{ outline: 'none', marginBottom: '0.5rem' }}>
                     {viewingAsset.name} ({viewingAsset.type})
-                  </h3>
+                  </h2>
                   <div style={{ marginTop: '1rem' }}>
                     <p style={{ whiteSpace: 'pre-wrap' }}>{viewingAsset.description}</p>
                   </div>

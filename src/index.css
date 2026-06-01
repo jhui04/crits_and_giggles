@@ -1,11 +1,23 @@
 /* Reset for accessibility and clarity */
+:root {
+  --color-text-main: #000;
+  --color-text-muted: #595959; /* 4.5:1 contrast on white */
+  --color-bg-main: #fff;
+}
+
+.dark-theme {
+  --color-text-main: #fff;
+  --color-text-muted: #b0b0b0; /* 4.5:1 contrast on #222 */
+  --color-bg-main: #1a1a1a;
+}
+
 body {
   font-family: sans-serif;
   line-height: 1.5;
   margin: 0;
   padding: 0;
-  background-color: #fff;
-  color: #000;
+  background-color: var(--color-bg-main);
+  color: var(--color-text-main);
 }
 
 .app-container {

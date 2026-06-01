@@ -130,7 +130,7 @@ export function MonsterBrowser({ onSelect, ctaLabel = "Add to Encounter", autoFo
             >
               <div style={{ pointerEvents: 'none' }}>
                 <strong style={{ fontSize: '1.1rem' }}>{m.name}</strong>
-                <div style={{ fontSize: '0.9rem', color: '#555', marginTop: '0.25rem' }}>
+                <div style={{ fontSize: '0.9rem', color: 'var(--color-text-muted)', marginTop: '0.25rem' }}>
                   <span className="sr-only">Challenge Rating</span>
                   <span aria-hidden="true">CR</span> {m.cr} | {m.meta?.size} {m.meta?.type} | {m.source}
                   <span className="sr-only">. Click to view details.</span>
@@ -148,7 +148,7 @@ export function MonsterBrowser({ onSelect, ctaLabel = "Add to Encounter", autoFo
           alignItems: 'center', justifyContent: 'center', zIndex: 10000
         }}>
           <div className="modal-content" style={{
-            backgroundColor: 'white', padding: '2rem', borderRadius: '8px',
+            backgroundColor: 'white', color: 'black', padding: '2rem', borderRadius: '8px',
             maxWidth: '600px', width: '90%', maxHeight: '90vh', overflowY: 'auto'
           }}>
             <h3 id="filters-title" ref={filtersHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>
@@ -236,7 +236,7 @@ export function MonsterBrowser({ onSelect, ctaLabel = "Add to Encounter", autoFo
           alignItems: 'center', justifyContent: 'center', zIndex: 10000
         }}>
           <div className="modal-content" style={{
-            backgroundColor: 'white', padding: '2rem', borderRadius: '8px',
+            backgroundColor: 'white', color: 'black', padding: '2rem', borderRadius: '8px',
             maxWidth: '800px', width: '90%', maxHeight: '90vh', overflowY: 'auto'
           }}>
             <h3 id="preview-title" ref={previewHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>

@@ -1,8 +1,10 @@
 import { test, expect, Page } from '@playwright/test';
+import { checkA11y } from './utils/axe-helper';
 import fs from 'fs';
 import path from 'path';
 
 // Seed data
+// ... (rest of seedState same)
 const monstersData = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'public/data/monsters.json'), 'utf-8'));
 const mockMonster = monstersData[0]; 
 
@@ -86,6 +88,16 @@ test.describe('Modal Accessibility Deterministic Fuzzer', () => {
 
   const fuzzView = async (page: Page, setupFn: () => Promise<void>, maxDepth = 2) => {
     const pathsToExplore: number[][] = [ [] ];
+    const scannedSignatures = new Set<string>();
+
+    const getSignature = async () => {
+      const dialogs = page.locator('[role="dialog"]:visible, [role="alertdialog"]:visible');
+      const isDialog = await dialogs.count() > 0;
+      const heading = isDialog 
+        ? await dialogs.last().locator('h1, h2, h3, h4, h5, h6').first().textContent().catch(() => 'no-heading')
+        : await page.locator('main h1, main h2, main h3').first().textContent().catch(() => 'no-main-heading');
+      return `${isDialog ? 'dialog' : 'body'}-${heading?.trim()}`;
+    };
 
     while (pathsToExplore.length > 0) {
       const currentPath = pathsToExplore.shift()!;
@@ -94,6 +106,13 @@ test.describe('Modal Accessibility Deterministic Fuzzer', () => {
       await setupPage(page, setupFn);
       const valid = await executePath(page, currentPath);
       if (!valid) continue;
+
+      // Accessibility Scan for this landing view
+      const landingSig = await getSignature();
+      if (!scannedSignatures.has(landingSig)) {
+        await checkA11y(page, `Fuzzer landing: ${landingSig}`);
+        scannedSignatures.add(landingSig);
+      }
 
       let container = await getContainer(page);
       const btns = container.locator('button:visible, [role="button"]:visible').filter({ hasNot: page.locator('[disabled]') });
@@ -186,6 +205,13 @@ test.describe('Modal Accessibility Deterministic Fuzzer', () => {
 
         if (isNewModal || isDialogViewSwap || isBodyViewSwap) {
           console.log(`Discovered view change via [${btnText.trim()}]. Path: [${currentPath.join(', ')}, ${i}]`);
+
+          // Accessibility Scan for the newly discovered view
+          const newSig = await getSignature();
+          if (!scannedSignatures.has(newSig)) {
+            await checkA11y(page, `Fuzzer discovered: ${newSig}`);
+            scannedSignatures.add(newSig);
+          }
 
           if (isNewModal || isDialogViewSwap) {
               // Verification 1: Focus lands on heading

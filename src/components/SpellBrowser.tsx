@@ -118,7 +118,7 @@ export function SpellBrowser() {
                   }}
                   aria-current={selectedSpell?.id === s.id ? 'true' : undefined}
                 >
-                  {s.name} <span style={{ fontSize: '0.85rem', color: '#666' }}>({s.level === 0 ? 'Cantrip' : `Lvl ${s.level}`})</span>
+                  {s.name} <span style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>({s.level === 0 ? 'Cantrip' : `Lvl ${s.level}`})</span>
                 </button>
               </li>
             ))}
@@ -144,7 +144,7 @@ export function SpellBrowser() {
           alignItems: 'center', justifyContent: 'center', zIndex: 10000
         }}>
           <div className="modal-content" style={{
-            backgroundColor: 'white', padding: '2rem', borderRadius: '8px',
+            backgroundColor: 'white', color: 'black', padding: '2rem', borderRadius: '8px',
             maxWidth: '600px', width: '90%', maxHeight: '90vh', overflowY: 'auto'
           }}>
             <h3 id="filters-title" ref={filtersHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>

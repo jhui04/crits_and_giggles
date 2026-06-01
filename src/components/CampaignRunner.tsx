@@ -85,14 +85,14 @@ export function CampaignRunner({ onGoToEncounter }: { onGoToEncounter?: (id: str
   return (
     <div>
       <header style={{ marginBottom: '2rem', borderBottom: '2px solid #eee', paddingBottom: '1rem' }}>
-        <h3>Running: {activeCampaign.name}</h3>
+        <h2>Running: {activeCampaign.name}</h2>
         <p>{activeCampaign.description}</p>
       </header>
 
       <div style={{ display: 'flex', gap: '2rem' }}>
         {/* Navigation Sidebar */}
         <div style={{ flex: '0 0 200px', borderRight: '1px solid #ccc', paddingRight: '1rem' }}>
-          <h4>Chapters</h4>
+          <h3>Chapters</h3>
           {activeCampaign.chapters.length === 0 ? (
             <p>No chapters written.</p>
           ) : (
