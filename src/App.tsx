@@ -398,18 +398,18 @@ function RunLayout() {
 
   return (
     <div className="layout-run">
-      <nav className="sub-nav" role="tablist">
+      <nav className="sub-nav" aria-label="Run Mode Views">
         <button 
-          role="tab" 
-          aria-selected={activeTab === 'story'} 
+          type="button"
+          aria-current={activeTab === 'story' ? 'page' : undefined} 
           onClick={() => setActiveTab('story')}
           className={activeTab === 'story' ? 'active' : ''}
         >
           Story
         </button>
         <button 
-          role="tab" 
-          aria-selected={activeTab === 'combat'} 
+          type="button"
+          aria-current={activeTab === 'combat' ? 'page' : undefined} 
           onClick={() => setActiveTab('combat')}
           className={activeTab === 'combat' ? 'active' : ''}
         >

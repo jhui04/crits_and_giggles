@@ -43,8 +43,8 @@ test.describe('Core User Journeys', () => {
     
     // Verify Run Mode UI
     await expect(page.locator('text=Run Mode')).toBeVisible();
-    await expect(page.getByRole('tab', { name: 'Combat' })).toBeVisible();
-    await expect(page.getByRole('tab', { name: 'Story' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Combat' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Story' })).toBeVisible();
 
     // Switch back
     await page.click('text=Switch to Create Mode');
