@@ -84,40 +84,25 @@ export function CampaignRunner({ onGoToEncounter }: { onGoToEncounter?: (id: str
 
   return (
     <div>
-      <header style={{ marginBottom: '2rem', borderBottom: '2px solid #eee', paddingBottom: '1rem' }}>
-        <h2>Running: {activeCampaign.name}</h2>
-        <p>{activeCampaign.description}</p>
-      </header>
-
       <div style={{ display: 'flex', gap: '2rem' }}>
         {/* Navigation Sidebar */}
         <div style={{ flex: '0 0 200px', borderRight: '1px solid #ccc', paddingRight: '1rem' }}>
-          <h3>Chapters</h3>
+          <label htmlFor="chapter-select" style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>Chapters</label>
           {activeCampaign.chapters.length === 0 ? (
             <p>No chapters written.</p>
           ) : (
-            <ul style={{ listStyle: 'none', padding: 0 }}>
+            <select 
+              id="chapter-select"
+              value={currentChapterId || ''} 
+              onChange={(e) => setActiveChapterId(e.target.value)}
+              style={{ width: '100%', padding: '0.5rem' }}
+            >
               {activeCampaign.chapters.sort((a, b) => a.order - b.order).map(chap => (
-                <li key={chap.id} style={{ marginBottom: '0.5rem' }}>
-                  <button 
-                    type="button"
-                    data-fuzzer-category="chapter-nav"
-                    onClick={() => setActiveChapterId(chap.id)}
-                    style={{ 
-                      width: '100%', 
-                      textAlign: 'left',
-                      fontWeight: currentChapterId === chap.id ? 'bold' : 'normal',
-                      backgroundColor: currentChapterId === chap.id ? '#f0f8ff' : 'transparent',
-                      border: '1px solid transparent',
-                      padding: '0.5rem'
-                    }}
-                    aria-current={currentChapterId === chap.id ? 'page' : undefined}
-                  >
-                    {chap.title}
-                  </button>
-                </li>
+                <option key={chap.id} value={chap.id}>
+                  {chap.title}
+                </option>
               ))}
-            </ul>
+            </select>
           )}
         </div>
 
@@ -125,13 +110,12 @@ export function CampaignRunner({ onGoToEncounter }: { onGoToEncounter?: (id: str
         <div style={{ flex: 1 }}>
           {activeChapter ? (
             <div>
-              <h3 style={{ borderBottom: '1px solid #ccc', paddingBottom: '0.5rem' }}>{activeChapter.title}</h3>
               <div style={{ marginTop: '1rem' }}>
                 <Markdown 
                   content={activeChapter.content} 
                   onAssetClick={handleAssetClick} 
                   onEncounterClick={handleEncounterClick} 
-                  baseHeadingLevel={3} 
+                  baseHeadingLevel={1} 
                 />
               </div>
             </div>

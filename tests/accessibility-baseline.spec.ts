@@ -1,4 +1,4 @@
-import { test, Page } from '@playwright/test';
+import { test } from '@playwright/test';
 import { checkA11y } from './utils/axe-helper';
 import fs from 'fs';
 import path from 'path';
