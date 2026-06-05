@@ -26,3 +26,8 @@ dist-ssr
 # Project specific
 design.md
 dnd_beyond
+test-results
+playwright-report
+blob-report
+test-results
+

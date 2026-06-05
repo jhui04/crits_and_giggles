@@ -86,29 +86,39 @@ test.describe('Modal Accessibility Deterministic Fuzzer', () => {
     return true;
   };
 
-  const fuzzView = async (page: Page, setupFn: () => Promise<void>, maxDepth = 2) => {
+  const fuzzView = async (page: Page, setupFn: () => Promise<void>, maxDepth = 3) => {
     const pathsToExplore: number[][] = [ [] ];
     const scannedSignatures = new Set<string>();
+    const visitedStateSignatures = new Set<string>();
 
     const getSignature = async () => {
       const dialogs = page.locator('[role="dialog"]:visible, [role="alertdialog"]:visible');
       const isDialog = await dialogs.count() > 0;
-      const heading = isDialog 
-        ? await dialogs.last().locator('h1, h2, h3, h4, h5, h6').first().textContent().catch(() => 'no-heading')
-        : await page.locator('main h1, main h2, main h3').first().textContent().catch(() => 'no-main-heading');
-      return `${isDialog ? 'dialog' : 'body'}-${heading?.trim()}`;
+      const container = isDialog ? dialogs.last() : page.locator('main');
+      
+      const heading = await container.locator('h1, h2, h3, h4, h5, h6').first().textContent().catch(() => 'no-heading');
+      
+      // Add buttons context to distinguish states with same heading (like different combat phases)
+      const buttons = container.locator('button[data-fuzzer-category]');
+      const categories = await buttons.evaluateAll(nodes => 
+        Array.from(new Set(nodes.map(n => n.getAttribute('data-fuzzer-category')))).sort()
+      );
+
+      return `${isDialog ? 'dialog' : 'body'}-${heading?.trim()}-${categories.join(',')}`;
     };
 
     while (pathsToExplore.length > 0) {
       const currentPath = pathsToExplore.shift()!;
       
-      // 1. Setup page and navigate to state to count buttons
+      // 1. Setup page and navigate to state
       await setupPage(page, setupFn);
       const valid = await executePath(page, currentPath);
       if (!valid) continue;
 
-      // Accessibility Scan for this landing view
       const landingSig = await getSignature();
+      visitedStateSignatures.add(landingSig); // Mark current state as visited
+
+      // Accessibility Scan for this landing view
       if (!scannedSignatures.has(landingSig)) {
         await checkA11y(page, `Fuzzer landing: ${landingSig}`);
         scannedSignatures.add(landingSig);
@@ -118,6 +128,7 @@ test.describe('Modal Accessibility Deterministic Fuzzer', () => {
       const btns = container.locator('button:visible, [role="button"]:visible').filter({ hasNot: page.locator('[disabled]') });
       const btnsCount = await btns.count();
 
+      // ... (rest of enforcement check and indicesToTest logic remains similar)
       // Enforcement Check: Lists with > 3 buttons MUST use data-fuzzer-category
       const lists = container.locator('ul, ol');
       const listCount = await lists.count();
@@ -130,10 +141,7 @@ test.describe('Modal Accessibility Deterministic Fuzzer', () => {
         }
       }
 
-      // Determine which buttons to test to avoid exhaustive 50+ item loops (like the Oracle)
-      // Group by data-fuzzer-category and test the first, middle, and last of each group.
       const indicesToTest = new Set<number>();
-      
       const categoryMap = new Map<string, number[]>();
       for (let i = 0; i < btnsCount; i++) {
         const cat = await btns.nth(i).getAttribute('data-fuzzer-category') || 'default';
@@ -163,63 +171,55 @@ test.describe('Modal Accessibility Deterministic Fuzzer', () => {
         const btnToClick = btns.nth(i);
         const btnText = await btnToClick.textContent() || `Button ${i}`;
 
-        // Ensure element is scrollable into view before clicking
         await btnToClick.scrollIntoViewIfNeeded().catch(() => {});
 
-        // Tag button to track restoration
         const originalId = await btnToClick.evaluate((node: HTMLElement, idStr: string) => {
           if (!node.id) node.id = idStr;
           return node.id;
         }, `fuzz-btn-${Date.now()}-${currentPath.join('-')}-${i}`);
 
         // Record state BEFORE click
+        const sigBefore = await getSignature();
         const dialogsBefore = page.locator('[role="dialog"]:visible, [role="alertdialog"]:visible');
         const dialogCountBefore = await dialogsBefore.count();
         const isDialogBefore = dialogCountBefore > 0;
-        const headingBefore = isDialogBefore 
-            ? await dialogsBefore.last().locator('h1, h2, h3, h4, h5, h6').first().textContent().catch(() => '') 
-            : '';
 
         // Click!
         try {
           await btnToClick.click({ force: true, timeout: 500 });
         } catch {
-          // Fallback to dispatching a click event if standard click fails (e.g. viewport issues)
           await btnToClick.evaluate(node => node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })));
         }
         await page.waitForTimeout(400);
 
         // Record state AFTER click
+        const sigAfter = await getSignature();
         const dialogsAfter = page.locator('[role="dialog"]:visible, [role="alertdialog"]:visible');
         const dialogCountAfter = await dialogsAfter.count();
         const isDialogAfter = dialogCountAfter > 0;
         const newContainer = isDialogAfter ? dialogsAfter.last() : page.locator('body');
-        const headingAfter = isDialogAfter 
-            ? await dialogsAfter.last().locator('h1, h2, h3, h4, h5, h6').first().textContent().catch(() => '') 
-            : '';
 
-        // Detect if modal opened OR modal swapped OR body view swapped
-        const isNewModal = !isDialogBefore && isDialogAfter;
-        const isDialogViewSwap = isDialogBefore && isDialogAfter && headingBefore !== headingAfter;
-        const isBodyViewSwap = !isDialogBefore && !isDialogAfter && headingBefore !== headingAfter;
-
-        if (isNewModal || isDialogViewSwap || isBodyViewSwap) {
+        // Detect if view changed
+        if (sigBefore !== sigAfter) {
           console.log(`Discovered view change via [${btnText.trim()}]. Path: [${currentPath.join(', ')}, ${i}]`);
+          console.log(`  From: ${sigBefore}`);
+          console.log(`  To:   ${sigAfter}`);
 
           // Accessibility Scan for the newly discovered view
-          const newSig = await getSignature();
-          if (!scannedSignatures.has(newSig)) {
-            await checkA11y(page, `Fuzzer discovered: ${newSig}`);
-            scannedSignatures.add(newSig);
+          if (!scannedSignatures.has(sigAfter)) {
+            await checkA11y(page, `Fuzzer discovered: ${sigAfter}`);
+            scannedSignatures.add(sigAfter);
           }
+
+          const isNewModal = !isDialogBefore && isDialogAfter;
+          const isDialogViewSwap = isDialogBefore && isDialogAfter; // sigBefore !== sigAfter already checked
 
           if (isNewModal || isDialogViewSwap) {
               // Verification 1: Focus lands on heading
-              // Wait briefly for React's focus timeouts to resolve
               await page.waitForFunction(() => {
                 const el = document.activeElement;
                 return el && /^h[1-6]$/i.test(el.tagName);
-              }, { timeout: 200 }).catch(() => {}); // Catch timeout to let explicit expect fail cleanly
+              }, { timeout: 200 }).catch(() => {});
 
               const activeElementTagName = await page.evaluate(() => document.activeElement?.tagName.toLowerCase());
               const activeElementInfo = await page.evaluate(() => {
@@ -243,8 +243,8 @@ test.describe('Modal Accessibility Deterministic Fuzzer', () => {
                   expect(checkDialogCount).toBeLessThan(dialogCountAfter);
               } else if (isDialogViewSwap) {
                   if (checkDialogCount === dialogCountAfter) {
-                      const revertedHeading = await checkDialogs.last().locator('h1, h2, h3, h4, h5, h6').first().textContent().catch(() => '');
-                      expect(revertedHeading).toBe(headingBefore);
+                      const revertedSig = await getSignature();
+                      expect(revertedSig).toBe(sigBefore);
                   }
               }
 
@@ -255,9 +255,11 @@ test.describe('Modal Accessibility Deterministic Fuzzer', () => {
               }
           }
 
-          // Queue path for deeper exploration
-          if (currentPath.length < maxDepth) {
+          // Queue path for deeper exploration IF it's a new state
+          if (currentPath.length < maxDepth && !visitedStateSignatures.has(sigAfter)) {
             pathsToExplore.push([...currentPath, i]);
+            // Note: We don't mark as visited here because we want to fully explore it 
+            // when it comes off the pathsToExplore queue.
           }
         }
       }

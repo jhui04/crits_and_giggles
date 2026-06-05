@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { DiceService } from '../services/DiceService';
 import { MonsterDetails } from './MonsterDetails';
-import { QuickRoller } from './QuickRoller';
+import { MonsterOperationsModal } from './MonsterOperationsModal';
 import type { Encounter, EncounterUnit } from '../types';
 import { useCampaigns } from '../context/CampaignContext';
 
@@ -13,6 +13,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   const [isCombatStarted, setIsCombatStarted] = useState(false);
   const [announcement, setAnnouncement] = useState('');
   const [selectedUnit, setSelectedUnit] = useState<EncounterUnit | null>(null);
+  const [activeOperationsUnit, setActiveOperationsUnit] = useState<EncounterUnit | null>(null);
   const [hpMods, setHpMods] = useState<Record<string, string>>({});
   
   const [activeRoll, setActiveRoll] = useState<{ title: string, hit?: string, damage?: string, unitName?: string } | null>(null);
@@ -23,6 +24,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   const runnerHeadingRef = useRef<HTMLHeadingElement>(null);
   const lastFocusedUnitId = useRef<string | null>(null);
   const lastActiveRollButtonRef = useRef<HTMLElement | null>(null);
+  const lastFocusedOperationsButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const loadEncounter = useCallback((encounter: Encounter) => {
     setActiveEncounter(encounter);
@@ -96,6 +98,17 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     setActiveRoll(null);
   }, []);
 
+  const closeOperations = useCallback(() => {
+    setActiveOperationsUnit(null);
+  }, []);
+
+  const openOperations = useCallback((e: React.MouseEvent<HTMLButtonElement> | null, unit: EncounterUnit) => {
+    if (e) {
+      lastFocusedOperationsButtonRef.current = e.currentTarget;
+    }
+    setActiveOperationsUnit(unit);
+  }, []);
+
   // Global Keyboard Listeners
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -104,6 +117,9 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
         if (activeRoll) {
           e.preventDefault();
           closeRollModal();
+        } else if (activeOperationsUnit) {
+          e.preventDefault();
+          closeOperations();
         } else if (selectedUnit) {
           e.preventDefault();
           closeDetails();
@@ -116,6 +132,15 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
         nextTurn();
       }
 
+      // Alt + A for Actions Menu (current combatant)
+      if (e.altKey && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        const current = combatants[turnIndex];
+        if (current && !current.isPlayer) {
+          openOperations(null, current);
+        }
+      }
+
       // Prevent default behavior for Enter/Space on non-button focused elements (like the heading)
       // to avoid potential page scroll/teleport issues.
       if ((e.key === 'Enter' || e.key === ' ') && !(e.target instanceof HTMLButtonElement || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement)) {
@@ -124,17 +149,27 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [nextTurn, selectedUnit, activeRoll, closeDetails, closeRollModal]);
+  }, [nextTurn, selectedUnit, activeRoll, activeOperationsUnit, turnIndex, combatants, closeDetails, closeRollModal, closeOperations, openOperations]);
 
-  // Focus management for details modal
+  // Focus management for details modal and operations modal
   useEffect(() => {
     if (selectedUnit) {
       detailHeadingRef.current?.focus();
-    } else if (lastFocusedUnitId.current) {
-      unitRefs.current[lastFocusedUnitId.current]?.focus();
-      lastFocusedUnitId.current = null;
+    } else if (activeOperationsUnit) {
+      // Modal handles its own internal focus on mount
+    } else if (activeRoll) {
+      // Roll modal focus is handled by its own effect.
+      // We explicitly skip focus restoration here to avoid snatching focus away from the roll result.
+    } else {
+      if (lastFocusedUnitId.current) {
+        unitRefs.current[lastFocusedUnitId.current]?.focus();
+        lastFocusedUnitId.current = null;
+      } else if (lastFocusedOperationsButtonRef.current) {
+        lastFocusedOperationsButtonRef.current.focus();
+        lastFocusedOperationsButtonRef.current = null;
+      }
     }
-  }, [selectedUnit]);
+  }, [selectedUnit, activeOperationsUnit, activeRoll]);
 
   const updateInitiative = (instanceId: string, val: string) => {
     const num = parseInt(val, 10) || 0;
@@ -171,9 +206,9 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     setSelectedUnit(unit);
   };
 
-  const applyHpMod = (instanceId: string, isDamage: boolean) => {
-    const val = parseInt(hpMods[instanceId] || '0', 10);
-    if (!val || isNaN(val)) return;
+  const applyHpMod = (instanceId: string, isDamage: boolean, amount?: number) => {
+    const val = amount !== undefined ? amount : parseInt(hpMods[instanceId] || '0', 10);
+    if (isNaN(val) || val <= 0) return;
     
     setCombatants(prev => prev.map(u => {
       if (u.instanceId === instanceId) {
@@ -189,7 +224,9 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
       return u;
     }));
     
-    setHpMods(prev => ({ ...prev, [instanceId]: '' }));
+    if (amount === undefined) {
+      setHpMods(prev => ({ ...prev, [instanceId]: '' }));
+    }
     
     // Update selectedUnit if it's currently open so modal updates live
     if (selectedUnit && selectedUnit.instanceId === instanceId) {
@@ -203,7 +240,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     }
   };
 
-  const handleInlineRoll = (e: React.MouseEvent<HTMLElement> | null, unitName: string, title: string, hit: string) => {
+  const handleInlineRoll = (e: React.MouseEvent<HTMLElement> | null, unitName: string, title: string, hit: string, damage?: string) => {
     if (e) {
       lastActiveRollButtonRef.current = e.currentTarget as HTMLElement;
     } else {
@@ -212,13 +249,18 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     
     // Announce to screen reader using the robust string format
     const hitVal = hit.split(',')[0];
-    setAnnouncement(`${unitName} rolled ${title}: ${hitVal}`);
+    const damageAnnounce = damage ? `. Damage: ${damage.split(' ')[0]} ${damage.split(' ')[1] || ''}` : '';
+    setAnnouncement(`${unitName} rolled ${title}: ${hitVal}${damageAnnounce}`);
 
     setActiveRoll({
       title,
       hit,
+      damage,
       unitName
     });
+
+    // Close operations modal if it was open
+    closeOperations();
   };
 
   if (!activeEncounter) {
@@ -294,32 +336,29 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
                 </div>
                 {!u.isPlayer && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', padding: '0 0.5rem' }}>
-                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                      <label htmlFor={`hpmod-${u.instanceId}`} className="sr-only">HP Modifier for {u.name}</label>
-                      <input 
-                        id={`hpmod-${u.instanceId}`}
-                        type="number"
-                        placeholder="Amount"
-                        value={hpMods[u.instanceId] || ''}
-                        onChange={e => setHpMods(prev => ({...prev, [u.instanceId]: e.target.value}))}
-                        style={{ width: '80px', padding: '0.25rem' }}
-                      />
-                      <button type="button" onClick={() => applyHpMod(u.instanceId, true)} style={{ padding: '0.25rem 0.5rem', fontSize: '0.9em' }}>Damage</button>
-                      <button type="button" onClick={() => applyHpMod(u.instanceId, false)} style={{ padding: '0.25rem 0.5rem', fontSize: '0.9em' }}>Heal</button>
-                    </div>
-                    {u.fullData && (
-                      <QuickRoller 
-                        monster={u.fullData} 
-                        triggerId={`quick-roller-${u.instanceId}`}
-                        onRoll={(title, hit) => handleInlineRoll(null, u.name, title, hit)} 
-                      />
-                    )}
+                    <button 
+                      type="button" 
+                      onClick={(e) => openOperations(e, u)}
+                      style={{ padding: '0.25rem 0.5rem', fontSize: '0.9em' }}
+                    >
+                      Options <span className="sr-only">for {u.name}</span>
+                    </button>
                   </div>
                 )}
               </li>
             ))}
           </ul>
         </section>
+      )}
+
+      {activeOperationsUnit && (
+        <MonsterOperationsModal 
+          unit={activeOperationsUnit}
+          onClose={closeOperations}
+          onApplyHpMod={applyHpMod}
+          onRoll={(title, hit, damage) => handleInlineRoll(null, activeOperationsUnit.name, title, hit, damage)}
+          onAnnounce={setAnnouncement}
+        />
       )}
 
       {selectedUnit && (
@@ -368,6 +407,12 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
           <p style={{ fontSize: '1.2rem', marginBottom: '1rem' }}>
             <strong>Result:</strong> {activeRoll.hit}
           </p>
+
+          {activeRoll.damage && (
+            <p style={{ fontSize: '1.2rem', marginBottom: '1rem' }}>
+              <strong>Damage:</strong> {activeRoll.damage}
+            </p>
+          )}
 
           <button type="button" onClick={closeRollModal} style={{ padding: '0.5rem 1rem', fontSize: '1rem', backgroundColor: '#fff', color: '#333', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
             Close (Esc)

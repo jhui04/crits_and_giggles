@@ -126,7 +126,7 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
 
   return (
     <div className="monster-details" onKeyDown={handleKeyDown}>
-      <h4>Quick Stats</h4>
+      <h3>Quick Stats</h3>
       <div>
         {initiative !== undefined && <p><strong>Initiative:</strong> {initiative}</p>}
         <p><strong>HP:</strong> {currentHp !== undefined ? `${currentHp} / ${maxHp}` : monster.attributes.hp.value} ({monster.attributes.hp.dice})</p>
@@ -134,7 +134,7 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
         <p><strong>Type:</strong> {monster.meta.size} {monster.meta.type}</p>
       </div>
 
-      <h4>Ability Scores</h4>
+      <h3>Ability Scores</h3>
       <div>
         {Object.entries(monster.stats).map(([name, s]) => {
           const fullName = statNames[name] || name;
@@ -165,7 +165,7 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
       </div>
 
       <div style={{ marginTop: '1rem' }}>
-        <h4>Speeds</h4>
+        <h3>Speeds</h3>
         <p>{Object.entries(monster.attributes.speeds)
           .filter(([, v]) => v !== false)
           .map(([k, v]) => typeof v === 'number' ? `${k}: ${v}ft` : k).join(', ')}</p>
@@ -194,7 +194,7 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
 
       {monster.traits && monster.traits.length > 0 && (
         <div style={{ marginTop: '1rem' }}>
-          <h4>Traits</h4>
+          <h3>Traits</h3>
           {monster.traits.map(t => (
             <div key={t.name} style={{ marginBottom: '0.75rem' }}>
               <strong>{t.name}:</strong> {wrapSpells(t.content, spellNames)}
@@ -205,7 +205,7 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
 
       {monster.actions && monster.actions.length > 0 && (
         <div style={{ marginTop: '1rem' }}>
-          <h4>Actions</h4>
+          <h3>Actions</h3>
           {monster.actions.map(a => {
             return (
               <div key={a.name} style={{ marginBottom: '0.75rem' }}>
@@ -251,7 +251,7 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
 
       {monster.legendary_actions && monster.legendary_actions.length > 0 && (
         <div style={{ marginTop: '1rem' }}>
-          <h4>Legendary Actions</h4>
+          <h3>Legendary Actions</h3>
           {monster.legendary_actions.map(a => {
             return (
               <div key={a.name} style={{ marginBottom: '0.75rem' }}>
@@ -297,7 +297,7 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
 
       {monster.reactions && monster.reactions.length > 0 && (
         <div style={{ marginTop: '1rem' }}>
-          <h4>Reactions</h4>
+          <h3>Reactions</h3>
           {monster.reactions.map(a => (
             <div key={a.name} style={{ marginBottom: '0.75rem' }}>
               <strong>{a.name}:</strong> {a.content}
@@ -317,9 +317,9 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
           backgroundColor: '#333', color: 'white', padding: '1.5rem', borderRadius: '8px',
           boxShadow: '0 4px 6px rgba(0,0,0,0.3)', zIndex: 1002, minWidth: '250px', textAlign: 'center'
         }}>
-          <h4 id="roll-result-title" ref={rollModalRef} tabIndex={-1} style={{ outline: 'none', margin: '0 0 1rem 0' }}>
+          <h3 id="roll-result-title" ref={rollModalRef} tabIndex={-1} style={{ outline: 'none', margin: '0 0 1rem 0' }}>
             {activeRoll.title}
-          </h4>
+          </h3>
 
           {activeRoll.result !== undefined && (
             <p style={{ fontSize: '1.2rem', marginBottom: '0.5rem' }}>

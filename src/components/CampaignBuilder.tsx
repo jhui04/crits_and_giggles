@@ -376,7 +376,7 @@ export function CampaignBuilder() {
                       content={c.content} 
                       onAssetClick={handleAssetLinkClick} 
                       onEncounterClick={handleEncounterLinkClick} 
-                      baseHeadingLevel={4} 
+                      baseHeadingLevel={3} 
                     />
                   </div>
                 )}
@@ -436,8 +436,8 @@ export function CampaignBuilder() {
             {activeCampaign.encounters.map(e => (
               <li key={e.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0', display: 'flex', gap: '1rem', alignItems: 'center' }}>
                 <strong style={{ flexGrow: 1 }}>{e.name} ({e.units.length} units)</strong>
-                <button type="button" onClick={() => setEditingEncounter(e)}>Edit</button>
-                <button type="button" onClick={() => handleDeleteEncounter(e.id)}>Delete</button>
+                <button type="button" data-fuzzer-category="encounter-edit" onClick={() => setEditingEncounter(e)}>Edit</button>
+                <button type="button" data-fuzzer-category="encounter-delete" onClick={() => handleDeleteEncounter(e.id)}>Delete</button>
               </li>
             ))}
             {activeCampaign.encounters.length === 0 && <li>No encounters created yet.</li>}
@@ -594,8 +594,8 @@ export function CampaignBuilder() {
                         <p style={{ margin: 0, fontSize: '0.9rem', color: '#666' }}>{p.description}</p>
                       </div>
                       <div style={{ display: 'flex', gap: '0.5rem' }}>
-                        <button type="button" onClick={() => handleEditPlayer(p)}>Edit</button>
-                        <button type="button" onClick={() => handleDeletePlayer(p.id)}>Delete</button>
+                        <button type="button" data-fuzzer-category="player-edit" onClick={() => handleEditPlayer(p)}>Edit</button>
+                        <button type="button" data-fuzzer-category="player-delete" onClick={() => handleDeletePlayer(p.id)}>Delete</button>
                       </div>
                     </li>
                   ))}
