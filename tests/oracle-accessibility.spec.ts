@@ -67,16 +67,15 @@ test.describe('Oracle Accessibility', () => {
     const oracle = page.locator('[role="dialog"][aria-labelledby="oracle-title"]');
     await expect(oracle).toBeVisible();
 
-    // 2. Check focus on heading
-    const heading = oracle.locator('#oracle-title');
-    await expect(heading).toBeFocused();
+    // 2. Check focus on search input
+    const searchInput = page.locator('#monster-search');
+    await expect(searchInput).toBeFocused();
 
     // 3. Search for "Aboleth"
-    const searchInput = page.locator('#monster-search');
     await searchInput.fill('Aboleth');
     
     // Wait for filtered results
-    const results = oracle.locator('ul li button[data-fuzzer-category="monster-details"]');
+    const results = oracle.locator('ul li button');
     await expect(results.first()).toContainText('Aboleth');
 
     // 4. Open Detail Modal

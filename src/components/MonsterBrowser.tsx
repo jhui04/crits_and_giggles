@@ -117,7 +117,6 @@ export function MonsterBrowser({ onSelect, ctaLabel = "Add to Encounter", autoFo
           <li key={m.id} style={{ borderBottom: '1px solid #eee' }}>
             <button 
               type="button" 
-              data-fuzzer-category="monster-details"
               onClick={(e) => {
                 lastFocusedElementRef.current = e.currentTarget;
                 setPreviewMonster(m);

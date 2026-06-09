@@ -70,7 +70,7 @@ export function SpellBrowser() {
   if (error) return <p style={{ color: 'red' }}>{error}</p>;
 
   return (
-    <section aria-labelledby="spell-browser-title">
+    <section aria-labelledby="spell-browser-title" >
       <h2 id="spell-browser-title" className="sr-only">Spell Browser</h2>
       
       <form onSubmit={(e) => e.preventDefault()} className="search-bar" style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', alignItems: 'flex-end', backgroundColor: '#f4f4f4', padding: '1rem', borderRadius: '8px' }}>
@@ -108,7 +108,6 @@ export function SpellBrowser() {
               <li key={s.id}>
                 <button 
                   type="button"
-                  data-fuzzer-category="spell"
                   onClick={() => handleSelectSpell(s)}
                   style={{
                     width: '100%', textAlign: 'left', padding: '0.75rem', 
@@ -243,7 +242,7 @@ export function SpellDetail({ spell, onAnnounce, id }: { spell: Spell, onAnnounc
   };
 
   return (
-    <div style={{ padding: '1.5rem', border: '1px solid #ccc', borderRadius: '8px', backgroundColor: '#fff' }}>
+    <div style={{ padding: '1.5rem', border: '1px solid #ccc', borderRadius: '8px', backgroundColor: '#fff' }} >
       <h3 id={id} ref={detailHeadingRef} tabIndex={-1} style={{ marginTop: 0, borderBottom: '2px solid #333', paddingBottom: '0.5rem', outline: 'none' }}>
         {spell.name}
       </h3>

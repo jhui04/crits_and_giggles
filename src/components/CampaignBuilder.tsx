@@ -154,8 +154,8 @@ export function CampaignBuilder() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !e.defaultPrevented) {
-        if (showCampaignForm) closeCampaignForm();
-        else if (showPlayerForm) closePlayerForm();
+        if (showPlayerForm) closePlayerForm();
+        else if (showCampaignForm) closeCampaignForm();
         else if (showChapterForm) closeChapterForm();
         else if (showAssetForm) closeAssetForm();
         else if (viewingAsset) closeAssetViewer();
@@ -343,7 +343,7 @@ export function CampaignBuilder() {
   const isAnyModalOpen = showCampaignForm || showPlayerForm || showChapterForm || showAssetForm || viewingAsset;
 
   return (
-    <>
+    <div >
       <nav className="sub-nav" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
         <h2 style={{ margin: 0 }}>Campaign Builder</h2>
         <button type="button" ref={editCampaignBtnRef} onClick={handleOpenSettings}>Campaign Settings</button>
@@ -358,7 +358,6 @@ export function CampaignBuilder() {
               <li key={c.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0' }}>
                 <div style={{ display: 'flex', alignItems: 'center' }}>
                   <button type="button"
-                    data-fuzzer-category="chapter-expand"
                     aria-expanded={expandedChapterId === c.id}
                     aria-label={`${c.title}, ${expandedChapterId === c.id ? 'Expanded' : 'Collapsed'}`}
                     onClick={() => setExpandedChapterId(prev => prev === c.id ? null : c.id)}
@@ -370,7 +369,7 @@ export function CampaignBuilder() {
                 {expandedChapterId === c.id && (
                   <div style={{ padding: '1rem', borderLeft: '2px solid #0066cc', marginTop: '0.5rem' }}>
                     <div style={{ marginBottom: '1rem' }}>
-                      <button type="button" data-fuzzer-category="chapter-edit" onClick={() => handleEditChapter(c)}>Edit Chapter</button>
+                      <button type="button" onClick={() => handleEditChapter(c)}>Edit Chapter</button>
                     </div>
                     <Markdown 
                       content={c.content} 
@@ -399,7 +398,6 @@ export function CampaignBuilder() {
                   <li key={a.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0' }}>
                     <div style={{ display: 'flex', alignItems: 'center' }}>
                       <button type="button"
-                        data-fuzzer-category="asset-expand"
                         aria-expanded={expandedAssetId === a.id}
                         aria-label={`${displayName} (${a.type}), ${expandedAssetId === a.id ? 'Expanded' : 'Collapsed'}`}
                         onClick={() => setExpandedAssetId(prev => prev === a.id ? null : a.id)}
@@ -412,8 +410,8 @@ export function CampaignBuilder() {
                       <div style={{ padding: '1rem', borderLeft: '2px solid #0066cc', marginTop: '0.5rem' }}>
                         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
                           {/* eslint-disable-next-line react-hooks/refs */}
-                          <button type="button" data-fuzzer-category="asset-edit" onClick={() => handleEditAsset(a)}>Edit Asset</button>
-                          <button type="button" data-fuzzer-category="asset-view" onClick={() => handleAssetLinkClick(a.id)}>View Details</button>
+                          <button type="button" onClick={() => handleEditAsset(a)}>Edit Asset</button>
+                          <button type="button" onClick={() => handleAssetLinkClick(a.id)}>View Details</button>
                         </div>
                         {!a.description.startsWith('Scraped') && (
                           <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{a.description}</p>
@@ -436,8 +434,8 @@ export function CampaignBuilder() {
             {activeCampaign.encounters.map(e => (
               <li key={e.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0', display: 'flex', gap: '1rem', alignItems: 'center' }}>
                 <strong style={{ flexGrow: 1 }}>{e.name} ({e.units.length} units)</strong>
-                <button type="button" data-fuzzer-category="encounter-edit" onClick={() => setEditingEncounter(e)}>Edit</button>
-                <button type="button" data-fuzzer-category="encounter-delete" onClick={() => handleDeleteEncounter(e.id)}>Delete</button>
+                <button type="button" onClick={() => setEditingEncounter(e)}>Edit</button>
+                <button type="button" onClick={() => handleDeleteEncounter(e.id)}>Delete</button>
               </li>
             ))}
             {activeCampaign.encounters.length === 0 && <li>No encounters created yet.</li>}
@@ -449,10 +447,11 @@ export function CampaignBuilder() {
       {/* Chapter Form Modal */}
       {showChapterForm && (
         <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="chapter-modal-title" style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, 
-          backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', 
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex',
           alignItems: 'center', justifyContent: 'center', zIndex: 2000
         }}>
+
           <div className="modal-content" style={{
             backgroundColor: 'white', padding: '2rem', borderRadius: '8px', 
             maxWidth: '600px', width: '90%', maxHeight: '90vh', display: 'flex', flexDirection: 'column'
@@ -585,7 +584,7 @@ export function CampaignBuilder() {
 
               {/* Player Management */}
               <section style={{ marginTop: '1rem' }}>
-                <h4 id="players-heading" style={{ margin: '0 0 0.5rem 0' }}>Manage Players</h4>
+                <h3 id="players-heading" style={{ margin: '0 0 0.5rem 0', fontSize: '1.2rem' }}>Manage Players</h3>
                 <ul style={{ listStyle: 'none', padding: 0, marginBottom: '1rem' }}>
                   {activeCampaign.players.map(p => (
                     <li key={p.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -594,14 +593,14 @@ export function CampaignBuilder() {
                         <p style={{ margin: 0, fontSize: '0.9rem', color: '#666' }}>{p.description}</p>
                       </div>
                       <div style={{ display: 'flex', gap: '0.5rem' }}>
-                        <button type="button" data-fuzzer-category="player-edit" onClick={() => handleEditPlayer(p)}>Edit</button>
-                        <button type="button" data-fuzzer-category="player-delete" onClick={() => handleDeletePlayer(p.id)}>Delete</button>
+                        <button type="button" onClick={() => handleEditPlayer(p)}>Edit</button>
+                        <button type="button" onClick={() => handleDeletePlayer(p.id)}>Delete</button>
                       </div>
                     </li>
                   ))}
                   {activeCampaign.players.length === 0 && <li>No players configured yet.</li>}
                 </ul>
-                <button type="button" ref={addPlayerBtnRef} onClick={() => setShowPlayerForm(true)}>+ Add Player</button>
+                <button type="button" ref={addPlayerBtnRef} onClick={(e) => { lastFocusedElement.current = e.currentTarget; setShowPlayerForm(true); }}>+ Add Player</button>
               </section>
 
               <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
@@ -713,6 +712,6 @@ export function CampaignBuilder() {
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }

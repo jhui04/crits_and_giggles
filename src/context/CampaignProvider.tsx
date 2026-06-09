@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import type { Campaign } from '../types';
 import { CampaignContext } from './CampaignContext';
@@ -6,10 +6,11 @@ import { CampaignContext } from './CampaignContext';
 export function CampaignProvider({ children }: { children: ReactNode }) {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [activeCampaignId, setActiveCampaignId] = useState<string | null>(null);
-  const isLoaded = useRef(false);
+  const [isLoaded, setIsLoaded] = useState(false);
 
   // Load on mount
   useEffect(() => {
+    let mounted = true;
     const init = async () => {
       try {
         const saved = localStorage.getItem('crits_campaigns');
@@ -28,7 +29,7 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
           const data = await res.json();
           const templates = Array.isArray(data) ? data : [data];
           
-          if (templates.length > 0) {
+          if (templates.length > 0 && mounted) {
             const template = templates[0];
             const newId = (typeof crypto !== 'undefined' && crypto.randomUUID) 
               ? crypto.randomUUID() 
@@ -42,10 +43,10 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
             };
             setCampaigns([defaultCampaign]);
             setActiveCampaignId(defaultCampaign.id);
-          } else {
+          } else if (mounted) {
             setCampaigns([]);
           }
-        } else {
+        } else if (mounted) {
           setCampaigns(parsedCampaigns);
           
           const savedActive = localStorage.getItem('crits_active_campaign');
@@ -55,21 +56,22 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
         }
       } catch (err) {
         console.error('CampaignContext initialization error:', err);
-        setCampaigns([]);
+        if (mounted) setCampaigns([]);
       } finally {
-        isLoaded.current = true;
+        if (mounted) setIsLoaded(true);
       }
     };
 
     init();
+    return () => { mounted = false; };
   }, []);
 
   // Save on change
   useEffect(() => {
-    if (isLoaded.current) {
+    if (isLoaded) {
       localStorage.setItem('crits_campaigns', JSON.stringify(campaigns));
     }
-  }, [campaigns]);
+  }, [campaigns, isLoaded]);
 
   useEffect(() => {
     if (activeCampaignId) {

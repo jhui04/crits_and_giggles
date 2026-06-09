@@ -18,14 +18,29 @@ export function EncounterBuilder({ initialEncounter, onClose }: EncounterBuilder
   const selectMonsterHeadingRef = useRef<HTMLHeadingElement>(null);
   const builderHeadingRef = useRef<HTMLHeadingElement>(null);
 
+  const lastFocusedElement = useRef<HTMLElement | null>(null);
+
   useEffect(() => {
     setTimeout(() => {
       builderHeadingRef.current?.focus();
     }, 0);
   }, []);
 
+  const handleOpenModal = () => {
+    lastFocusedElement.current = document.activeElement as HTMLElement;
+    setIsModalOpen(true);
+  };
+
   const closeModal = useCallback(() => {
     setIsModalOpen(false);
+    setTimeout(() => {
+      if (lastFocusedElement.current) {
+        lastFocusedElement.current.focus();
+        lastFocusedElement.current = null;
+      } else {
+        addMonsterBtnRef.current?.focus();
+      }
+    }, 0);
   }, []);
 
   // Handle global Escape key for modal
@@ -40,10 +55,10 @@ export function EncounterBuilder({ initialEncounter, onClose }: EncounterBuilder
 
       // Prevent default behavior for Enter and Space on non-interactive elements
       const target = e.target as HTMLElement;
-      const isInteractive = ['BUTTON', 'INPUT', 'TEXTAREA', 'SELECT', 'A'].includes(target.tagName) || 
-                          target.hasAttribute('onclick') || 
+      const isInteractive = ['BUTTON', 'INPUT', 'TEXTAREA', 'SELECT', 'A'].includes(target.tagName) ||
+                          target.hasAttribute('onclick') ||
                           target.getAttribute('role') === 'button';
-      
+
       if ((e.key === 'Enter' || e.key === ' ') && !isInteractive) {
         e.preventDefault();
       }
@@ -52,12 +67,12 @@ export function EncounterBuilder({ initialEncounter, onClose }: EncounterBuilder
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isModalOpen, closeModal]);
 
-  // Handle focus when modal opens/closes
+  // Handle focus when modal opens
   useEffect(() => {
     if (isModalOpen) {
-      selectMonsterHeadingRef.current?.focus();
-    } else {
-      addMonsterBtnRef.current?.focus();
+      setTimeout(() => {
+        selectMonsterHeadingRef.current?.focus();
+      }, 50);
     }
   }, [isModalOpen]);
 
@@ -112,7 +127,7 @@ export function EncounterBuilder({ initialEncounter, onClose }: EncounterBuilder
   };
 
   return (
-    <div className="encounter-builder">
+    <div className="encounter-builder" >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
         <h2 id="builder-title" ref={builderHeadingRef} tabIndex={-1} style={{ margin: 0, outline: 'none' }}>Encounter Builder</h2>
         <button type="button" onClick={handleCancel} style={{ padding: '0.5rem' }}>Back to Campaign</button>
@@ -174,7 +189,7 @@ export function EncounterBuilder({ initialEncounter, onClose }: EncounterBuilder
             maxWidth: '900px', width: '95%', maxHeight: '90vh', overflowY: 'auto'
           }}>
             <h3 id="select-monster-title" ref={selectMonsterHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>Select Monster</h3>
-            <MonsterBrowser onSelect={addMonster} autoFocus />
+            <MonsterBrowser onSelect={addMonster} />
             <button type="button" onClick={closeModal} style={{ marginTop: '1rem', width: '100%', padding: '0.75rem' }}>Cancel (Esc)</button>
           </div>
         </div>

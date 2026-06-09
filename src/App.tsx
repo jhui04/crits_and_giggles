@@ -61,13 +61,20 @@ function App() {
   };
 
   const openCampaignModal = () => {
+    switchCampBtnRef.current = document.activeElement as HTMLButtonElement;
     setIsCampaignModalOpen(true);
   };
 
   const closeCampaignModal = () => {
     setIsCampaignModalOpen(false);
     setIsCreatingNew(false);
-    setTimeout(() => switchCampBtnRef.current?.focus(), 0);
+    setTimeout(() => {
+      if (switchCampBtnRef.current && document.body.contains(switchCampBtnRef.current)) {
+        switchCampBtnRef.current.focus();
+      } else {
+        mainMenuBtnRef.current?.focus();
+      }
+    }, 0);
   };
 
   const openOracle = () => {
@@ -78,7 +85,11 @@ function App() {
   const closeOracle = () => {
     setIsOracleOpen(false);
     setTimeout(() => {
-      lastFocusedBeforeOracle.current?.focus();
+      if (lastFocusedBeforeOracle.current && document.body.contains(lastFocusedBeforeOracle.current)) {
+        lastFocusedBeforeOracle.current.focus();
+      } else {
+        mainMenuBtnRef.current?.focus();
+      }
     }, 0);
   };
 
@@ -90,10 +101,13 @@ function App() {
   const closeShortcutsHelp = () => {
     setIsShortcutsHelpOpen(false);
     setTimeout(() => {
-      lastFocusedBeforeHelp.current?.focus();
+      if (lastFocusedBeforeHelp.current && document.body.contains(lastFocusedBeforeHelp.current)) {
+        lastFocusedBeforeHelp.current.focus();
+      } else {
+        mainMenuBtnRef.current?.focus();
+      }
     }, 0);
   };
-
   const handleCreate = () => {
     if (newCampName) {
       const selectedCamp = scrapedCampaigns.find(c => c.id === selectedTemplate);
@@ -234,7 +248,6 @@ function App() {
               <button
                 type="button"
                 onClick={() => { closeMainMenu(false); openOracle(); }}
-                data-fuzzer-category="main-oracle"
                 style={{ padding: '0.75rem', fontSize: '1.1rem' }}
               >
                 The Oracle (Alt+O)

@@ -125,7 +125,7 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
   };
 
   return (
-    <div className="monster-details" onKeyDown={handleKeyDown}>
+    <div className="monster-details" onKeyDown={handleKeyDown} >
       <h3>Quick Stats</h3>
       <div>
         {initiative !== undefined && <p><strong>Initiative:</strong> {initiative}</p>}

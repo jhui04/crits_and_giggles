@@ -53,7 +53,6 @@ export function Markdown({
           inlineElements.push(
             <button 
               type="button"
-              data-fuzzer-category="markdown-link"
               key={`${blockIndex}-${type}-${entityId}-${match.index}`}
               onClick={() => type === 'Asset' ? onAssetClick(entityId) : onEncounterClick(entityId)}
               className={`${type.toLowerCase()}-link-btn`}

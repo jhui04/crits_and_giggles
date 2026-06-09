@@ -15,6 +15,10 @@ export function Oracle({ isOpen, onClose }: OracleProps) {
   useEffect(() => {
     if (isOpen) {
       setTimeout(() => {
+        if (filterType === 'monster') {
+          // MonsterBrowser handles its own autofocus
+          return;
+        }
         if (lastActiveButtonRef.current) {
           lastActiveButtonRef.current.focus();
         } else {
@@ -22,7 +26,7 @@ export function Oracle({ isOpen, onClose }: OracleProps) {
         }
       }, 50);
     }
-  }, [isOpen]);
+  }, [isOpen, filterType]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {

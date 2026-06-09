@@ -47,6 +47,12 @@ export function CampaignRunner({ onGoToEncounter }: { onGoToEncounter?: (id: str
     }
   }, [onGoToEncounter]);
 
+  const runnerHeadingRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    runnerHeadingRef.current?.focus();
+  }, []);
+
   // Focus management and escape key
   useEffect(() => {
     if (isModalOpen && selectedAsset) {
@@ -83,7 +89,8 @@ export function CampaignRunner({ onGoToEncounter }: { onGoToEncounter?: (id: str
   const activeChapter = activeCampaign.chapters.find(c => c.id === currentChapterId);
 
   return (
-    <div>
+    <div >
+      <h2 ref={runnerHeadingRef} tabIndex={-1} style={{ outline: 'none' }} className="sr-only">Story Chapters</h2>
       <div style={{ display: 'flex', gap: '2rem' }}>
         {/* Navigation Sidebar */}
         <div style={{ flex: '0 0 200px', borderRight: '1px solid #ccc', paddingRight: '1rem' }}>
@@ -110,6 +117,7 @@ export function CampaignRunner({ onGoToEncounter }: { onGoToEncounter?: (id: str
         <div style={{ flex: 1 }}>
           {activeChapter ? (
             <div>
+              <h3 style={{ marginTop: 0 }}>{activeChapter.title}</h3>
               <div style={{ marginTop: '1rem' }}>
                 <Markdown 
                   content={activeChapter.content} 

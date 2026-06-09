@@ -53,11 +53,10 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   }, [activeCampaign]);
 
   useEffect(() => {
-    if (activeEncounter) {
-      setTimeout(() => {
-        runnerHeadingRef.current?.focus();
-      }, 0);
-    }
+    // Focus heading on mount or when view changes
+    setTimeout(() => {
+      runnerHeadingRef.current?.focus();
+    }, 0);
   }, [activeEncounter]);
 
   useEffect(() => {
@@ -258,22 +257,19 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
       damage,
       unitName
     });
-
-    // Close operations modal if it was open
-    closeOperations();
   };
 
   if (!activeEncounter) {
     const campaignEncounters = activeCampaign?.encounters || [];
     return (
-      <section>
+      <section >
         <h2 ref={runnerHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>Load Encounter</h2>
         {!activeCampaign ? <p>Please select a campaign in Create Mode.</p> :
          campaignEncounters.length === 0 ? <p>No saved encounters found. Go to Create Mode to build one.</p> : (
           <ul style={{ listStyle: 'none', padding: 0 }}>
             {campaignEncounters.map(e => (
               <li key={e.id}>
-                <button type="button" data-fuzzer-category="encounter-load" onClick={() => loadEncounter(e)}>Load "{e.name}"</button>
+                <button type="button" onClick={() => loadEncounter(e)}>Load "{e.name}"</button>
               </li>
             ))}
           </ul>
@@ -283,7 +279,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   }
 
   return (
-    <div className="encounter-runner">
+    <div className="encounter-runner" >
       <header>
         <h2 ref={runnerHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>Running: {activeEncounter.name}</h2>
         <button type="button" onClick={() => setActiveEncounter(null)}>Close Encounter</button>
