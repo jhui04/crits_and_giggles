@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import type { EncounterUnit } from '../types';
 import { DiceService } from '../services/DiceService';
+import { getSaveModifier } from '../utils/dnd';
 
 interface MonsterOperationsModalProps {
   unit: EncounterUnit;
@@ -158,16 +159,19 @@ export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, on
 
   const renderSaves = () => (
     <div style={{ display: 'grid', gap: '0.5rem', gridTemplateColumns: '1fr 1fr' }}>
-      {Object.entries(monster.stats).map(([key, s], i) => (
-        <button 
-          key={key} 
-          ref={i === 0 ? firstButtonRef : null}
-          type="button" 
-          onClick={() => rollSimple(`${key} Save`, s.save)}
-        >
-          {key}: {s.save >= 0 ? '+' : ''}{s.save}
-        </button>
-      ))}
+      {Object.entries(monster.stats).map(([key, _s], i) => {
+        const mod = getSaveModifier(monster, key);
+        return (
+          <button 
+            key={key} 
+            ref={i === 0 ? firstButtonRef : null}
+            type="button" 
+            onClick={() => rollSimple(`${key} Save`, mod)}
+          >
+            {key}: {mod >= 0 ? '+' : ''}{mod}
+          </button>
+        );
+      })}
       <button type="button" onClick={() => setView('MAIN')} style={{ gridColumn: 'span 2', marginTop: '0.5rem' }}>Back</button>
     </div>
   );

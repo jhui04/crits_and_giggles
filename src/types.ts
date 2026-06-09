@@ -13,7 +13,7 @@ export interface Monster {
     speeds: Record<string, number | boolean>;
     initiative_modifier?: number;
   };
-  stats: Record<string, { score: number; modifier: number; save: number }>;
+  stats: Record<string, { score: number; modifier: number; save?: number }>;
   skills: { name: string; modifier: number }[];
   vulnerabilities: string[];
   resistances: string[];

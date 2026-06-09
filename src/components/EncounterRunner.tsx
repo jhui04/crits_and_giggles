@@ -93,13 +93,16 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     setSelectedUnit(null);
   }, []);
 
-  const closeRollModal = useCallback(() => {
-    setActiveRoll(null);
-  }, []);
-
   const closeOperations = useCallback(() => {
     setActiveOperationsUnit(null);
   }, []);
+
+  const closeRollModal = useCallback(() => {
+    setActiveRoll(null);
+    if (activeOperationsUnit) {
+      closeOperations();
+    }
+  }, [activeOperationsUnit, closeOperations]);
 
   const openOperations = useCallback((e: React.MouseEvent<HTMLButtonElement> | null, unit: EncounterUnit) => {
     if (e) {

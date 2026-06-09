@@ -288,14 +288,16 @@ test.describe('Run Mode Accessibility', () => {
     await page.getByRole('button', { name: 'Combat' }).click();
     await page.getByRole('button', { name: /Load "Test Encounter"/ }).click();
     await page.getByRole('button', { name: 'Start Combat' }).click();
-    await page.getByRole('button', { name: 'Options' }).first().click();
+    const optionsTrigger = page.getByRole('button', { name: 'Options' }).first();
+    await optionsTrigger.click();
     await page.getByRole('button', { name: 'Actions' }).click();
-    const trigger = page.locator('[role="dialog"] button').first();
-    const actionName = await trigger.innerText();
-    await trigger.click();
+    const actionTrigger = page.locator('[role="dialog"] button').first();
+    const actionName = await actionTrigger.innerText();
+    await actionTrigger.click();
     await verifyModalOpen(page, new RegExp(actionName));
     await checkA11y(page, 'Roll Result Modal');
-    await verifyModalClosed(page, trigger);
+    // Esc now closes both roll result and operations modal, focus returns to the original Options trigger
+    await verifyModalClosed(page, optionsTrigger);
   });
 
   test('Combatant Details Modal (Player)', async ({ page }) => {

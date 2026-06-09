@@ -39,8 +39,9 @@ export function getSkillModifier(monster: Monster, skillName: string): number {
 }
 
 export function getSaveModifier(monster: Monster, statName: keyof Monster['stats']): number {
-  if (monster.stats[statName]) {
-    return monster.stats[statName].save;
+  const stat = monster.stats[statName];
+  if (stat) {
+    return stat.save !== undefined ? stat.save : stat.modifier;
   }
   return 0;
 }

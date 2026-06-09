@@ -50,7 +50,9 @@ describe('Monster Data Integrity', () => {
           expect(monster.stats[stat]).toBeDefined();
           expect(typeof monster.stats[stat].score).toBe('number');
           expect(typeof monster.stats[stat].modifier).toBe('number');
-          expect(typeof monster.stats[stat].save).toBe('number');
+          if (monster.stats[stat].save !== undefined) {
+            expect(typeof monster.stats[stat].save).toBe('number');
+          }
         });
 
         // Arrays (can be empty, but must be defined as arrays)
