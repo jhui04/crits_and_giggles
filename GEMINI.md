@@ -52,8 +52,19 @@ The application leverages static JSON files (in `public/data/`) for standard D&D
 
 ## Testing Strategy
 - Run `npm run test` (which executes Vitest and Playwright) frequently during development to ensure core functionality is intact and accessibility standards are met.
+- **Explicit Accessibility Testing:** We have migrated from fuzzer-based testing to deterministic, explicit Playwright tests (e.g., `tests/modal-accessibility.spec.ts`).
+  - **Seed State:** Tests inject predefined JSON data into `localStorage` (`crits_campaigns`) via `page.addInitScript` to immediately set up complex application states without brittle UI setup.
+  - **Axe Scans:** We run Axe accessibility scans using `checkA11y(page, 'Context Name')` at every distinct visual state or modal.
+  - **Strict Focus Verification:** Tests explicitly verify focus management. When a modal or view opens, tests assert `toBeFocused()` on the appropriate heading. When closed (via 'Escape' or cancel buttons), tests assert `toBeFocused()` on the original triggering button.
+- **Agent Mandate for New Features:** When you add new functionality (especially modals, forms, or entirely new views), you **MUST** add corresponding explicit Playwright tests.
+  1. Use the existing seed state pattern to reach the desired context.
+  2. Interact with the elements explicitly using Playwright's `getByRole` and `getByLabel` locators.
+  3. Assert the container opens and focus lands on the heading.
+  4. Assert `checkA11y` passes.
+  5. Close the container and assert focus is perfectly restored to the trigger element.
 
 ## Onboarding Checklist for Agents
-- [ ] Review `src/components/EncounterRunner.tsx` and `src/App.tsx` to understand the focus management pattern for modals.
+- [ ] Review `src/components/EncounterRunner.tsx` and `src/App.tsx` to understand the focus management pattern for modals in React using `useRef`.
+- [ ] Review `tests/modal-accessibility.spec.ts` to understand the deterministic accessibility testing and strict focus-verification pattern.
 - [ ] Ensure all new interactive elements have explicit `aria-label` or associated `<label>` tags.
-- [ ] Always run `npm run build` before finishing a task to catch TypeScript or unused import errors.
+- [ ] Always run `npm run test` and `npm run build` before finishing a task to catch TypeScript, unused import errors, or accessibility regressions.
