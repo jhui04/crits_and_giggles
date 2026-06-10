@@ -24,7 +24,7 @@ describe('getSaveModifier', () => {
   });
 
   it('should return 0 if the stat is missing', () => {
-    // @ts-ignore
+    // @ts-expect-error - Testing missing stat fallback
     expect(getSaveModifier(mockMonster, 'INT')).toBe(0);
   });
 });

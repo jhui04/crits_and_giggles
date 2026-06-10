@@ -174,6 +174,16 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
     });
   };
 
+  const standardLore = (monster.lore_sections || []).filter(s => 
+    !s.title.toLowerCase().includes('lair') && 
+    !s.title.toLowerCase().includes('regional effects')
+  );
+  
+  const bottomLore = (monster.lore_sections || []).filter(s => 
+    s.title.toLowerCase().includes('lair') || 
+    s.title.toLowerCase().includes('regional effects')
+  );
+
   return (
     <div className="monster-details" onKeyDown={handleKeyDown} >
       <h3>Quick Stats</h3>
@@ -193,7 +203,7 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
         </div>
       )}
 
-      {monster.lore_sections && monster.lore_sections.map((section, idx) => (
+      {standardLore.map((section, idx) => (
         <div key={idx} style={{ marginTop: '1rem' }}>
           <h3>{section.title}</h3>
           <div className="monster-lore-section" style={{ marginBottom: '1rem', fontStyle: 'italic' }}>
@@ -373,6 +383,15 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
           ))}
         </div>
       )}
+
+      {bottomLore.map((section, idx) => (
+        <div key={idx} style={{ marginTop: '1rem' }}>
+          <h3>{section.title}</h3>
+          <div className="monster-lore-section" style={{ marginBottom: '1rem', fontStyle: 'italic' }}>
+            {renderLoreContent(section.content)}
+          </div>
+        </div>
+      ))}
 
       <p style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid #ccc' }}>
         <strong>CR:</strong> {monster.cr}

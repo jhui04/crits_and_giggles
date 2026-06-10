@@ -159,7 +159,7 @@ export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, on
 
   const renderSaves = () => (
     <div style={{ display: 'grid', gap: '0.5rem', gridTemplateColumns: '1fr 1fr' }}>
-      {Object.entries(monster.stats).map(([key, _s], i) => {
+      {Object.entries(monster.stats).map(([key], i) => {
         const mod = getSaveModifier(monster, key);
         return (
           <button 

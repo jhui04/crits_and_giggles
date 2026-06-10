@@ -175,7 +175,7 @@ describe('Monster Data Integrity', () => {
            expect(hasLore).toBe(true);
         }
 
-        const checkLoreItems = (items: any[]) => {
+        const checkLoreItems = (items: LoreItem[]) => {
           expect(Array.isArray(items)).toBe(true);
           items.forEach(item => {
             if (typeof item === 'string') {
@@ -189,7 +189,7 @@ describe('Monster Data Integrity', () => {
               } else if (item.type === 'table') {
                 expect(Array.isArray(item.rows)).toBe(true);
                 expect(item.rows.length).toBeGreaterThan(0);
-                item.rows.forEach((row: any) => expect(Array.isArray(row)).toBe(true));
+                item.rows.forEach((row) => expect(Array.isArray(row)).toBe(true));
               }
             }
           });

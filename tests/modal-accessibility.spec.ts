@@ -84,7 +84,7 @@ const verifyModalOpen = async (page: Page, titleText: string | RegExp) => {
   await expect(heading).toBeFocused();
 };
 
-const verifyModalClosed = async (page: Page, trigger: any, titleToClose?: string | RegExp) => {
+const verifyModalClosed = async (page: Page, trigger: { focus: () => Promise<void> }, titleToClose?: string | RegExp) => {
   await page.keyboard.press('Escape');
   if (titleToClose) {
     await expect(page.locator('h1, h2, h3, h4, h5, h6').filter({ hasText: titleToClose })).not.toBeVisible();
