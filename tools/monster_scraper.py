@@ -228,6 +228,51 @@ def parse_monster_html(html_content, url=""):
         raw_source = clean_text(source_elem.get_text().replace('Source:', '').strip())
         monster["source"] = clean_source_name(raw_source)
 
+    description_blocks = soup.select('.mon-details__description-block .mon-details__description-block-content')
+    if description_blocks:
+        content_div = description_blocks[0]
+        current_title = ""
+        current_content = []
+        lore_sections = []
+        
+        def save_current_section():
+            nonlocal current_title, current_content, lore_sections
+            if current_content:
+                if current_title:
+                    lore_sections.append({"title": current_title, "content": current_content})
+                else:
+                    monster["description"] = current_content
+            current_content = []
+
+        for child in content_div.children:
+            if child.name in ['h2', 'h3', 'h4', 'h5']:
+                save_current_section()
+                current_title = clean_text(child.get_text())
+            elif child.name in ['p', 'blockquote', 'aside']:
+                text = clean_text(child.get_text())
+                if text:
+                    current_content.append(text)
+            elif child.name in ['ul', 'ol']:
+                list_items = []
+                for li in child.find_all('li', recursive=False):
+                    li_text = clean_text(li.get_text())
+                    if li_text:
+                        list_items.append(li_text)
+                if list_items:
+                    current_content.append({"type": "list", "items": list_items})
+            elif child.name == 'table':
+                rows = []
+                for tr in child.find_all('tr'):
+                    cells = [clean_text(td.get_text()) for td in tr.find_all(['td', 'th'])]
+                    if any(cells):
+                        rows.append(cells)
+                if rows:
+                    current_content.append({"type": "table", "rows": rows})
+        
+        save_current_section()
+        if lore_sections:
+            monster["lore_sections"] = lore_sections
+
     return monster
 
 

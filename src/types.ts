@@ -1,3 +1,13 @@
+export type LoreItem = 
+  | string 
+  | { type: 'list', items: string[] }
+  | { type: 'table', rows: string[][] };
+
+export interface LoreSection {
+  title: string;
+  content: LoreItem[];
+}
+
 export interface Monster {
   id: string;
   name: string;
@@ -22,6 +32,8 @@ export interface Monster {
   languages: string[];
   cr: string;
   source?: string;
+  description?: LoreItem[];
+  lore_sections?: LoreSection[];
   proficiency_bonus?: number;
   traits: { name: string; content: string; usage?: { times: number; type: string } }[];
   actions: { name: string; content: string; is_attack?: boolean; attack_bonus?: number; damage?: { dice: string; type: string }[] }[];

@@ -145,7 +145,7 @@ export function EncounterBuilder({ initialEncounter, onClose }: EncounterBuilder
       <section style={{ margin: '1rem 0' }}>
         <button type="button"
           ref={addMonsterBtnRef}
-          onClick={() => setIsModalOpen(true)}
+          onClick={handleOpenModal}
           style={{ padding: '0.75rem 1.5rem', fontWeight: 'bold' }}
         >
           Add Monster...

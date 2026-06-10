@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
-import type { Monster, Spell } from '../types';
+import type { Monster, Spell, LoreItem } from '../types';
 import { DiceService } from '../services/DiceService';
 import { QuickRoller } from './QuickRoller';
 import { wrapSpells } from '../utils/spellUtils';
+import { Markdown } from './Markdown';
 
 interface MonsterDetailsProps {
   monster: Monster;
@@ -10,12 +11,13 @@ interface MonsterDetailsProps {
   maxHp?: number;
   initiative?: number;
   onAnnounce?: (msg: string) => void;
+  onAssetClick?: (id: string) => void;
 }
 
 // Cache for spell names to avoid repeated regex generation
 let globalSpellNames: string[] = [];
 
-export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnounce }: MonsterDetailsProps) {
+export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnounce, onAssetClick = () => {} }: MonsterDetailsProps) {
   const [spellNames, setSpellNames] = useState<string[]>(globalSpellNames);
 
   useEffect(() => {
@@ -124,6 +126,54 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
     });
   };
 
+  const renderLoreContent = (content: LoreItem[]) => {
+    return content.map((item, idx) => {
+      if (typeof item === 'string') {
+        return <div key={idx} style={{ marginBottom: '0.5rem' }}><Markdown content={item} onAssetClick={onAssetClick} /></div>;
+      }
+      if (item.type === 'list') {
+        return (
+          <ul key={idx} style={{ marginBottom: '0.5rem', paddingLeft: '1.5rem' }}>
+            {item.items.map((listItem, i) => (
+              <li key={i}><Markdown content={listItem} onAssetClick={onAssetClick} /></li>
+            ))}
+          </ul>
+        );
+      }
+      if (item.type === 'table') {
+        return (
+          <div key={idx} style={{ overflowX: 'auto', marginBottom: '1rem' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #ccc' }}>
+              <tbody>
+                {item.rows.map((row, rIdx) => (
+                  <tr key={rIdx} style={{ backgroundColor: rIdx % 2 === 0 ? '#f9f9f9' : 'transparent' }}>
+                    {row.map((cell, cIdx) => {
+                      const CellTag = rIdx === 0 ? 'th' : 'td';
+                      return (
+                        <CellTag 
+                          key={cIdx} 
+                          style={{ 
+                            border: '1px solid #ccc', 
+                            padding: '0.5rem', 
+                            textAlign: 'left',
+                            fontWeight: rIdx === 0 ? 'bold' : 'normal'
+                          }}
+                        >
+                          <Markdown content={cell} onAssetClick={onAssetClick} />
+                        </CellTag>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      }
+      return null;
+    });
+  };
+
   return (
     <div className="monster-details" onKeyDown={handleKeyDown} >
       <h3>Quick Stats</h3>
@@ -133,6 +183,24 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
         <p><strong>AC:</strong> {monster.attributes.ac.value} {monster.attributes.ac.notes ? `(${monster.attributes.ac.notes})` : ''}</p>
         <p><strong>Type:</strong> {monster.meta.size} {monster.meta.type}</p>
       </div>
+
+      {monster.description && (
+        <div style={{ marginTop: '1rem' }}>
+          <h3>Description</h3>
+          <div className="monster-description" style={{ marginBottom: '1rem', fontStyle: 'italic' }}>
+            {renderLoreContent(monster.description)}
+          </div>
+        </div>
+      )}
+
+      {monster.lore_sections && monster.lore_sections.map((section, idx) => (
+        <div key={idx} style={{ marginTop: '1rem' }}>
+          <h3>{section.title}</h3>
+          <div className="monster-lore-section" style={{ marginBottom: '1rem', fontStyle: 'italic' }}>
+            {renderLoreContent(section.content)}
+          </div>
+        </div>
+      ))}
 
       <h3>Ability Scores</h3>
       <div>
