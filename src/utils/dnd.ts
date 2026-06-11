@@ -1,26 +1,20 @@
 import type { Monster } from '../types';
 import { DiceService } from '../services/DiceService';
 
-export const DND_SKILLS: Record<string, keyof Monster['stats']> = {
-  'Acrobatics': 'DEX',
-  'Animal Handling': 'WIS',
-  'Arcana': 'INT',
-  'Athletics': 'STR',
-  'Deception': 'CHA',
-  'History': 'INT',
-  'Insight': 'WIS',
-  'Intimidation': 'CHA',
-  'Investigation': 'INT',
-  'Medicine': 'WIS',
-  'Nature': 'INT',
-  'Perception': 'WIS',
-  'Performance': 'CHA',
-  'Persuasion': 'CHA',
-  'Religion': 'INT',
-  'Sleight of Hand': 'DEX',
-  'Stealth': 'DEX',
-  'Survival': 'WIS'
+export const DND_SKILLS_BY_ABILITY: Record<string, string[]> = {
+  "STR": ["Athletics"],
+  "DEX": ["Acrobatics", "Sleight of Hand", "Stealth"],
+  "INT": ["Arcana", "History", "Investigation", "Nature", "Religion"],
+  "WIS": ["Animal Handling", "Insight", "Medicine", "Perception", "Survival"],
+  "CHA": ["Deception", "Intimidation", "Performance", "Persuasion"]
 };
+
+export const DND_SKILLS: Record<string, keyof Monster['stats']> = {};
+Object.entries(DND_SKILLS_BY_ABILITY).forEach(([ability, skills]) => {
+  skills.forEach(skill => {
+    DND_SKILLS[skill] = ability as keyof Monster['stats'];
+  });
+});
 
 export const DND_SAVES: Array<keyof Monster['stats']> = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'];
 

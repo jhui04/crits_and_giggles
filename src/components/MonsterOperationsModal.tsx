@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import type { EncounterUnit } from '../types';
 import { DiceService } from '../services/DiceService';
-import { getSaveModifier } from '../utils/dnd';
+import { getSaveModifier, getSkillModifier, DND_SKILLS_BY_ABILITY } from '../utils/dnd';
 
 interface MonsterOperationsModalProps {
   unit: EncounterUnit;
@@ -133,25 +133,29 @@ export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, on
   );
 
   const renderSkills = () => {
-    // Skills from data
-    const skillList = [...monster.skills];
-    
-    // Add default attributes as fallback checks if needed? 
-    // Plan says "derived from fullData.skills and fullData.stats"
-    
     return (
-      <div style={{ display: 'grid', gap: '0.5rem' }}>
-        {skillList.map((s, i) => (
-          <button 
-            key={s.name} 
-            ref={i === 0 ? firstButtonRef : null}
-            type="button" 
-            onClick={() => rollSimple(s.name, s.modifier)}
-          >
-            {s.name} ({s.modifier >= 0 ? '+' : ''}{s.modifier})
-          </button>
+      <div style={{ display: 'grid', gap: '0.75rem', maxHeight: '60vh', overflowY: 'auto', paddingRight: '0.5rem' }}>
+        {Object.entries(DND_SKILLS_BY_ABILITY).map(([ability, skills], groupIdx) => (
+          <div key={ability} style={{ border: '1px solid #eee', padding: '0.5rem', borderRadius: '4px' }}>
+            <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem', color: '#666' }}>{ability} Skills</h4>
+            <div style={{ display: 'grid', gap: '0.25rem' }}>
+              {skills.map((skill, skillIdx) => {
+                const mod = getSkillModifier(monster, skill);
+                return (
+                  <button 
+                    key={skill} 
+                    ref={groupIdx === 0 && skillIdx === 0 ? firstButtonRef : null}
+                    type="button" 
+                    onClick={() => rollSimple(`${skill} Check`, mod)}
+                    style={{ textAlign: 'left', padding: '0.4rem 0.6rem' }}
+                  >
+                    {skill} ({mod >= 0 ? '+' : ''}{mod})
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         ))}
-        {skillList.length === 0 && <p>No specific skills listed.</p>}
         <button type="button" onClick={() => setView('MAIN')} style={{ marginTop: '0.5rem' }}>Back</button>
       </div>
     );
