@@ -99,22 +99,29 @@ export function EncounterBuilder({ initialEncounter, onClose }: EncounterBuilder
     setUnits(units.filter(u => u.instanceId !== instanceId));
   };
 
-  const saveEncounter = () => {
+  const saveEncounter = async () => {
     if (!activeCampaign) {
       alert("Please select a Campaign first in the Campaigns tab.");
       return;
     }
+    
+    // Strip fullData before saving to backend (Plan 3 compliance)
+    const strippedUnits = units.map(u => {
+      const { fullData, ...rest } = u;
+      return rest;
+    });
+
     const encounter: Encounter = {
       id: initialEncounter ? initialEncounter.id : crypto.randomUUID(),
       name: encounterName,
-      units: units
+      units: strippedUnits
     };
     
     const existingEncounters = initialEncounter 
       ? activeCampaign.encounters.filter(e => e.id !== initialEncounter.id)
       : activeCampaign.encounters;
 
-    updateCampaign({
+    await updateCampaign({
       ...activeCampaign,
       encounters: [...existingEncounters, encounter]
     });

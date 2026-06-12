@@ -42,6 +42,11 @@ class DataService {
     return this.monsterPromise;
   }
 
+  async getMonsterById(id: string): Promise<Monster | null> {
+    const monsters = await this.getAllMonsters();
+    return monsters.find(m => m.id === id) || null;
+  }
+
   async getAllSpells(): Promise<Spell[]> {
     if (this.spells.length > 0) return this.spells;
     if (this.spellPromise) return this.spellPromise;

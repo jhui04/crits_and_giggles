@@ -1,81 +1,25 @@
 import { test, expect, Page } from '@playwright/test';
 import { checkA11y } from './utils/axe-helper';
+import { getSeedState } from './seed-data';
 import fs from 'fs';
 import path from 'path';
 
 const monstersData = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'public/data/monsters.json'), 'utf-8'));
 const mockMonster = monstersData[0];
 
-const seedState = {
-  id: 'test-campaign',
-  name: 'Test Campaign',
-  description: 'Test Description',
-  chapters: [
-    {
-      id: 'chap-1',
-      title: 'Chapter 1',
-      content: 'Hello world content',
-      order: 0
-    }
-  ],
-  assets: [
-    {
-      id: 'asset-1',
-      name: 'Test Asset',
-      type: 'markdown',
-      content: '# Test Asset Content',
-      description: '',
-      category: 'General'
-    }
-  ],
-  players: [
-    {
-      id: 'player-1',
-      name: 'Player 1',
-      dexMod: 3,
-      initiative: 0,
-      passivePerception: 15,
-      isPlayer: true
-    }
-  ],
-  encounters: [
-    {
-      id: 'test-encounter',
-      name: 'Test Encounter',
-      units: [
-        {
-          instanceId: 'unit-1',
-          monsterId: mockMonster.id,
-          name: mockMonster.name,
-          maxHp: 10,
-          currentHp: 10,
-          hpDice: '2d6',
-          dexMod: 2,
-          initiative: 15,
-          passivePerception: 12,
-          isPlayer: false,
-          fullData: mockMonster
-        },
-        {
-          instanceId: 'player-1',
-          name: 'Player 1',
-          dexMod: 3,
-          initiative: 18,
-          passivePerception: 15,
-          isPlayer: true
-        }
-      ]
-    }
-  ]
-};
+const SUITE_ID = 'modal-accessibility-suite';
+const suiteSeed = getSeedState(SUITE_ID);
 
 const setupApp = async (page: Page) => {
-  await page.addInitScript((data) => {
-    window.localStorage.setItem('crits_campaigns', JSON.stringify([data]));
-    window.localStorage.setItem('crits_active_campaign', data.id);
-  }, seedState);
+  await page.addInitScript((id) => {
+    window.localStorage.clear();
+    window.localStorage.setItem('crits_active_campaign', id);
+  }, SUITE_ID);
   await page.goto('/');
   await page.waitForSelector('main');
+  
+  // Verify correct campaign loaded
+  await expect(page.locator('header')).toContainText(`Campaign: ${suiteSeed.name}`);
 };
 
 const verifyModalOpen = async (page: Page, titleText: string | RegExp) => {
@@ -93,6 +37,14 @@ const verifyModalClosed = async (page: Page, trigger: { focus: () => Promise<voi
 };
 
 test.describe('Global / App Level Accessibility', () => {
+  test.beforeAll(async ({ request }) => {
+    const apiBase = 'http://localhost:3005/api';
+    // Ensure absolute isolation by resetting
+    await request.delete(`${apiBase}/danger/reset`);
+    const res = await request.post(`${apiBase}/campaigns`, { data: suiteSeed });
+    if (!res.ok()) throw new Error(`Failed to seed suite: ${res.status()}`);
+  });
+
   test.beforeEach(async ({ page }) => {
     await setupApp(page);
   });
@@ -151,7 +103,7 @@ test.describe('Create Mode Accessibility', () => {
 
   test('Campaign Builder (Default/Expanded)', async ({ page }) => {
     await page.getByRole('button', { name: 'Chapter 1', exact: false }).click();
-    await page.getByRole('button', { name: 'Test Asset (markdown)', exact: false }).click();
+    await page.getByRole('button', { name: 'Test Asset (Location)', exact: false }).click();
     await checkA11y(page, 'Campaign Builder Expanded');
   });
 
@@ -190,7 +142,7 @@ test.describe('Create Mode Accessibility', () => {
   });
 
   test('Asset Details Modal', async ({ page }) => {
-    await page.getByRole('button', { name: 'Test Asset (markdown)', exact: false }).click();
+    await page.getByRole('button', { name: 'Test Asset', exact: false }).click();
     const trigger = page.getByRole('button', { name: 'View Details' });
     await trigger.click();
     await verifyModalOpen(page, 'Test Asset');
@@ -296,7 +248,6 @@ test.describe('Run Mode Accessibility', () => {
     await actionTrigger.click();
     await verifyModalOpen(page, new RegExp(actionName));
     await checkA11y(page, 'Roll Result Modal');
-    // Esc now closes both roll result and operations modal, focus returns to the original Options trigger
     await verifyModalClosed(page, optionsTrigger);
   });
 
@@ -304,7 +255,7 @@ test.describe('Run Mode Accessibility', () => {
     await page.getByRole('button', { name: 'Combat' }).click();
     await page.getByRole('button', { name: /Load "Test Encounter"/ }).click();
     await page.getByRole('button', { name: 'Start Combat' }).click();
-    const trigger = page.getByRole('button', { name: 'Player 1 (Player)' });
+    const trigger = page.getByRole('button', { name: /Player 1 \(Player\)/ });
     await trigger.click();
     await verifyModalOpen(page, 'Player 1');
     await checkA11y(page, 'Player Details');

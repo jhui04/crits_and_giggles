@@ -2,12 +2,18 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Core User Journeys', () => {
 
+  test.beforeAll(async ({ request }) => {
+    const apiBase = 'http://localhost:3005/api';
+    await request.delete(`${apiBase}/danger/reset`);
+  });
+
   test.beforeEach(async ({ page }) => {
-    // Clear state before each test
+    // Clear state before each test to ensure we start from scratch
     await page.addInitScript(() => {
       localStorage.clear();
     });
     await page.goto('/');
+    await page.waitForSelector('main');
   });
 
   test('User can create a new campaign and switch to it', async ({ page }) => {
@@ -22,7 +28,7 @@ test.describe('Core User Journeys', () => {
     await page.click('text=Create New Campaign');
     
     // Fill out the form
-    await page.fill('#new-camp-name', 'The Lost Mines');
+    await page.fill('#new-camp-name', 'The Lost Mines of Phandelver');
     await page.fill('#new-camp-desc', 'A perilous journey.');
     
     // Submit
@@ -30,7 +36,7 @@ test.describe('Core User Journeys', () => {
 
     // Verify modal closed and campaign is active
     await expect(page.locator('[role="dialog"]')).not.toBeVisible();
-    await expect(page.locator('header')).toContainText('Campaign: The Lost Mines');
+    await expect(page.locator('header')).toContainText('Campaign: The Lost Mines of Phandelver');
   });
 
   test('User can toggle between Create and Run mode', async ({ page }) => {

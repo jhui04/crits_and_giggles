@@ -1,26 +1,26 @@
 import { test, expect } from '@playwright/test';
 import { checkA11y } from './utils/axe-helper';
+import { getSeedState } from './seed-data';
+
+const SUITE_ID = 'lore-suite';
+const suiteSeed = getSeedState(SUITE_ID);
 
 test.describe('Monster Lore Visibility', () => {
-  test.beforeEach(async ({ page }) => {
-    // Seed the state with a campaign
-    await page.addInitScript(() => {
-      const campaign = {
-        id: 'test-campaign',
-        name: 'Test Campaign',
-        description: 'Test',
-        chapters: [],
-        assets: [],
-        players: [],
-        encounters: []
-      };
-      localStorage.setItem('crits_campaigns', JSON.stringify([campaign]));
-      localStorage.setItem('crits_current_campaign_id', 'test-campaign');
-    });
+  test.beforeAll(async ({ request }) => {
+    const apiBase = 'http://localhost:3005/api';
+    // Ensure absolute isolation by resetting
+    await request.delete(`${apiBase}/danger/reset`);
+    const res = await request.post(`${apiBase}/campaigns`, { data: suiteSeed });
+    if (!res.ok()) throw new Error(`Failed to seed suite: ${res.status()}`);
+  });
 
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript((id) => {
+      window.localStorage.clear();
+      window.localStorage.setItem('crits_active_campaign', id);
+    }, SUITE_ID);
     await page.goto('/');
-    // Ensure data is loaded
-    await page.waitForLoadState('networkidle');
+    await page.waitForSelector('main');
   });
 
   test('should display monster description and lore sections in Oracle', async ({ page }) => {

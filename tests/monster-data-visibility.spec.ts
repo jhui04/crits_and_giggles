@@ -1,11 +1,25 @@
 import { test, expect } from '@playwright/test';
+import { getSeedState } from './seed-data';
+
+const SUITE_ID = 'visibility-suite';
+const suiteSeed = getSeedState(SUITE_ID);
 
 test.describe('Monster Data Visibility', () => {
+  test.beforeAll(async ({ request }) => {
+    const apiBase = 'http://localhost:3005/api';
+    // Ensure absolute isolation by resetting
+    await request.delete(`${apiBase}/danger/reset`);
+    const res = await request.post(`${apiBase}/campaigns`, { data: suiteSeed });
+    if (!res.ok()) throw new Error(`Failed to seed suite: ${res.status()}`);
+  });
+
   test.beforeEach(async ({ page }) => {
+    await page.addInitScript((id) => {
+      window.localStorage.clear();
+      window.localStorage.setItem('crits_active_campaign', id);
+    }, SUITE_ID);
     await page.goto('/');
-    await page.evaluate(() => localStorage.clear());
-    await page.reload();
-    await page.waitForLoadState('networkidle');
+    await page.waitForSelector('main');
   });
 
   test('should display monsters in the Oracle', async ({ page }) => {
@@ -23,13 +37,8 @@ test.describe('Monster Data Visibility', () => {
   test('should display monsters in the Encounter Builder', async ({ page }) => {
     await page.click('body');
     
-    // Create a campaign first
-    await page.keyboard.press('Alt+C');
-    await expect(page.locator('text=Select Campaign')).toBeVisible();
-    await page.getByRole('button', { name: /Create New Campaign/i }).click();
-    await page.getByLabel(/Campaign Name/i).fill('Test Campaign');
-    await page.getByRole('button', { name: /Create & Select/i }).click();
-    await expect(page.locator('text=Campaign: Test Campaign')).toBeVisible();
+    // Verify we are on the seeded campaign
+    await expect(page.locator('header')).toContainText(`Campaign: ${suiteSeed.name}`);
 
     // Open Encounter Builder
     await page.getByRole('button', { name: /Create Encounter/i }).click();

@@ -20,12 +20,37 @@ export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, on
   const inputRef = useRef<HTMLInputElement>(null);
   const firstButtonRef = useRef<HTMLButtonElement>(null);
 
+  // Fallback for custom monsters or missing data
+  const monster = unit.fullData || {
+    id: 'custom',
+    name: unit.name,
+    meta: { size: 'Medium', type: 'custom', tags: [], alignment: 'Unknown' },
+    attributes: { ac: { value: 10 }, hp: { value: unit.maxHp || 10, dice: unit.hpDice || '1d1' }, speeds: { walk: 30 } },
+    stats: {
+      STR: { score: 10, modifier: 0 },
+      DEX: { score: 10 + (unit.dexMod * 2), modifier: unit.dexMod },
+      CON: { score: 10, modifier: 0 },
+      INT: { score: 10, modifier: 0 },
+      WIS: { score: 10, modifier: 0 },
+      CHA: { score: 10, modifier: 0 }
+    },
+    skills: [],
+    vulnerabilities: [],
+    resistances: [],
+    immunities: { damage: [], condition: [] },
+    senses: [],
+    languages: [],
+    cr: '1',
+    traits: [],
+    actions: [],
+    legendary_actions: [],
+    reactions: []
+  };
+
   useEffect(() => {
     // Focus heading on open
-    if (unit.fullData) {
-      headingRef.current?.focus();
-    }
-  }, [unit.fullData]);
+    headingRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     // Focus first interactive element when view changes
@@ -35,9 +60,6 @@ export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, on
       firstButtonRef.current?.focus();
     }
   }, [view]);
-
-  const monster = unit.fullData;
-  if (!monster) return null;
 
   const handleApplyHp = (isDamage: boolean) => {
     const val = parseInt(hpAmount, 10);
@@ -118,6 +140,7 @@ export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, on
 
   const renderActions = () => (
     <div style={{ display: 'grid', gap: '0.5rem' }}>
+      {monster.actions.length === 0 && <p>No specific actions defined.</p>}
       {monster.actions.map((a, i) => (
         <button 
           key={a.name} 

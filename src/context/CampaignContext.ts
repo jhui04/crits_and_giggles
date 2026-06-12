@@ -6,9 +6,9 @@ export interface CampaignContextType {
   activeCampaignId: string | null;
   activeCampaign: Campaign | undefined;
   setActiveCampaignId: (id: string | null) => void;
-  createCampaign: (name: string, description: string, template?: Partial<Campaign>) => void;
-  updateCampaign: (campaign: Campaign) => void;
-  deleteCampaign: (id: string) => void;
+  createCampaign: (name: string, description: string, template?: Partial<Campaign>) => Promise<void>;
+  updateCampaign: (campaign: Campaign) => Promise<void>;
+  deleteCampaign: (id: string) => Promise<void>;
 }
 
 export const CampaignContext = createContext<CampaignContextType | undefined>(undefined);

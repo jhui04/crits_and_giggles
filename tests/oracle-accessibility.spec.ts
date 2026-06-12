@@ -1,62 +1,25 @@
 import { test, expect } from '@playwright/test';
-import fs from 'fs';
-import path from 'path';
+import { getSeedState } from './seed-data';
 
-// Seed data
-const monstersData = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'public/data/monsters.json'), 'utf-8'));
-const mockMonster = monstersData[0]; 
-
-const seedState = {
-  id: 'test-campaign',
-  name: 'Test Campaign',
-  description: 'Test',
-  chapters: [
-    {
-      id: 'chap-1',
-      title: 'Chapter 1',
-      content: 'Hello world',
-      order: 0
-    }
-  ],
-  assets: [],
-  encounters: [
-    {
-      id: 'test-encounter',
-      name: 'Test Encounter',
-      units: [
-        {
-          instanceId: 'unit-1',
-          monsterId: mockMonster.id,
-          name: mockMonster.name,
-          maxHp: 10,
-          currentHp: 10,
-          hpDice: '2d6',
-          dexMod: 2,
-          initiative: 15,
-          passivePerception: 12,
-          isPlayer: false,
-          fullData: mockMonster
-        },
-        {
-          instanceId: 'player-1',
-          name: 'Player 1',
-          dexMod: 3,
-          initiative: 18,
-          passivePerception: 15,
-          isPlayer: true
-        }
-      ]
-    }
-  ]
-};
+const SUITE_ID = 'oracle-suite';
+const suiteSeed = getSeedState(SUITE_ID);
 
 test.describe('Oracle Accessibility', () => {
+  test.beforeAll(async ({ request }) => {
+    const apiBase = 'http://localhost:3005/api';
+    // Ensure absolute isolation by resetting
+    await request.delete(`${apiBase}/danger/reset`);
+    const res = await request.post(`${apiBase}/campaigns`, { data: suiteSeed });
+    if (!res.ok()) throw new Error(`Failed to seed suite: ${res.status()}`);
+  });
+
   test.beforeEach(async ({ page }) => {
-    await page.addInitScript((seededData) => {
-      localStorage.setItem('crits_campaigns', JSON.stringify([seededData]));
-      localStorage.setItem('crits_active_campaign', seededData.id);
-    }, seedState);
+    await page.addInitScript((id) => {
+      window.localStorage.clear();
+      window.localStorage.setItem('crits_active_campaign', id);
+    }, SUITE_ID);
     await page.goto('/');
+    await page.waitForSelector('main');
   });
 
   test('Oracle opens, search works, and focus management is correct', async ({ page }) => {

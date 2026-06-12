@@ -192,7 +192,7 @@ export function CampaignBuilder() {
     return asset.name;
   }, [monsters, spells]);
 
-  const handleAddPlayer = () => {
+  const handleAddPlayer = async () => {
     if (!activeCampaign || !playerName) return;
     
     let newPlayers;
@@ -207,14 +207,14 @@ export function CampaignBuilder() {
       newPlayers = [...activeCampaign.players, newPlayer];
     }
 
-    updateCampaign({
+    await updateCampaign({
       ...activeCampaign,
       players: newPlayers
     });
     closePlayerForm();
   };
 
-  const handleAddAsset = () => {
+  const handleAddAsset = async () => {
     if (!activeCampaign || !assetName) return;
     
     let newAssets;
@@ -230,14 +230,14 @@ export function CampaignBuilder() {
       newAssets = [...activeCampaign.assets, newAsset];
     }
 
-    updateCampaign({
+    await updateCampaign({
       ...activeCampaign,
       assets: newAssets
     });
     closeAssetForm();
   };
 
-  const handleAddChapter = () => {
+  const handleAddChapter = async () => {
     if (!activeCampaign || !chapterTitle) return;
     
     let newChapters;
@@ -253,7 +253,7 @@ export function CampaignBuilder() {
       newChapters = [...activeCampaign.chapters, newChapter];
     }
 
-    updateCampaign({
+    await updateCampaign({
       ...activeCampaign,
       chapters: newChapters
     });
@@ -273,10 +273,10 @@ export function CampaignBuilder() {
     setShowPlayerForm(true);
   }, []);
 
-  const handleDeletePlayer = useCallback((id: string) => {
+  const handleDeletePlayer = useCallback(async (id: string) => {
     if (!activeCampaign) return;
     if (confirm("Are you sure you want to delete this player character?")) {
-      updateCampaign({
+      await updateCampaign({
         ...activeCampaign,
         players: activeCampaign.players.filter(p => p.id !== id)
       });
@@ -300,10 +300,10 @@ export function CampaignBuilder() {
     setShowAssetForm(true);
   }, []);
 
-  const handleDeleteEncounter = useCallback((id: string) => {
+  const handleDeleteEncounter = useCallback(async (id: string) => {
     if (!activeCampaign) return;
     if (confirm("Are you sure you want to delete this encounter?")) {
-      updateCampaign({
+      await updateCampaign({
         ...activeCampaign,
         encounters: activeCampaign.encounters.filter(e => e.id !== id)
       });

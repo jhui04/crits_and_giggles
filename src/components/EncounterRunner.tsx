@@ -4,6 +4,7 @@ import { MonsterDetails } from './MonsterDetails';
 import { MonsterOperationsModal } from './MonsterOperationsModal';
 import type { Encounter, EncounterUnit } from '../types';
 import { useCampaigns } from '../context/CampaignContext';
+import { dataService } from '../services/DataService';
 
 export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: string | null }) {
   const { activeCampaign } = useCampaigns();
@@ -26,13 +27,19 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   const lastActiveRollButtonRef = useRef<HTMLElement | null>(null);
   const lastFocusedOperationsButtonRef = useRef<HTMLButtonElement | null>(null);
 
-  const loadEncounter = useCallback((encounter: Encounter) => {
+  const loadEncounter = useCallback(async (encounter: Encounter) => {
     setActiveEncounter(encounter);
     
-    // Start with monsters from the encounter
-    const monsterUnits = encounter.units
+    // Start with monsters from the encounter and enrich with fullData
+    const monsterUnits = await Promise.all(encounter.units
       .filter(u => !u.isPlayer)
-      .map(u => ({ ...u }));
+      .map(async u => {
+        const enriched = { ...u };
+        if (u.monsterId && !u.fullData) {
+          enriched.fullData = await dataService.getMonsterById(u.monsterId) || undefined;
+        }
+        return enriched;
+      }));
     
     // Inject players from the campaign
     const playerUnits: EncounterUnit[] = (activeCampaign?.players || []).map(p => ({
