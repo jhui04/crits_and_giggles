@@ -66,6 +66,7 @@ export interface Encounter {
   id: string;
   name: string;
   units: EncounterUnit[];
+  chapterId?: string;
 }
 
 export interface Chapter {
@@ -82,6 +83,7 @@ export interface Asset {
   type: AssetType;
   name: string;
   description: string;
+  chapterId?: string;
 }
 
 export interface Spell {

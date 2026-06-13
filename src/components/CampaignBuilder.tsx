@@ -48,6 +48,22 @@ export function CampaignBuilder() {
   const [isCreatingEncounter, setIsCreatingEncounter] = useState(false);
   const [editingEncounter, setEditingEncounter] = useState<Encounter | null>(null);
 
+  // View & Chapter Context State
+  const [viewMode, setViewMode] = useState<'chapters' | 'all'>('chapters');
+  const [selectedChapterId, setSelectedChapterId] = useState<string | null>(
+    activeCampaign?.chapters && activeCampaign.chapters.length > 0 ? activeCampaign.chapters[0].id : null
+  );
+
+  useEffect(() => {
+    if (activeCampaign) {
+      if (selectedChapterId === null && activeCampaign.chapters.length > 0) {
+        setSelectedChapterId(activeCampaign.chapters[0].id);
+      } else if (selectedChapterId !== null && !activeCampaign.chapters.find(c => c.id === selectedChapterId)) {
+        setSelectedChapterId(activeCampaign.chapters.length > 0 ? activeCampaign.chapters[0].id : null);
+      }
+    }
+  }, [activeCampaign, selectedChapterId]);
+
   // Refs for focus management
   const campaignHeadingRef = useRef<HTMLHeadingElement>(null);
   const editCampaignBtnRef = useRef<HTMLButtonElement>(null);
@@ -219,13 +235,14 @@ export function CampaignBuilder() {
     
     let newAssets;
     if (editingAssetId) {
-      newAssets = activeCampaign.assets.map(a => a.id === editingAssetId ? { ...a, name: assetName, type: assetType, description: assetDesc } : a);
+      newAssets = activeCampaign.assets.map(a => a.id === editingAssetId ? { ...a, name: assetName, type: assetType, description: assetDesc, chapterId: a.chapterId } : a);
     } else {
       const newAsset: Asset = {
         id: crypto.randomUUID(),
         name: assetName,
         type: assetType,
-        description: assetDesc
+        description: assetDesc,
+        chapterId: (viewMode === 'chapters' && selectedChapterId) ? selectedChapterId : undefined
       };
       newAssets = [...activeCampaign.assets, newAsset];
     }
@@ -241,11 +258,13 @@ export function CampaignBuilder() {
     if (!activeCampaign || !chapterTitle) return;
     
     let newChapters;
+    let newChapterId = editingChapterId;
     if (editingChapterId) {
       newChapters = activeCampaign.chapters.map(c => c.id === editingChapterId ? { ...c, title: chapterTitle, content: chapterContent } : c);
     } else {
+      newChapterId = crypto.randomUUID();
       const newChapter: Chapter = {
-        id: crypto.randomUUID(),
+        id: newChapterId!,
         title: chapterTitle,
         content: chapterContent,
         order: activeCampaign.chapters.length
@@ -257,6 +276,9 @@ export function CampaignBuilder() {
       ...activeCampaign,
       chapters: newChapters
     });
+    if (!editingChapterId && newChapterId) {
+      setSelectedChapterId(newChapterId);
+    }
     closeChapterForm();
   };
 
@@ -334,6 +356,7 @@ export function CampaignBuilder() {
     return (
       <EncounterBuilder 
         initialEncounter={editingEncounter}
+        chapterId={viewMode === 'chapters' ? selectedChapterId : null}
         onClose={closeEncounterForm}
       />
     );
@@ -346,103 +369,231 @@ export function CampaignBuilder() {
     <div >
       <nav className="sub-nav" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
         <h2 style={{ margin: 0 }}>Campaign Builder</h2>
-        <button type="button" ref={editCampaignBtnRef} onClick={handleOpenSettings}>Campaign Settings</button>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <div className="tab-group" role="tablist" style={{ marginRight: '1rem' }}>
+            <button
+              role="tab"
+              aria-selected={viewMode === 'chapters'}
+              onClick={() => setViewMode('chapters')}
+              className={viewMode === 'chapters' ? 'active' : ''}
+              style={{ fontWeight: viewMode === 'chapters' ? 'bold' : 'normal', borderBottom: viewMode === 'chapters' ? '2px solid #000' : 'none' }}
+            >
+              Chapters
+            </button>
+            <button
+              role="tab"
+              aria-selected={viewMode === 'all'}
+              onClick={() => setViewMode('all')}
+              className={viewMode === 'all' ? 'active' : ''}
+              style={{ fontWeight: viewMode === 'all' ? 'bold' : 'normal', borderBottom: viewMode === 'all' ? '2px solid #000' : 'none' }}
+            >
+              All Assets
+            </button>
+          </div>
+          <button type="button" ref={editCampaignBtnRef} onClick={handleOpenSettings}>Campaign Settings</button>
+        </div>
       </nav>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2rem' }} aria-hidden={!!isAnyModalOpen}>
 
-        {/* Chapter Management */}
-        <section style={{ flex: '1 1 300px' }}>
-          <h3 id="chapters-heading">Manage Chapters</h3>
-          <ul style={{ listStyle: 'none', padding: 0, marginBottom: '1rem' }}>
-            {activeCampaign.chapters.map(c => (
-              <li key={c.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0' }}>
-                <div style={{ display: 'flex', alignItems: 'center' }}>
-                  <button type="button"
-                    aria-expanded={expandedChapterId === c.id}
-                    aria-label={`${c.title}, ${expandedChapterId === c.id ? 'Expanded' : 'Collapsed'}`}
-                    onClick={() => setExpandedChapterId(prev => prev === c.id ? null : c.id)}
-                    style={{ flexGrow: 1, textAlign: 'left', fontWeight: 'bold', background: 'none', border: 'none', padding: '0.5rem', cursor: 'pointer' }}
-                  >
-                    <span aria-hidden="true">{expandedChapterId === c.id ? '▼' : '▶'}</span> {c.title}
-                  </button>
-                </div>
-                {expandedChapterId === c.id && (
-                  <div style={{ padding: '1rem', borderLeft: '2px solid #0066cc', marginTop: '0.5rem' }}>
-                    <div style={{ marginBottom: '1rem' }}>
-                      <button type="button" onClick={() => handleEditChapter(c)}>Edit Chapter</button>
-                    </div>
-                    <Markdown 
-                      content={c.content} 
-                      onAssetClick={handleAssetLinkClick} 
-                      onEncounterClick={handleEncounterLinkClick} 
-                      baseHeadingLevel={3} 
-                    />
-                  </div>
-                )}
-              </li>
-            ))}
-            {activeCampaign.chapters.length === 0 && <li>No chapters written yet.</li>}
-          </ul>
-          <button type="button" ref={addChapterBtnRef} onClick={() => setShowChapterForm(true)}>+ Add Chapter</button>
-        </section>
+      {viewMode === 'chapters' ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }} aria-hidden={!!isAnyModalOpen}>
+          {/* Chapter Selector */}
+          <section style={{ borderBottom: '2px solid #eee', paddingBottom: '1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <label htmlFor="chapter-select" style={{ fontWeight: 'bold' }}>Current Chapter:</label>
+              <select
+                id="chapter-select"
+                value={selectedChapterId || ''}
+                onChange={(e) => setSelectedChapterId(e.target.value)}
+                style={{ padding: '0.5rem', flexGrow: 1, maxWidth: '400px' }}
+              >
+                {activeCampaign.chapters.map(c => (
+                  <option key={c.id} value={c.id}>{c.title}</option>
+                ))}
+                {activeCampaign.chapters.length === 0 && <option value="">No Chapters</option>}
+              </select>
+              <button type="button" onClick={() => setShowChapterForm(true)}>+ Add Chapter</button>
+            </div>
+          </section>
 
-        {/* Asset Management */}
-        <section style={{ flex: '1 1 300px' }}>
-          <h3 id="assets-heading">Manage Assets</h3>
-          <ul style={{ listStyle: 'none', padding: 0, marginBottom: '1rem' }}>
-            {(() => {
-              const uniqueAssets = Array.from(new Map(activeCampaign.assets.map(a => [a.id, a])).values());
-              return uniqueAssets.map(a => {
-                const displayName = getAssetDisplayName(a);
+          {/* Active Chapter Content */}
+          {selectedChapterId ? (
+            <section>
+              {(() => {
+                const chapter = activeCampaign.chapters.find(c => c.id === selectedChapterId);
+                if (!chapter) return <p>Chapter not found.</p>;
                 return (
-                  <li key={a.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0' }}>
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
-                      <button type="button"
-                        aria-expanded={expandedAssetId === a.id}
-                        aria-label={`${displayName} (${a.type}), ${expandedAssetId === a.id ? 'Expanded' : 'Collapsed'}`}
-                        onClick={() => setExpandedAssetId(prev => prev === a.id ? null : a.id)}
-                        style={{ width: '100%', textAlign: 'left', fontWeight: 'bold', background: 'none', border: 'none', padding: '0.5rem', cursor: 'pointer' }}
-                      >
-                        <span aria-hidden="true">{expandedAssetId === a.id ? '▼' : '▶'}</span> {displayName} ({a.type})
-                      </button>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                      <h3 style={{ margin: 0 }}>{chapter.title}</h3>
+                      <button type="button" onClick={() => handleEditChapter(chapter)}>Edit Chapter</button>
                     </div>
-                    {expandedAssetId === a.id && (
-                      <div style={{ padding: '1rem', borderLeft: '2px solid #0066cc', marginTop: '0.5rem' }}>
-                        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-                          {/* eslint-disable-next-line react-hooks/refs */}
-                          <button type="button" onClick={() => handleEditAsset(a)}>Edit Asset</button>
-                          <button type="button" onClick={() => handleAssetLinkClick(a.id)}>View Details</button>
-                        </div>
-                        {!a.description.startsWith('Scraped') && (
-                          <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{a.description}</p>
-                        )}
-                      </div>
-                    )}
-                  </li>
+                    <div style={{ padding: '1.5rem', border: '1px solid #ccc', borderRadius: '4px', backgroundColor: '#f9f9f9' }}>
+                      <Markdown
+                        content={chapter.content}
+                        onAssetClick={handleAssetLinkClick}
+                        onEncounterClick={handleEncounterLinkClick}
+                        baseHeadingLevel={3}
+                      />
+                    </div>
+                  </div>
                 );
-              });
-            })()}
-            {activeCampaign.assets.length === 0 && <li>No assets created yet.</li>}
-          </ul>
-          <button type="button" ref={addAssetBtnRef} onClick={() => setShowAssetForm(true)}>+ Add Asset</button>
-        </section>
+              })()}
+            </section>
+          ) : (
+            <p>Write your first chapter to get started!</p>
+          )}
 
-        {/* Encounter Management */}
-        <section style={{ flex: '1 1 100%' }}>
-          <h3 id="encounters-heading">Manage Encounters</h3>
-          <ul style={{ listStyle: 'none', padding: 0, marginBottom: '1rem' }}>
-            {activeCampaign.encounters.map(e => (
-              <li key={e.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0', display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                <strong style={{ flexGrow: 1 }}>{e.name} ({e.units.length} units)</strong>
-                <button type="button" onClick={() => setEditingEncounter(e)}>Edit</button>
-                <button type="button" onClick={() => handleDeleteEncounter(e.id)}>Delete</button>
-              </li>
-            ))}
-            {activeCampaign.encounters.length === 0 && <li>No encounters created yet.</li>}
-          </ul>
-          <button type="button" ref={createEncounterBtnRef} onClick={() => setIsCreatingEncounter(true)}>+ Create Encounter</button>
-        </section>
-      </div>
+          {/* Chapter-Specific Assets & Encounters */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2rem' }}>
+            <section style={{ flex: '1 1 300px' }}>
+              <h3>Chapter Assets</h3>
+              <ul style={{ listStyle: 'none', padding: 0, marginBottom: '1rem' }}>
+                {activeCampaign.assets.filter(a => a.chapterId === selectedChapterId).map(a => {
+                  const displayName = getAssetDisplayName(a);
+                  return (
+                    <li key={a.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0' }}>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        <button type="button"
+                          aria-expanded={expandedAssetId === a.id}
+                          aria-label={`${displayName} (${a.type}), ${expandedAssetId === a.id ? 'Expanded' : 'Collapsed'}`}
+                          onClick={() => setExpandedAssetId(prev => prev === a.id ? null : a.id)}
+                          style={{ width: '100%', textAlign: 'left', fontWeight: 'bold', background: 'none', border: 'none', padding: '0.5rem', cursor: 'pointer' }}
+                        >
+                          <span aria-hidden="true">{expandedAssetId === a.id ? '▼' : '▶'}</span> {displayName} ({a.type})
+                        </button>
+                      </div>
+                      {expandedAssetId === a.id && (
+                        <div style={{ padding: '1rem', borderLeft: '2px solid #0066cc', marginTop: '0.5rem' }}>
+                          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+                            <button type="button" onClick={() => handleEditAsset(a)}>Edit Asset</button>
+                            <button type="button" onClick={() => handleAssetLinkClick(a.id)}>View Details</button>
+                          </div>
+                          {!a.description.startsWith('Scraped') && (
+                            <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{a.description}</p>
+                          )}
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+                {activeCampaign.assets.filter(a => a.chapterId === selectedChapterId).length === 0 && <li>No assets assigned to this chapter.</li>}
+              </ul>
+              <button type="button" ref={addAssetBtnRef} onClick={() => setShowAssetForm(true)}>+ Add Asset</button>
+            </section>
+
+            <section style={{ flex: '1 1 300px' }}>
+              <h3>Chapter Encounters</h3>
+              <ul style={{ listStyle: 'none', padding: 0, marginBottom: '1rem' }}>
+                {activeCampaign.encounters.filter(e => e.chapterId === selectedChapterId).map(e => (
+                  <li key={e.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0', display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                    <strong style={{ flexGrow: 1 }}>{e.name} ({e.units.length} units)</strong>
+                    <button type="button" onClick={() => setEditingEncounter(e)}>Edit</button>
+                    <button type="button" onClick={() => handleDeleteEncounter(e.id)}>Delete</button>
+                  </li>
+                ))}
+                {activeCampaign.encounters.filter(e => e.chapterId === selectedChapterId).length === 0 && <li>No encounters for this chapter.</li>}
+              </ul>
+              <button type="button" onClick={() => setIsCreatingEncounter(true)}>+ Create Encounter</button>
+            </section>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2rem' }} aria-hidden={!!isAnyModalOpen}>
+
+          {/* Chapter Management */}
+          <section style={{ flex: '1 1 300px' }}>
+            <h3 id="chapters-heading">Manage Chapters</h3>
+            <ul style={{ listStyle: 'none', padding: 0, marginBottom: '1rem' }}>
+              {activeCampaign.chapters.map(c => (
+                <li key={c.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0' }}>
+                  <div style={{ display: 'flex', alignItems: 'center' }}>
+                    <button type="button"
+                      aria-expanded={expandedChapterId === c.id}
+                      aria-label={`${c.title}, ${expandedChapterId === c.id ? 'Expanded' : 'Collapsed'}`}
+                      onClick={() => setExpandedChapterId(prev => prev === c.id ? null : c.id)}
+                      style={{ flexGrow: 1, textAlign: 'left', fontWeight: 'bold', background: 'none', border: 'none', padding: '0.5rem', cursor: 'pointer' }}
+                    >
+                      <span aria-hidden="true">{expandedChapterId === c.id ? '▼' : '▶'}</span> {c.title}
+                    </button>
+                  </div>
+                  {expandedChapterId === c.id && (
+                    <div style={{ padding: '1rem', borderLeft: '2px solid #0066cc', marginTop: '0.5rem' }}>
+                      <div style={{ marginBottom: '1rem' }}>
+                        <button type="button" onClick={() => handleEditChapter(c)}>Edit Chapter</button>
+                      </div>
+                      <Markdown
+                        content={c.content}
+                        onAssetClick={handleAssetLinkClick}
+                        onEncounterClick={handleEncounterLinkClick}
+                        baseHeadingLevel={3}
+                      />
+                    </div>
+                  )}
+                </li>
+              ))}
+              {activeCampaign.chapters.length === 0 && <li>No chapters written yet.</li>}
+            </ul>
+            <button type="button" ref={addChapterBtnRef} onClick={() => setShowChapterForm(true)}>+ Add Chapter</button>
+          </section>
+
+          {/* Asset Management */}
+          <section style={{ flex: '1 1 300px' }}>
+            <h3 id="assets-heading">Manage Assets</h3>
+            <ul style={{ listStyle: 'none', padding: 0, marginBottom: '1rem' }}>
+              {(() => {
+                const uniqueAssets = Array.from(new Map(activeCampaign.assets.map(a => [a.id, a])).values());
+                return uniqueAssets.map(a => {
+                  const displayName = getAssetDisplayName(a);
+                  return (
+                    <li key={a.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0' }}>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        <button type="button"
+                          aria-expanded={expandedAssetId === a.id}
+                          aria-label={`${displayName} (${a.type}), ${expandedAssetId === a.id ? 'Expanded' : 'Collapsed'}`}
+                          onClick={() => setExpandedAssetId(prev => prev === a.id ? null : a.id)}
+                          style={{ width: '100%', textAlign: 'left', fontWeight: 'bold', background: 'none', border: 'none', padding: '0.5rem', cursor: 'pointer' }}
+                        >
+                          <span aria-hidden="true">{expandedAssetId === a.id ? '▼' : '▶'}</span> {displayName} ({a.type})
+                        </button>
+                      </div>
+                      {expandedAssetId === a.id && (
+                        <div style={{ padding: '1rem', borderLeft: '2px solid #0066cc', marginTop: '0.5rem' }}>
+                          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+                            {/* eslint-disable-next-line react-hooks/refs */}
+                            <button type="button" onClick={() => handleEditAsset(a)}>Edit Asset</button>
+                            <button type="button" onClick={() => handleAssetLinkClick(a.id)}>View Details</button>
+                          </div>
+                          {!a.description.startsWith('Scraped') && (
+                            <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{a.description}</p>
+                          )}
+                        </div>
+                      )}
+                    </li>
+                  );
+                });
+              })()}
+              {activeCampaign.assets.length === 0 && <li>No assets created yet.</li>}
+            </ul>
+            <button type="button" ref={addAssetBtnRef} onClick={() => setShowAssetForm(true)}>+ Add Asset</button>
+          </section>
+
+          {/* Encounter Management */}
+          <section style={{ flex: '1 1 100%' }}>
+            <h3 id="encounters-heading">Manage Encounters</h3>
+            <ul style={{ listStyle: 'none', padding: 0, marginBottom: '1rem' }}>
+              {activeCampaign.encounters.map(e => (
+                <li key={e.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0', display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                  <strong style={{ flexGrow: 1 }}>{e.name} ({e.units.length} units)</strong>
+                  <button type="button" onClick={() => setEditingEncounter(e)}>Edit</button>
+                  <button type="button" onClick={() => handleDeleteEncounter(e.id)}>Delete</button>
+                </li>
+              ))}
+              {activeCampaign.encounters.length === 0 && <li>No encounters created yet.</li>}
+            </ul>
+            <button type="button" ref={createEncounterBtnRef} onClick={() => setIsCreatingEncounter(true)}>+ Create Encounter</button>
+          </section>
+        </div>
+      )}
 
       {/* Chapter Form Modal */}
       {showChapterForm && (
@@ -526,6 +677,31 @@ export function CampaignBuilder() {
                   <option value="Location">Location</option>
                   <option value="Item">Item</option>
                   <option value="Spell">Spell</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="asset-chapter" style={{ display: 'block', fontWeight: 'bold' }}>Assign to Chapter</label>
+                <select 
+                  id="asset-chapter"
+                  value={(() => {
+                    const currentAsset = activeCampaign.assets.find(a => a.id === editingAssetId);
+                    return currentAsset?.chapterId || (viewMode === 'chapters' ? selectedChapterId : '') || '';
+                  })()}
+                  onChange={e => {
+                    const val = e.target.value;
+                    if (editingAssetId) {
+                      updateCampaign({
+                        ...activeCampaign,
+                        assets: activeCampaign.assets.map(a => a.id === editingAssetId ? { ...a, chapterId: val || undefined } : a)
+                      });
+                    }
+                  }}
+                  style={{ width: '100%', padding: '0.5rem' }}
+                >
+                  <option value="">Global / No Chapter</option>
+                  {activeCampaign.chapters.map(c => (
+                    <option key={c.id} value={c.id}>{c.title}</option>
+                  ))}
                 </select>
               </div>
               <div>

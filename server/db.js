@@ -48,7 +48,9 @@ export function initDb() {
       type TEXT NOT NULL,
       name TEXT NOT NULL,
       description TEXT,
-      FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
+      chapter_id TEXT,
+      FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE,
+      FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE SET NULL
     );
 
     CREATE TABLE IF NOT EXISTS players (
@@ -63,7 +65,9 @@ export function initDb() {
       id TEXT PRIMARY KEY,
       campaign_id TEXT NOT NULL,
       name TEXT NOT NULL,
-      FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
+      chapter_id TEXT,
+      FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE,
+      FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE SET NULL
     );
 
     CREATE TABLE IF NOT EXISTS encounter_units (
@@ -82,4 +86,15 @@ export function initDb() {
       FOREIGN KEY (encounter_id) REFERENCES encounters(id) ON DELETE CASCADE
     );
   `);
+
+  // Simple migrations for existing databases
+  const assetColumns = db.prepare("PRAGMA table_info(assets)").all();
+  if (!assetColumns.find(c => c.name === 'chapter_id')) {
+    db.exec("ALTER TABLE assets ADD COLUMN chapter_id TEXT");
+  }
+
+  const encounterColumns = db.prepare("PRAGMA table_info(encounters)").all();
+  if (!encounterColumns.find(c => c.name === 'chapter_id')) {
+    db.exec("ALTER TABLE encounters ADD COLUMN chapter_id TEXT");
+  }
 }

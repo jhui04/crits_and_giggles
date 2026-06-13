@@ -5,10 +5,11 @@ import { useCampaigns } from '../context/CampaignContext';
 
 interface EncounterBuilderProps {
   initialEncounter: Encounter | null;
+  chapterId?: string | null;
   onClose: () => void;
 }
 
-export function EncounterBuilder({ initialEncounter, onClose }: EncounterBuilderProps) {
+export function EncounterBuilder({ initialEncounter, chapterId, onClose }: EncounterBuilderProps) {
   const { activeCampaign, updateCampaign } = useCampaigns();
   const [encounterName, setEncounterName] = useState(initialEncounter ? initialEncounter.name : 'New Encounter');
   const [units, setUnits] = useState<EncounterUnit[]>(initialEncounter ? initialEncounter.units : []);
@@ -107,14 +108,16 @@ export function EncounterBuilder({ initialEncounter, onClose }: EncounterBuilder
     
     // Strip fullData before saving to backend (Plan 3 compliance)
     const strippedUnits = units.map(u => {
-      const { fullData, ...rest } = u;
-      return rest;
+      const unitCopy = { ...u };
+      delete unitCopy.fullData;
+      return unitCopy;
     });
 
     const encounter: Encounter = {
       id: initialEncounter ? initialEncounter.id : crypto.randomUUID(),
       name: encounterName,
-      units: strippedUnits
+      units: strippedUnits,
+      chapterId: initialEncounter ? initialEncounter.chapterId : (chapterId || undefined)
     };
     
     const existingEncounters = initialEncounter 
