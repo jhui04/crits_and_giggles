@@ -11,15 +11,15 @@ test.describe('Campaign Builder Chapters', () => {
       { id: 'chap-2', title: 'Chapter 2', content: 'Content of Chapter 2', order: 1 }
     ],
     assets: [
-      { id: 'asset-a', name: 'Asset A', type: 'NPC', description: 'From Chapter 1', chapterId: 'chap-1' },
-      { id: 'asset-b', name: 'Asset B', type: 'Location', description: 'From Chapter 2', chapterId: 'chap-2' },
-      { id: 'asset-c', name: 'Asset C', type: 'Item', description: 'Global Asset' }
+      { id: 'asset-a', name: 'Asset A', type: 'NPC', description: 'From Chapter 1', chapterIds: ['chap-1'] },
+      { id: 'asset-b', name: 'Asset B', type: 'Location', description: 'From Chapter 2', chapterIds: ['chap-2'] },
+      { id: 'asset-c', name: 'Asset C', type: 'Item', description: 'Global Asset', chapterIds: [] }
     ],
     players: [],
     encounters: [
-      { id: 'enc-a', name: 'Encounter A', units: [], chapterId: 'chap-1' },
-      { id: 'enc-b', name: 'Encounter B', units: [], chapterId: 'chap-2' },
-      { id: 'enc-c', name: 'Encounter C', units: [] }
+      { id: 'enc-a', name: 'Encounter A', units: [], chapterIds: ['chap-1'] },
+      { id: 'enc-b', name: 'Encounter B', units: [], chapterIds: ['chap-2'] },
+      { id: 'enc-c', name: 'Encounter C', units: [], chapterIds: [] }
     ]
   };
 
@@ -46,8 +46,8 @@ test.describe('Campaign Builder Chapters', () => {
 
   test('should display chapter-specific items in "Chapters" view', async ({ page }) => {
     // Assert "Chapters" tab is active by default
-    const chaptersTab = page.getByRole('tab', { name: /Chapters/i });
-    await expect(chaptersTab).toHaveAttribute('aria-selected', 'true');
+    const chaptersTab = page.getByRole('button', { name: /Chapters/i });
+    await expect(chaptersTab).toHaveAttribute('aria-current', 'page');
 
     // Assert "Chapter 1" is selected by default
     const chapterSelect = page.getByLabel(/Current Chapter:/i);
@@ -91,7 +91,7 @@ test.describe('Campaign Builder Chapters', () => {
 
   test('should display all items in "All Assets" view', async ({ page }) => {
     // Click "All Assets" tab
-    await page.getByRole('tab', { name: /All Assets/i }).click();
+    await page.getByRole('button', { name: /All Assets/i }).click();
 
     // Assert all assets are visible
     await expect(page.getByText('Asset A (NPC)')).toBeVisible();
@@ -125,7 +125,7 @@ test.describe('Campaign Builder Chapters', () => {
     await expect(page.getByText('New Chapter Asset (NPC)')).not.toBeVisible();
 
     // Switch to All Assets and assert it IS there
-    await page.getByRole('tab', { name: /All Assets/i }).click();
+    await page.getByRole('button', { name: /All Assets/i }).click();
     await expect(page.getByText('New Chapter Asset (NPC)')).toBeVisible();
   });
 });

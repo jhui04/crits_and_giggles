@@ -18,12 +18,19 @@ function getFullCampaign(id) {
   if (!campaign) return null;
 
   campaign.chapters = db.prepare('SELECT id, title, content, order_index as "order" FROM chapters WHERE campaign_id = ? ORDER BY order_index').all(id);
-  campaign.assets = db.prepare('SELECT id, type, name, description, chapter_id as chapterId FROM assets WHERE campaign_id = ?').all(id);
+  
+  const assets = db.prepare('SELECT id, type, name, description FROM assets WHERE campaign_id = ?').all(id);
+  for (const asset of assets) {
+    asset.chapterIds = db.prepare('SELECT chapter_id FROM asset_chapters WHERE asset_id = ? AND campaign_id = ?').all(asset.id, id).map(r => r.chapter_id);
+  }
+  campaign.assets = assets;
+
   campaign.players = db.prepare('SELECT id, name, description FROM players WHERE campaign_id = ?').all(id);
   
-  const encounters = db.prepare('SELECT id, name, chapter_id as chapterId FROM encounters WHERE campaign_id = ?').all(id);
+  const encounters = db.prepare('SELECT id, name FROM encounters WHERE campaign_id = ?').all(id);
   for (const enc of encounters) {
-    enc.units = db.prepare('SELECT * FROM encounter_units WHERE encounter_id = ?').all(enc.id);
+    enc.chapterIds = db.prepare('SELECT chapter_id FROM encounter_chapters WHERE encounter_id = ? AND campaign_id = ?').all(enc.id, id).map(r => r.chapter_id);
+    enc.units = db.prepare('SELECT * FROM encounter_units WHERE encounter_id = ? AND campaign_id = ?').all(enc.id, id);
     // Convert isPlayer back to boolean
     enc.units.forEach(u => {
       u.isPlayer = !!u.isPlayer;
@@ -74,8 +81,14 @@ app.post('/api/campaigns', (req, res) => {
     }
     
     if (data.assets) {
-      const insertAsset = db.prepare('INSERT INTO assets (id, campaign_id, type, name, description, chapter_id) VALUES (?, ?, ?, ?, ?, ?)');
-      data.assets.forEach(as => insertAsset.run(as.id, data.id, as.type, as.name, as.description, as.chapterId || null));
+      const insertAsset = db.prepare('INSERT INTO assets (id, campaign_id, type, name, description) VALUES (?, ?, ?, ?, ?)');
+      const insertAssetChapter = db.prepare('INSERT INTO asset_chapters (asset_id, chapter_id, campaign_id) VALUES (?, ?, ?)');
+      data.assets.forEach(as => {
+        insertAsset.run(as.id, data.id, as.type, as.name, as.description);
+        if (as.chapterIds) {
+          as.chapterIds.forEach(chapId => insertAssetChapter.run(as.id, chapId, data.id));
+        }
+      });
     }
     
     if (data.players) {
@@ -84,17 +97,21 @@ app.post('/api/campaigns', (req, res) => {
     }
     
     if (data.encounters) {
-      const insertEncounter = db.prepare('INSERT INTO encounters (id, campaign_id, name, chapter_id) VALUES (?, ?, ?, ?)');
+      const insertEncounter = db.prepare('INSERT INTO encounters (id, campaign_id, name) VALUES (?, ?, ?)');
+      const insertEncounterChapter = db.prepare('INSERT INTO encounter_chapters (encounter_id, chapter_id, campaign_id) VALUES (?, ?, ?)');
       const insertUnit = db.prepare(`
-        INSERT INTO encounter_units (instanceId, encounter_id, monsterId, playerId, name, maxHp, currentHp, hpDice, dexMod, initiative, passivePerception, isPlayer)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO encounter_units (instanceId, encounter_id, campaign_id, monsterId, playerId, name, maxHp, currentHp, hpDice, dexMod, initiative, passivePerception, isPlayer)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       
       data.encounters.forEach(enc => {
-        insertEncounter.run(enc.id, data.id, enc.name, enc.chapterId || null);
+        insertEncounter.run(enc.id, data.id, enc.name);
+        if (enc.chapterIds) {
+          enc.chapterIds.forEach(chapId => insertEncounterChapter.run(enc.id, chapId, data.id));
+        }
         if (enc.units) {
           enc.units.forEach(u => insertUnit.run(
-            u.instanceId, enc.id, u.monsterId, u.playerId, u.name, u.maxHp, u.currentHp, u.hpDice, u.dexMod, u.initiative, u.passivePerception, u.isPlayer ? 1 : 0
+            u.instanceId, enc.id, data.id, u.monsterId, u.playerId, u.name, u.maxHp, u.currentHp, u.hpDice, u.dexMod, u.initiative, u.passivePerception, u.isPlayer ? 1 : 0
           ));
         }
       });
@@ -123,7 +140,7 @@ app.put('/api/campaigns/:id', (req, res) => {
     
     const existingEncounters = db.prepare('SELECT id FROM encounters WHERE campaign_id = ?').all(campaignId);
     for (const enc of existingEncounters) {
-      db.prepare('DELETE FROM encounter_units WHERE encounter_id = ?').run(enc.id);
+      db.prepare('DELETE FROM encounter_units WHERE encounter_id = ? AND campaign_id = ?').run(enc.id, campaignId);
     }
     db.prepare('DELETE FROM encounters WHERE campaign_id = ?').run(campaignId);
 
@@ -133,8 +150,14 @@ app.put('/api/campaigns/:id', (req, res) => {
     }
     
     if (data.assets) {
-      const insertAsset = db.prepare('INSERT INTO assets (id, campaign_id, type, name, description, chapter_id) VALUES (?, ?, ?, ?, ?, ?)');
-      data.assets.forEach(as => insertAsset.run(as.id, campaignId, as.type, as.name, as.description, as.chapterId || null));
+      const insertAsset = db.prepare('INSERT INTO assets (id, campaign_id, type, name, description) VALUES (?, ?, ?, ?, ?)');
+      const insertAssetChapter = db.prepare('INSERT INTO asset_chapters (asset_id, chapter_id, campaign_id) VALUES (?, ?, ?)');
+      data.assets.forEach(as => {
+        insertAsset.run(as.id, campaignId, as.type, as.name, as.description);
+        if (as.chapterIds) {
+          as.chapterIds.forEach(chapId => insertAssetChapter.run(as.id, chapId, campaignId));
+        }
+      });
     }
     
     if (data.players) {
@@ -143,17 +166,21 @@ app.put('/api/campaigns/:id', (req, res) => {
     }
     
     if (data.encounters) {
-      const insertEncounter = db.prepare('INSERT INTO encounters (id, campaign_id, name, chapter_id) VALUES (?, ?, ?, ?)');
+      const insertEncounter = db.prepare('INSERT INTO encounters (id, campaign_id, name) VALUES (?, ?, ?)');
+      const insertEncounterChapter = db.prepare('INSERT INTO encounter_chapters (encounter_id, chapter_id, campaign_id) VALUES (?, ?, ?)');
       const insertUnit = db.prepare(`
-        INSERT INTO encounter_units (instanceId, encounter_id, monsterId, playerId, name, maxHp, currentHp, hpDice, dexMod, initiative, passivePerception, isPlayer)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO encounter_units (instanceId, encounter_id, campaign_id, monsterId, playerId, name, maxHp, currentHp, hpDice, dexMod, initiative, passivePerception, isPlayer)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       
       data.encounters.forEach(enc => {
-        insertEncounter.run(enc.id, campaignId, enc.name, enc.chapterId || null);
+        insertEncounter.run(enc.id, campaignId, enc.name);
+        if (enc.chapterIds) {
+          enc.chapterIds.forEach(chapId => insertEncounterChapter.run(enc.id, chapId, campaignId));
+        }
         if (enc.units) {
           enc.units.forEach(u => insertUnit.run(
-            u.instanceId, enc.id, u.monsterId, u.playerId, u.name, u.maxHp, u.currentHp, u.hpDice, u.dexMod, u.initiative, u.passivePerception, u.isPlayer ? 1 : 0
+            u.instanceId, enc.id, campaignId, u.monsterId, u.playerId, u.name, u.maxHp, u.currentHp, u.hpDice, u.dexMod, u.initiative, u.passivePerception, u.isPlayer ? 1 : 0
           ));
         }
       });

@@ -187,12 +187,23 @@ def main():
                         if asset_id not in known_assets:
                             item_type = 'NPC' if '/monsters/' in href else 'Spell'
                             known_assets[asset_id] = item_name
-                            campaign['assets'].append({
+                            new_asset = {
                                 "id": asset_id,
                                 "name": item_name,
                                 "type": item_type,
                                 "description": f"Scraped link to: {item_name} ({href})"
-                            })
+                            }
+                            if current_chapter:
+                                new_asset["chapterIds"] = [current_chapter["id"]]
+                            campaign['assets'].append(new_asset)
+                        elif current_chapter:
+                            # Add chapterId to existing asset
+                            asset = next((a for a in campaign['assets'] if a['id'] == asset_id), None)
+                            if asset:
+                                if "chapterIds" not in asset:
+                                    asset["chapterIds"] = []
+                                if current_chapter["id"] not in asset["chapterIds"]:
+                                    asset["chapterIds"].append(current_chapter["id"])
 
                         text = text.replace(item_name, f"@Asset[{asset_id}]{{{item_name}}}")
                     if elem.name in ['h1', 'h2']:

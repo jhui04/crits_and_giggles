@@ -26,6 +26,12 @@ db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
 export function initDb() {
+  // We need to support multi-tenancy where multiple campaigns can have assets/chapters with the same "natural" ID (e.g. from a template)
+  // To do this properly, we use composite primary keys (id, campaign_id).
+  
+  // For this prototype, if we are changing schema, we might need to drop tables.
+  // We'll try to do it safely but since it's a major change, we'll just ensure they are created correctly.
+  
   db.exec(`
     CREATE TABLE IF NOT EXISTS campaigns (
       id TEXT PRIMARY KEY,
@@ -34,45 +40,64 @@ export function initDb() {
     );
 
     CREATE TABLE IF NOT EXISTS chapters (
-      id TEXT PRIMARY KEY,
+      id TEXT NOT NULL,
       campaign_id TEXT NOT NULL,
       title TEXT NOT NULL,
       content TEXT,
       order_index INTEGER NOT NULL,
+      PRIMARY KEY (id, campaign_id),
       FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS assets (
-      id TEXT PRIMARY KEY,
+      id TEXT NOT NULL,
       campaign_id TEXT NOT NULL,
       type TEXT NOT NULL,
       name TEXT NOT NULL,
       description TEXT,
-      chapter_id TEXT,
-      FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE,
-      FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE SET NULL
+      PRIMARY KEY (id, campaign_id),
+      FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS players (
-      id TEXT PRIMARY KEY,
+      id TEXT NOT NULL,
       campaign_id TEXT NOT NULL,
       name TEXT NOT NULL,
       description TEXT,
+      PRIMARY KEY (id, campaign_id),
       FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS encounters (
-      id TEXT PRIMARY KEY,
+      id TEXT NOT NULL,
       campaign_id TEXT NOT NULL,
       name TEXT NOT NULL,
-      chapter_id TEXT,
-      FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE,
-      FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE SET NULL
+      PRIMARY KEY (id, campaign_id),
+      FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS asset_chapters (
+      asset_id TEXT NOT NULL,
+      chapter_id TEXT NOT NULL,
+      campaign_id TEXT NOT NULL,
+      PRIMARY KEY (asset_id, chapter_id, campaign_id),
+      FOREIGN KEY (asset_id, campaign_id) REFERENCES assets(id, campaign_id) ON DELETE CASCADE,
+      FOREIGN KEY (chapter_id, campaign_id) REFERENCES chapters(id, campaign_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS encounter_chapters (
+      encounter_id TEXT NOT NULL,
+      chapter_id TEXT NOT NULL,
+      campaign_id TEXT NOT NULL,
+      PRIMARY KEY (encounter_id, chapter_id, campaign_id),
+      FOREIGN KEY (encounter_id, campaign_id) REFERENCES encounters(id, campaign_id) ON DELETE CASCADE,
+      FOREIGN KEY (chapter_id, campaign_id) REFERENCES chapters(id, campaign_id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS encounter_units (
       instanceId TEXT PRIMARY KEY,
       encounter_id TEXT NOT NULL,
+      campaign_id TEXT NOT NULL,
       monsterId TEXT,
       playerId TEXT,
       name TEXT NOT NULL,
@@ -83,18 +108,7 @@ export function initDb() {
       initiative INTEGER,
       passivePerception INTEGER,
       isPlayer INTEGER NOT NULL,
-      FOREIGN KEY (encounter_id) REFERENCES encounters(id) ON DELETE CASCADE
+      FOREIGN KEY (encounter_id, campaign_id) REFERENCES encounters(id, campaign_id) ON DELETE CASCADE
     );
   `);
-
-  // Simple migrations for existing databases
-  const assetColumns = db.prepare("PRAGMA table_info(assets)").all();
-  if (!assetColumns.find(c => c.name === 'chapter_id')) {
-    db.exec("ALTER TABLE assets ADD COLUMN chapter_id TEXT");
-  }
-
-  const encounterColumns = db.prepare("PRAGMA table_info(encounters)").all();
-  if (!encounterColumns.find(c => c.name === 'chapter_id')) {
-    db.exec("ALTER TABLE encounters ADD COLUMN chapter_id TEXT");
-  }
 }

@@ -22,7 +22,7 @@ export const getSeedState = (id: string = 'test-campaign') => ({
        type: 'Location',
        name: 'Test Asset',
        description: 'A test location',
-       chapterId: `${id}-chap-1`
+       chapterIds: [`${id}-chap-1`]
     }
   ],
   players: [
@@ -36,7 +36,7 @@ export const getSeedState = (id: string = 'test-campaign') => ({
     {
       id: `${id}-enc-1`,
       name: 'Test Encounter',
-      chapterId: `${id}-chap-1`,
+      chapterIds: [`${id}-chap-1`],
       units: [
         {
           instanceId: `${id}-unit-1`,

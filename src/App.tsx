@@ -291,7 +291,7 @@ function App() {
           }}>
             {!isCreatingNew ? (
               <>
-                <h2 id="switch-camp-title" ref={switchCampHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>Select Campaign</h2>
+                <h2 key="select-campaign-heading" id="switch-camp-title" ref={switchCampHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>Select Campaign</h2>
                 {campaigns.length === 0 ? <p>No campaigns found.</p> : (
                   <ul style={{ listStyle: 'none', padding: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                     {campaigns.map(c => (
@@ -322,7 +322,7 @@ function App() {
               </>
             ) : (
               <>
-                <h2 id="switch-camp-title" ref={switchCampHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>New Campaign</h2>
+                <h2 key="new-campaign-heading" id="switch-camp-title" ref={switchCampHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>New Campaign</h2>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                   <div>
                     <label htmlFor="new-camp-name">Campaign Name:</label>

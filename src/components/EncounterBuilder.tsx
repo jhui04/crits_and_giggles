@@ -117,7 +117,7 @@ export function EncounterBuilder({ initialEncounter, chapterId, onClose }: Encou
       id: initialEncounter ? initialEncounter.id : crypto.randomUUID(),
       name: encounterName,
       units: strippedUnits,
-      chapterId: initialEncounter ? initialEncounter.chapterId : (chapterId || undefined)
+      chapterIds: initialEncounter ? initialEncounter.chapterIds : (chapterId ? [chapterId] : [])
     };
     
     const existingEncounters = initialEncounter 

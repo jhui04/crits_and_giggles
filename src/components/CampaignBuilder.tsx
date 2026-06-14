@@ -34,6 +34,7 @@ export function CampaignBuilder() {
   const [assetName, setAssetName] = useState('');
   const [assetType, setAssetType] = useState<AssetType>('NPC');
   const [assetDesc, setAssetDesc] = useState('');
+  const [selectedAssetChapterIds, setSelectedAssetChapterIds] = useState<string[]>([]);
   const [expandedAssetId, setExpandedAssetId] = useState<string | null>(null);
   const [viewingAsset, setViewingAsset] = useState<Asset | null>(null);
 
@@ -129,6 +130,7 @@ export function CampaignBuilder() {
     setAssetName('');
     setAssetDesc('');
     setAssetType('NPC');
+    setSelectedAssetChapterIds([]);
     setTimeout(() => {
       if (lastFocusedElement.current) {
         lastFocusedElement.current.focus();
@@ -235,14 +237,14 @@ export function CampaignBuilder() {
     
     let newAssets;
     if (editingAssetId) {
-      newAssets = activeCampaign.assets.map(a => a.id === editingAssetId ? { ...a, name: assetName, type: assetType, description: assetDesc, chapterId: a.chapterId } : a);
+      newAssets = activeCampaign.assets.map(a => a.id === editingAssetId ? { ...a, name: assetName, type: assetType, description: assetDesc, chapterIds: selectedAssetChapterIds } : a);
     } else {
       const newAsset: Asset = {
         id: crypto.randomUUID(),
         name: assetName,
         type: assetType,
         description: assetDesc,
-        chapterId: (viewMode === 'chapters' && selectedChapterId) ? selectedChapterId : undefined
+        chapterIds: selectedAssetChapterIds
       };
       newAssets = [...activeCampaign.assets, newAsset];
     }
@@ -319,6 +321,7 @@ export function CampaignBuilder() {
     setAssetName(asset.name);
     setAssetType(asset.type);
     setAssetDesc(asset.description);
+    setSelectedAssetChapterIds(asset.chapterIds || []);
     setShowAssetForm(true);
   }, []);
 
@@ -348,6 +351,16 @@ export function CampaignBuilder() {
     }
   }, [activeCampaign]);
 
+  const handleAddAssetClick = () => {
+    lastFocusedElement.current = document.activeElement as HTMLElement;
+    if (viewMode === 'chapters' && selectedChapterId) {
+      setSelectedAssetChapterIds([selectedChapterId]);
+    } else {
+      setSelectedAssetChapterIds([]);
+    }
+    setShowAssetForm(true);
+  };
+
   if (!activeCampaign) {
     return <p>Please select or create a campaign from the "Switch Campaign" menu in the header.</p>;
   }
@@ -370,10 +383,9 @@ export function CampaignBuilder() {
       <nav className="sub-nav" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
         <h2 style={{ margin: 0 }}>Campaign Builder</h2>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <div className="tab-group" role="tablist" style={{ marginRight: '1rem' }}>
+          <div className="tab-group" style={{ marginRight: '1rem' }}>
             <button
-              role="tab"
-              aria-selected={viewMode === 'chapters'}
+              aria-current={viewMode === 'chapters' ? 'page' : undefined}
               onClick={() => setViewMode('chapters')}
               className={viewMode === 'chapters' ? 'active' : ''}
               style={{ fontWeight: viewMode === 'chapters' ? 'bold' : 'normal', borderBottom: viewMode === 'chapters' ? '2px solid #000' : 'none' }}
@@ -381,8 +393,7 @@ export function CampaignBuilder() {
               Chapters
             </button>
             <button
-              role="tab"
-              aria-selected={viewMode === 'all'}
+              aria-current={viewMode === 'all' ? 'page' : undefined}
               onClick={() => setViewMode('all')}
               className={viewMode === 'all' ? 'active' : ''}
               style={{ fontWeight: viewMode === 'all' ? 'bold' : 'normal', borderBottom: viewMode === 'all' ? '2px solid #000' : 'none' }}
@@ -423,8 +434,7 @@ export function CampaignBuilder() {
                 if (!chapter) return <p>Chapter not found.</p>;
                 return (
                   <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                      <h3 style={{ margin: 0 }}>{chapter.title}</h3>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: '1rem' }}>
                       <button type="button" onClick={() => handleEditChapter(chapter)}>Edit Chapter</button>
                     </div>
                     <div style={{ padding: '1.5rem', border: '1px solid #ccc', borderRadius: '4px', backgroundColor: '#f9f9f9' }}>
@@ -448,7 +458,7 @@ export function CampaignBuilder() {
             <section style={{ flex: '1 1 300px' }}>
               <h3>Chapter Assets</h3>
               <ul style={{ listStyle: 'none', padding: 0, marginBottom: '1rem' }}>
-                {activeCampaign.assets.filter(a => a.chapterId === selectedChapterId).map(a => {
+                {activeCampaign.assets.filter(a => a.chapterIds?.includes(selectedChapterId || '')).map(a => {
                   const displayName = getAssetDisplayName(a);
                   return (
                     <li key={a.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0' }}>
@@ -476,22 +486,22 @@ export function CampaignBuilder() {
                     </li>
                   );
                 })}
-                {activeCampaign.assets.filter(a => a.chapterId === selectedChapterId).length === 0 && <li>No assets assigned to this chapter.</li>}
+                {activeCampaign.assets.filter(a => a.chapterIds?.includes(selectedChapterId || '')).length === 0 && <li>No assets assigned to this chapter.</li>}
               </ul>
-              <button type="button" ref={addAssetBtnRef} onClick={() => setShowAssetForm(true)}>+ Add Asset</button>
+              <button type="button" ref={addAssetBtnRef} onClick={handleAddAssetClick}>+ Add Asset</button>
             </section>
 
             <section style={{ flex: '1 1 300px' }}>
               <h3>Chapter Encounters</h3>
               <ul style={{ listStyle: 'none', padding: 0, marginBottom: '1rem' }}>
-                {activeCampaign.encounters.filter(e => e.chapterId === selectedChapterId).map(e => (
+                {activeCampaign.encounters.filter(e => e.chapterIds?.includes(selectedChapterId || '')).map(e => (
                   <li key={e.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0', display: 'flex', gap: '1rem', alignItems: 'center' }}>
                     <strong style={{ flexGrow: 1 }}>{e.name} ({e.units.length} units)</strong>
                     <button type="button" onClick={() => setEditingEncounter(e)}>Edit</button>
                     <button type="button" onClick={() => handleDeleteEncounter(e.id)}>Delete</button>
                   </li>
                 ))}
-                {activeCampaign.encounters.filter(e => e.chapterId === selectedChapterId).length === 0 && <li>No encounters for this chapter.</li>}
+                {activeCampaign.encounters.filter(e => e.chapterIds?.includes(selectedChapterId || '')).length === 0 && <li>No encounters for this chapter.</li>}
               </ul>
               <button type="button" onClick={() => setIsCreatingEncounter(true)}>+ Create Encounter</button>
             </section>
@@ -574,7 +584,7 @@ export function CampaignBuilder() {
               })()}
               {activeCampaign.assets.length === 0 && <li>No assets created yet.</li>}
             </ul>
-            <button type="button" ref={addAssetBtnRef} onClick={() => setShowAssetForm(true)}>+ Add Asset</button>
+            <button type="button" ref={addAssetBtnRef} onClick={handleAddAssetClick}>+ Add Asset</button>
           </section>
 
           {/* Encounter Management */}
@@ -679,31 +689,28 @@ export function CampaignBuilder() {
                   <option value="Spell">Spell</option>
                 </select>
               </div>
-              <div>
-                <label htmlFor="asset-chapter" style={{ display: 'block', fontWeight: 'bold' }}>Assign to Chapter</label>
-                <select 
-                  id="asset-chapter"
-                  value={(() => {
-                    const currentAsset = activeCampaign.assets.find(a => a.id === editingAssetId);
-                    return currentAsset?.chapterId || (viewMode === 'chapters' ? selectedChapterId : '') || '';
-                  })()}
-                  onChange={e => {
-                    const val = e.target.value;
-                    if (editingAssetId) {
-                      updateCampaign({
-                        ...activeCampaign,
-                        assets: activeCampaign.assets.map(a => a.id === editingAssetId ? { ...a, chapterId: val || undefined } : a)
-                      });
-                    }
-                  }}
-                  style={{ width: '100%', padding: '0.5rem' }}
-                >
-                  <option value="">Global / No Chapter</option>
+              <fieldset style={{ border: '1px solid #ccc', padding: '1rem', borderRadius: '4px' }}>
+                <legend style={{ fontWeight: 'bold', padding: '0 0.5rem' }}>Assign to Chapters</legend>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '150px', overflowY: 'auto' }}>
                   {activeCampaign.chapters.map(c => (
-                    <option key={c.id} value={c.id}>{c.title}</option>
+                    <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                      <input 
+                        type="checkbox"
+                        checked={selectedAssetChapterIds.includes(c.id)}
+                        onChange={e => {
+                          if (e.target.checked) {
+                            setSelectedAssetChapterIds(prev => [...prev, c.id]);
+                          } else {
+                            setSelectedAssetChapterIds(prev => prev.filter(id => id !== c.id));
+                          }
+                        }}
+                      />
+                      {c.title}
+                    </label>
                   ))}
-                </select>
-              </div>
+                  {activeCampaign.chapters.length === 0 && <p style={{ margin: 0, fontSize: '0.9rem', color: '#666' }}>No chapters created yet.</p>}
+                </div>
+              </fieldset>
               <div>
                 <label htmlFor="asset-desc" style={{ display: 'block', fontWeight: 'bold' }}>Description / Notes</label>
                 <textarea 
