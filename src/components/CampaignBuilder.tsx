@@ -51,19 +51,16 @@ export function CampaignBuilder() {
 
   // View & Chapter Context State
   const [viewMode, setViewMode] = useState<'chapters' | 'all'>('chapters');
-  const [selectedChapterId, setSelectedChapterId] = useState<string | null>(
-    activeCampaign?.chapters && activeCampaign.chapters.length > 0 ? activeCampaign.chapters[0].id : null
-  );
+  const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (activeCampaign) {
-      if (selectedChapterId === null && activeCampaign.chapters.length > 0) {
-        setSelectedChapterId(activeCampaign.chapters[0].id);
-      } else if (selectedChapterId !== null && !activeCampaign.chapters.find(c => c.id === selectedChapterId)) {
-        setSelectedChapterId(activeCampaign.chapters.length > 0 ? activeCampaign.chapters[0].id : null);
-      }
+  // Derive the effectively selected chapter (fallback to first chapter if none or invalid)
+  const effectiveSelectedChapterId = (() => {
+    if (!activeCampaign || activeCampaign.chapters.length === 0) return null;
+    if (selectedChapterId && activeCampaign.chapters.find(c => c.id === selectedChapterId)) {
+      return selectedChapterId;
     }
-  }, [activeCampaign, selectedChapterId]);
+    return activeCampaign.chapters[0].id;
+  })();
 
   // Refs for focus management
   const campaignHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -427,10 +424,10 @@ export function CampaignBuilder() {
           </section>
 
           {/* Active Chapter Content */}
-          {selectedChapterId ? (
+          {effectiveSelectedChapterId ? (
             <section>
               {(() => {
-                const chapter = activeCampaign.chapters.find(c => c.id === selectedChapterId);
+                const chapter = activeCampaign.chapters.find(c => c.id === effectiveSelectedChapterId);
                 if (!chapter) return <p>Chapter not found.</p>;
                 return (
                   <div>
@@ -458,7 +455,7 @@ export function CampaignBuilder() {
             <section style={{ flex: '1 1 300px' }}>
               <h3>Chapter Assets</h3>
               <ul style={{ listStyle: 'none', padding: 0, marginBottom: '1rem' }}>
-                {activeCampaign.assets.filter(a => a.chapterIds?.includes(selectedChapterId || '')).map(a => {
+                {activeCampaign.assets.filter(a => a.chapterIds?.includes(effectiveSelectedChapterId || '')).map(a => {
                   const displayName = getAssetDisplayName(a);
                   return (
                     <li key={a.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0' }}>
@@ -486,7 +483,7 @@ export function CampaignBuilder() {
                     </li>
                   );
                 })}
-                {activeCampaign.assets.filter(a => a.chapterIds?.includes(selectedChapterId || '')).length === 0 && <li>No assets assigned to this chapter.</li>}
+                {activeCampaign.assets.filter(a => a.chapterIds?.includes(effectiveSelectedChapterId || '')).length === 0 && <li>No assets assigned to this chapter.</li>}
               </ul>
               <button type="button" ref={addAssetBtnRef} onClick={handleAddAssetClick}>+ Add Asset</button>
             </section>
@@ -494,14 +491,14 @@ export function CampaignBuilder() {
             <section style={{ flex: '1 1 300px' }}>
               <h3>Chapter Encounters</h3>
               <ul style={{ listStyle: 'none', padding: 0, marginBottom: '1rem' }}>
-                {activeCampaign.encounters.filter(e => e.chapterIds?.includes(selectedChapterId || '')).map(e => (
+                {activeCampaign.encounters.filter(e => e.chapterIds?.includes(effectiveSelectedChapterId || '')).map(e => (
                   <li key={e.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0', display: 'flex', gap: '1rem', alignItems: 'center' }}>
                     <strong style={{ flexGrow: 1 }}>{e.name} ({e.units.length} units)</strong>
                     <button type="button" onClick={() => setEditingEncounter(e)}>Edit</button>
                     <button type="button" onClick={() => handleDeleteEncounter(e.id)}>Delete</button>
                   </li>
                 ))}
-                {activeCampaign.encounters.filter(e => e.chapterIds?.includes(selectedChapterId || '')).length === 0 && <li>No encounters for this chapter.</li>}
+                {activeCampaign.encounters.filter(e => e.chapterIds?.includes(effectiveSelectedChapterId || '')).length === 0 && <li>No encounters for this chapter.</li>}
               </ul>
               <button type="button" onClick={() => setIsCreatingEncounter(true)}>+ Create Encounter</button>
             </section>
@@ -550,38 +547,34 @@ export function CampaignBuilder() {
           <section style={{ flex: '1 1 300px' }}>
             <h3 id="assets-heading">Manage Assets</h3>
             <ul style={{ listStyle: 'none', padding: 0, marginBottom: '1rem' }}>
-              {(() => {
-                const uniqueAssets = Array.from(new Map(activeCampaign.assets.map(a => [a.id, a])).values());
-                return uniqueAssets.map(a => {
-                  const displayName = getAssetDisplayName(a);
-                  return (
-                    <li key={a.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0' }}>
-                      <div style={{ display: 'flex', alignItems: 'center' }}>
-                        <button type="button"
-                          aria-expanded={expandedAssetId === a.id}
-                          aria-label={`${displayName} (${a.type}), ${expandedAssetId === a.id ? 'Expanded' : 'Collapsed'}`}
-                          onClick={() => setExpandedAssetId(prev => prev === a.id ? null : a.id)}
-                          style={{ width: '100%', textAlign: 'left', fontWeight: 'bold', background: 'none', border: 'none', padding: '0.5rem', cursor: 'pointer' }}
-                        >
-                          <span aria-hidden="true">{expandedAssetId === a.id ? '▼' : '▶'}</span> {displayName} ({a.type})
-                        </button>
-                      </div>
-                      {expandedAssetId === a.id && (
-                        <div style={{ padding: '1rem', borderLeft: '2px solid #0066cc', marginTop: '0.5rem' }}>
-                          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-                            {/* eslint-disable-next-line react-hooks/refs */}
-                            <button type="button" onClick={() => handleEditAsset(a)}>Edit Asset</button>
-                            <button type="button" onClick={() => handleAssetLinkClick(a.id)}>View Details</button>
-                          </div>
-                          {!a.description.startsWith('Scraped') && (
-                            <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{a.description}</p>
-                          )}
+              {Array.from(new Map(activeCampaign.assets.map(a => [a.id, a])).values()).map(a => {
+                const displayName = getAssetDisplayName(a);
+                return (
+                  <li key={a.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0' }}>
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                      <button type="button"
+                        aria-expanded={expandedAssetId === a.id}
+                        aria-label={`${displayName} (${a.type}), ${expandedAssetId === a.id ? 'Expanded' : 'Collapsed'}`}
+                        onClick={() => setExpandedAssetId(prev => prev === a.id ? null : a.id)}
+                        style={{ width: '100%', textAlign: 'left', fontWeight: 'bold', background: 'none', border: 'none', padding: '0.5rem', cursor: 'pointer' }}
+                      >
+                        <span aria-hidden="true">{expandedAssetId === a.id ? '▼' : '▶'}</span> {displayName} ({a.type})
+                      </button>
+                    </div>
+                    {expandedAssetId === a.id && (
+                      <div style={{ padding: '1rem', borderLeft: '2px solid #0066cc', marginTop: '0.5rem' }}>
+                        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+                          <button type="button" onClick={() => handleEditAsset(a)}>Edit Asset</button>
+                          <button type="button" onClick={() => handleAssetLinkClick(a.id)}>View Details</button>
                         </div>
-                      )}
-                    </li>
-                  );
-                });
-              })()}
+                        {!a.description.startsWith('Scraped') && (
+                          <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{a.description}</p>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
               {activeCampaign.assets.length === 0 && <li>No assets created yet.</li>}
             </ul>
             <button type="button" ref={addAssetBtnRef} onClick={handleAddAssetClick}>+ Add Asset</button>
