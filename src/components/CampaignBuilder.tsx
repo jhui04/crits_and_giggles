@@ -40,10 +40,10 @@ export function CampaignBuilder() {
 
   // Chapter State
   const [showChapterForm, setShowChapterForm] = useState(false);
+  const [showChapterOptionsModal, setShowChapterOptionsModal] = useState(false);
   const [editingChapterId, setEditingChapterId] = useState<string | null>(null);
   const [chapterTitle, setChapterTitle] = useState('');
   const [chapterContent, setChapterContent] = useState('');
-  const [expandedChapterId, setExpandedChapterId] = useState<string | null>(null);
 
   // Encounter State
   const [isCreatingEncounter, setIsCreatingEncounter] = useState(false);
@@ -71,6 +71,8 @@ export function CampaignBuilder() {
 
   const addChapterBtnRef = useRef<HTMLButtonElement>(null);
   const chapterHeadingRef = useRef<HTMLHeadingElement>(null);
+  const chapterOptionsBtnRef = useRef<HTMLButtonElement>(null);
+  const chapterOptionsHeadingRef = useRef<HTMLHeadingElement>(null);
 
   const addAssetBtnRef = useRef<HTMLButtonElement>(null);
   const assetHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -121,6 +123,18 @@ export function CampaignBuilder() {
     }, 0);
   }, []);
 
+  const closeChapterOptionsModal = useCallback(() => {
+    setShowChapterOptionsModal(false);
+    setTimeout(() => {
+      if (lastFocusedElement.current) {
+        lastFocusedElement.current.focus();
+        lastFocusedElement.current = null;
+      } else {
+        chapterOptionsBtnRef.current?.focus();
+      }
+    }, 0);
+  }, []);
+
   const closeAssetForm = useCallback(() => {
     setShowAssetForm(false);
     setEditingAssetId(null);
@@ -143,6 +157,41 @@ export function CampaignBuilder() {
     setTimeout(() => lastFocusedElement.current?.focus(), 0);
   }, []);
 
+  const getSortedAssets = useCallback(() => {
+    if (!activeCampaign) return [];
+    const sorted: Asset[] = [];
+    const addedIds = new Set<string>();
+
+    const addAsset = (id: string) => {
+      if (!addedIds.has(id)) {
+        const asset = activeCampaign.assets.find(a => a.id === id);
+        if (asset) {
+          sorted.push(asset);
+          addedIds.add(id);
+        }
+      }
+    };
+
+    const sortedChapters = [...activeCampaign.chapters].sort((a, b) => a.order - b.order);
+    for (const chapter of sortedChapters) {
+      const regex = /@Asset\[([^\]]+)\]/g;
+      let match;
+      while ((match = regex.exec(chapter.content)) !== null) {
+        addAsset(match[1]);
+      }
+      const associatedAssets = activeCampaign.assets.filter(a => a.chapterIds?.includes(chapter.id));
+      for (const asset of associatedAssets) {
+        addAsset(asset.id);
+      }
+    }
+
+    for (const asset of activeCampaign.assets) {
+      addAsset(asset.id);
+    }
+
+    return sorted;
+  }, [activeCampaign]);
+
   useEffect(() => {
     if (showCampaignForm) campaignHeadingRef.current?.focus();
   }, [showCampaignForm]);
@@ -154,6 +203,10 @@ export function CampaignBuilder() {
   useEffect(() => {
     if (showChapterForm) chapterHeadingRef.current?.focus();
   }, [showChapterForm]);
+
+  useEffect(() => {
+    if (showChapterOptionsModal) chapterOptionsHeadingRef.current?.focus();
+  }, [showChapterOptionsModal]);
 
   useEffect(() => {
     if (showAssetForm) assetHeadingRef.current?.focus();
@@ -172,6 +225,7 @@ export function CampaignBuilder() {
         if (showPlayerForm) closePlayerForm();
         else if (showCampaignForm) closeCampaignForm();
         else if (showChapterForm) closeChapterForm();
+        else if (showChapterOptionsModal) closeChapterOptionsModal();
         else if (showAssetForm) closeAssetForm();
         else if (viewingAsset) closeAssetViewer();
       }
@@ -188,7 +242,7 @@ export function CampaignBuilder() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showCampaignForm, showPlayerForm, showChapterForm, showAssetForm, viewingAsset, closeCampaignForm, closePlayerForm, closeChapterForm, closeAssetForm, closeAssetViewer]);
+  }, [showCampaignForm, showPlayerForm, showChapterForm, showChapterOptionsModal, showAssetForm, viewingAsset, closeCampaignForm, closePlayerForm, closeChapterForm, closeChapterOptionsModal, closeAssetForm, closeAssetViewer]);
 
   const closeEncounterForm = () => {
     setIsCreatingEncounter(false);
@@ -281,6 +335,50 @@ export function CampaignBuilder() {
     closeChapterForm();
   };
 
+  const handleDeleteChapter = async (chapterId: string) => {
+    if (!activeCampaign) return;
+    if (!confirm("Are you sure you want to delete this chapter? Assets and encounters exclusively associated with this chapter will also be deleted.")) return;
+
+    const newChapters = activeCampaign.chapters.filter(c => c.id !== chapterId);
+    
+    // Cascading delete for assets
+    const newAssets = activeCampaign.assets
+      .map(asset => {
+        if (!asset.chapterIds || asset.chapterIds.length === 0) return asset; // Global asset
+        if (!asset.chapterIds.includes(chapterId)) return asset; // Not associated with this chapter
+        
+        const remainingChapterIds = asset.chapterIds.filter(id => id !== chapterId);
+        return { ...asset, chapterIds: remainingChapterIds };
+      })
+      .filter(asset => !asset.chapterIds || asset.chapterIds.length > 0);
+
+    // Cascading delete for encounters
+    const newEncounters = activeCampaign.encounters
+      .map(encounter => {
+        if (!encounter.chapterIds || encounter.chapterIds.length === 0) return encounter; // Global encounter
+        if (!encounter.chapterIds.includes(chapterId)) return encounter; // Not associated with this chapter
+        
+        const remainingChapterIds = encounter.chapterIds.filter(id => id !== chapterId);
+        return { ...encounter, chapterIds: remainingChapterIds };
+      })
+      .filter(encounter => !encounter.chapterIds || encounter.chapterIds.length > 0);
+
+    await updateCampaign({
+      ...activeCampaign,
+      chapters: newChapters,
+      assets: newAssets,
+      encounters: newEncounters
+    });
+
+    if (selectedChapterId === chapterId) {
+      setSelectedChapterId(newChapters.length > 0 ? newChapters[0].id : null);
+    }
+    setShowChapterOptionsModal(false);
+    setTimeout(() => {
+      addChapterBtnRef.current?.focus();
+    }, 0);
+  };
+
   const handleOpenSettings = () => {
     lastFocusedElement.current = document.activeElement as HTMLElement;
     setShowCampaignForm(true);
@@ -305,12 +403,14 @@ export function CampaignBuilder() {
   }, [activeCampaign, updateCampaign]);
 
   const handleEditChapter = useCallback((chapter: Chapter) => {
-    lastFocusedElement.current = document.activeElement as HTMLElement;
+    if (!showChapterOptionsModal) {
+      lastFocusedElement.current = document.activeElement as HTMLElement;
+    }
     setEditingChapterId(chapter.id);
     setChapterTitle(chapter.title);
     setChapterContent(chapter.content);
     setShowChapterForm(true);
-  }, []);
+  }, [showChapterOptionsModal]);
 
   const handleEditAsset = useCallback((asset: Asset) => {
     lastFocusedElement.current = document.activeElement as HTMLElement;
@@ -419,7 +519,7 @@ export function CampaignBuilder() {
                 ))}
                 {activeCampaign.chapters.length === 0 && <option value="">No Chapters</option>}
               </select>
-              <button type="button" onClick={() => setShowChapterForm(true)}>+ Add Chapter</button>
+              <button type="button" ref={addChapterBtnRef} onClick={() => setShowChapterForm(true)}>+ Add Chapter</button>
             </div>
           </section>
 
@@ -432,7 +532,10 @@ export function CampaignBuilder() {
                 return (
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: '1rem' }}>
-                      <button type="button" onClick={() => handleEditChapter(chapter)}>Edit Chapter</button>
+                      <button type="button" ref={chapterOptionsBtnRef} onClick={() => {
+                        lastFocusedElement.current = document.activeElement as HTMLElement;
+                        setShowChapterOptionsModal(true);
+                      }}>Chapter Options</button>
                     </div>
                     <div style={{ padding: '1.5rem', border: '1px solid #ccc', borderRadius: '4px', backgroundColor: '#f9f9f9' }}>
                       <Markdown
@@ -507,47 +610,11 @@ export function CampaignBuilder() {
       ) : (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2rem' }} aria-hidden={!!isAnyModalOpen}>
 
-          {/* Chapter Management */}
-          <section style={{ flex: '1 1 300px' }}>
-            <h3 id="chapters-heading">Manage Chapters</h3>
-            <ul style={{ listStyle: 'none', padding: 0, marginBottom: '1rem' }}>
-              {activeCampaign.chapters.map(c => (
-                <li key={c.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0' }}>
-                  <div style={{ display: 'flex', alignItems: 'center' }}>
-                    <button type="button"
-                      aria-expanded={expandedChapterId === c.id}
-                      aria-label={`${c.title}, ${expandedChapterId === c.id ? 'Expanded' : 'Collapsed'}`}
-                      onClick={() => setExpandedChapterId(prev => prev === c.id ? null : c.id)}
-                      style={{ flexGrow: 1, textAlign: 'left', fontWeight: 'bold', background: 'none', border: 'none', padding: '0.5rem', cursor: 'pointer' }}
-                    >
-                      <span aria-hidden="true">{expandedChapterId === c.id ? '▼' : '▶'}</span> {c.title}
-                    </button>
-                  </div>
-                  {expandedChapterId === c.id && (
-                    <div style={{ padding: '1rem', borderLeft: '2px solid #0066cc', marginTop: '0.5rem' }}>
-                      <div style={{ marginBottom: '1rem' }}>
-                        <button type="button" onClick={() => handleEditChapter(c)}>Edit Chapter</button>
-                      </div>
-                      <Markdown
-                        content={c.content}
-                        onAssetClick={handleAssetLinkClick}
-                        onEncounterClick={handleEncounterLinkClick}
-                        baseHeadingLevel={3}
-                      />
-                    </div>
-                  )}
-                </li>
-              ))}
-              {activeCampaign.chapters.length === 0 && <li>No chapters written yet.</li>}
-            </ul>
-            <button type="button" ref={addChapterBtnRef} onClick={() => setShowChapterForm(true)}>+ Add Chapter</button>
-          </section>
-
           {/* Asset Management */}
           <section style={{ flex: '1 1 300px' }}>
             <h3 id="assets-heading">Manage Assets</h3>
             <ul style={{ listStyle: 'none', padding: 0, marginBottom: '1rem' }}>
-              {Array.from(new Map(activeCampaign.assets.map(a => [a.id, a])).values()).map(a => {
+              {getSortedAssets().map(a => {
                 const displayName = getAssetDisplayName(a);
                 return (
                   <li key={a.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0' }}>
@@ -595,6 +662,41 @@ export function CampaignBuilder() {
             </ul>
             <button type="button" ref={createEncounterBtnRef} onClick={() => setIsCreatingEncounter(true)}>+ Create Encounter</button>
           </section>
+        </div>
+      )}
+
+      {/* Chapter Options Modal */}
+      {showChapterOptionsModal && (
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="chapter-options-title" style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex',
+          alignItems: 'center', justifyContent: 'center', zIndex: 2000
+        }}>
+          <div className="modal-content" style={{
+            backgroundColor: 'white', padding: '2rem', borderRadius: '8px', 
+            maxWidth: '400px', width: '90%', display: 'flex', flexDirection: 'column', gap: '1rem'
+          }}>
+            <h2 id="chapter-options-title" ref={chapterOptionsHeadingRef} tabIndex={-1} style={{ outline: 'none', marginTop: 0 }}>
+              Chapter Options
+            </h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <button type="button" onClick={() => {
+                const chapter = activeCampaign.chapters.find(c => c.id === effectiveSelectedChapterId);
+                if (chapter) handleEditChapter(chapter);
+                setShowChapterOptionsModal(false);
+              }} style={{ padding: '0.75rem', fontWeight: 'bold' }}>
+                Edit Chapter
+              </button>
+              <button type="button" onClick={() => {
+                if (effectiveSelectedChapterId) handleDeleteChapter(effectiveSelectedChapterId);
+              }} style={{ padding: '0.75rem', color: '#cc0000' }}>
+                Delete Chapter
+              </button>
+              <button type="button" onClick={closeChapterOptionsModal} style={{ padding: '0.75rem', marginTop: '0.5rem' }}>
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

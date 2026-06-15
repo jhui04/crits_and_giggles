@@ -126,8 +126,9 @@ test.describe('Create Mode Accessibility', () => {
   });
 
   test('Chapter Form Modal', async ({ page }) => {
-    const trigger = page.getByRole('button', { name: 'Edit Chapter' });
+    const trigger = page.getByRole('button', { name: 'Chapter Options' });
     await trigger.click();
+    await page.getByRole('button', { name: 'Edit Chapter' }).click();
     await verifyModalOpen(page, 'Edit Chapter');
     await checkA11y(page, 'Chapter Form');
     await verifyModalClosed(page, trigger);
