@@ -147,8 +147,8 @@ test.describe('Create Mode Accessibility', () => {
   });
 
   test('Asset Details Modal', async ({ page }) => {
-    await page.getByRole('button', { name: 'Test Asset', exact: false }).click();
-    const trigger = page.getByRole('button', { name: 'View Details' });
+    // Click the asset button directly
+    const trigger = page.getByRole('button', { name: 'Test Asset', exact: false });
     await trigger.click();
     await verifyModalOpen(page, 'Test Asset');
     await checkA11y(page, 'Asset Details');

@@ -6,6 +6,7 @@ import type { AssetType, Asset, Chapter, Encounter, Monster, Spell, PlayerCharac
 import { MonsterDetails } from './MonsterDetails';
 import { SpellDetail } from './SpellBrowser';
 import { dataService } from '../services/DataService';
+import { AssetInsertionModal } from './AssetInsertionModal';
 
 export function CampaignBuilder() {
   const { activeCampaign, updateCampaign } = useCampaigns();
@@ -35,8 +36,11 @@ export function CampaignBuilder() {
   const [assetType, setAssetType] = useState<AssetType>('NPC');
   const [assetDesc, setAssetDesc] = useState('');
   const [selectedAssetChapterIds, setSelectedAssetChapterIds] = useState<string[]>([]);
-  const [expandedAssetId, setExpandedAssetId] = useState<string | null>(null);
   const [viewingAsset, setViewingAsset] = useState<Asset | null>(null);
+
+  // Asset Insertion Modal State
+  const [showAssetInsertionModal, setShowAssetInsertionModal] = useState(false);
+  const [insertionCursorPos, setInsertionCursorPos] = useState<number>(0);
 
   // Chapter State
   const [showChapterForm, setShowChapterForm] = useState(false);
@@ -222,7 +226,14 @@ export function CampaignBuilder() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !e.defaultPrevented) {
-        if (showPlayerForm) closePlayerForm();
+        if (showAssetInsertionModal) {
+          setShowAssetInsertionModal(false);
+          e.preventDefault();
+          setTimeout(() => {
+            document.getElementById('chap-content')?.focus();
+          }, 0);
+        }
+        else if (showPlayerForm) closePlayerForm();
         else if (showCampaignForm) closeCampaignForm();
         else if (showChapterForm) closeChapterForm();
         else if (showChapterOptionsModal) closeChapterOptionsModal();
@@ -242,7 +253,7 @@ export function CampaignBuilder() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showCampaignForm, showPlayerForm, showChapterForm, showChapterOptionsModal, showAssetForm, viewingAsset, closeCampaignForm, closePlayerForm, closeChapterForm, closeChapterOptionsModal, closeAssetForm, closeAssetViewer]);
+  }, [showCampaignForm, showPlayerForm, showChapterForm, showChapterOptionsModal, showAssetForm, showAssetInsertionModal, viewingAsset, closeCampaignForm, closePlayerForm, closeChapterForm, closeChapterOptionsModal, closeAssetForm, closeAssetViewer]);
 
   const closeEncounterForm = () => {
     setIsCreatingEncounter(false);
@@ -335,6 +346,49 @@ export function CampaignBuilder() {
     closeChapterForm();
   };
 
+  const handleCreateAssetFromModal = async (asset: Asset) => {
+    if (!activeCampaign) return;
+    const newAssets = [...activeCampaign.assets, asset];
+    await updateCampaign({
+      ...activeCampaign,
+      assets: newAssets
+    });
+  };
+
+  const handleInsertAsset = async (assetId: string, assetName: string) => {
+    const before = chapterContent.substring(0, insertionCursorPos - 1); // Remove the @
+    const after = chapterContent.substring(insertionCursorPos);
+    const insertion = `@Asset[${assetId}]{${assetName}}`;
+    setChapterContent(before + insertion + after);
+    setShowAssetInsertionModal(false);
+
+    // Ensure association with current chapter
+    if (activeCampaign) {
+      const currentChapterId = editingChapterId || effectiveSelectedChapterId;
+      if (currentChapterId) {
+        const asset = activeCampaign.assets.find(a => a.id === assetId);
+        if (asset && (!asset.chapterIds || !asset.chapterIds.includes(currentChapterId))) {
+          const updatedAssets = activeCampaign.assets.map(a => 
+            a.id === assetId 
+              ? { ...a, chapterIds: [...(a.chapterIds || []), currentChapterId] }
+              : a
+          );
+          await updateCampaign({ ...activeCampaign, assets: updatedAssets });
+        }
+      }
+    }
+    
+    // Restore focus to textarea
+    setTimeout(() => {
+      const textarea = document.getElementById('chap-content') as HTMLTextAreaElement;
+      if (textarea) {
+        textarea.focus();
+        const newPos = before.length + insertion.length;
+        textarea.setSelectionRange(newPos, newPos);
+      }
+    }, 0);
+  };
+
   const handleDeleteChapter = async (chapterId: string) => {
     if (!activeCampaign) return;
     if (!confirm("Are you sure you want to delete this chapter? Assets and encounters exclusively associated with this chapter will also be deleted.")) return;
@@ -343,25 +397,27 @@ export function CampaignBuilder() {
     
     // Cascading delete for assets
     const newAssets = activeCampaign.assets
-      .map(asset => {
-        if (!asset.chapterIds || asset.chapterIds.length === 0) return asset; // Global asset
-        if (!asset.chapterIds.includes(chapterId)) return asset; // Not associated with this chapter
-        
-        const remainingChapterIds = asset.chapterIds.filter(id => id !== chapterId);
-        return { ...asset, chapterIds: remainingChapterIds };
+      .filter(asset => {
+        if (!asset.chapterIds || asset.chapterIds.length === 0) return true; // Global
+        if (!asset.chapterIds.includes(chapterId)) return true; // Not in this chapter
+        return asset.chapterIds.length > 1; // Keep if in other chapters too
       })
-      .filter(asset => !asset.chapterIds || asset.chapterIds.length > 0);
+      .map(asset => {
+        if (!asset.chapterIds?.includes(chapterId)) return asset;
+        return { ...asset, chapterIds: asset.chapterIds.filter(id => id !== chapterId) };
+      });
 
     // Cascading delete for encounters
     const newEncounters = activeCampaign.encounters
-      .map(encounter => {
-        if (!encounter.chapterIds || encounter.chapterIds.length === 0) return encounter; // Global encounter
-        if (!encounter.chapterIds.includes(chapterId)) return encounter; // Not associated with this chapter
-        
-        const remainingChapterIds = encounter.chapterIds.filter(id => id !== chapterId);
-        return { ...encounter, chapterIds: remainingChapterIds };
+      .filter(encounter => {
+        if (!encounter.chapterIds || encounter.chapterIds.length === 0) return true; // Global
+        if (!encounter.chapterIds.includes(chapterId)) return true; // Not in this chapter
+        return encounter.chapterIds.length > 1; // Keep if in other chapters too
       })
-      .filter(encounter => !encounter.chapterIds || encounter.chapterIds.length > 0);
+      .map(encounter => {
+        if (!encounter.chapterIds?.includes(chapterId)) return encounter;
+        return { ...encounter, chapterIds: encounter.chapterIds.filter(id => id !== chapterId) };
+      });
 
     await updateCampaign({
       ...activeCampaign,
@@ -458,6 +514,13 @@ export function CampaignBuilder() {
     setShowAssetForm(true);
   };
 
+  const closeAssetInsertionModal = useCallback(() => {
+    setShowAssetInsertionModal(false);
+    setTimeout(() => {
+      document.getElementById('chap-content')?.focus();
+    }, 0);
+  }, []);
+
   if (!activeCampaign) {
     return <p>Please select or create a campaign from the "Switch Campaign" menu in the header.</p>;
   }
@@ -473,7 +536,7 @@ export function CampaignBuilder() {
   }
 
   // Calculate global aria-hidden for the main content when modals are open
-  const isAnyModalOpen = showCampaignForm || showPlayerForm || showChapterForm || showAssetForm || viewingAsset;
+  const isAnyModalOpen = showCampaignForm || showPlayerForm || showChapterForm || showAssetForm || viewingAsset || showAssetInsertionModal;
 
   return (
     <div >
@@ -564,25 +627,12 @@ export function CampaignBuilder() {
                     <li key={a.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0' }}>
                       <div style={{ display: 'flex', alignItems: 'center' }}>
                         <button type="button"
-                          aria-expanded={expandedAssetId === a.id}
-                          aria-label={`${displayName} (${a.type}), ${expandedAssetId === a.id ? 'Expanded' : 'Collapsed'}`}
-                          onClick={() => setExpandedAssetId(prev => prev === a.id ? null : a.id)}
+                          onClick={() => handleAssetLinkClick(a.id)}
                           style={{ width: '100%', textAlign: 'left', fontWeight: 'bold', background: 'none', border: 'none', padding: '0.5rem', cursor: 'pointer' }}
                         >
-                          <span aria-hidden="true">{expandedAssetId === a.id ? '▼' : '▶'}</span> {displayName} ({a.type})
+                          {displayName} ({a.type})
                         </button>
                       </div>
-                      {expandedAssetId === a.id && (
-                        <div style={{ padding: '1rem', borderLeft: '2px solid #0066cc', marginTop: '0.5rem' }}>
-                          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-                            <button type="button" onClick={() => handleEditAsset(a)}>Edit Asset</button>
-                            <button type="button" onClick={() => handleAssetLinkClick(a.id)}>View Details</button>
-                          </div>
-                          {!a.description.startsWith('Scraped') && (
-                            <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{a.description}</p>
-                          )}
-                        </div>
-                      )}
                     </li>
                   );
                 })}
@@ -620,25 +670,12 @@ export function CampaignBuilder() {
                   <li key={a.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0' }}>
                     <div style={{ display: 'flex', alignItems: 'center' }}>
                       <button type="button"
-                        aria-expanded={expandedAssetId === a.id}
-                        aria-label={`${displayName} (${a.type}), ${expandedAssetId === a.id ? 'Expanded' : 'Collapsed'}`}
-                        onClick={() => setExpandedAssetId(prev => prev === a.id ? null : a.id)}
+                        onClick={() => handleAssetLinkClick(a.id)}
                         style={{ width: '100%', textAlign: 'left', fontWeight: 'bold', background: 'none', border: 'none', padding: '0.5rem', cursor: 'pointer' }}
                       >
-                        <span aria-hidden="true">{expandedAssetId === a.id ? '▼' : '▶'}</span> {displayName} ({a.type})
+                        {displayName} ({a.type})
                       </button>
                     </div>
-                    {expandedAssetId === a.id && (
-                      <div style={{ padding: '1rem', borderLeft: '2px solid #0066cc', marginTop: '0.5rem' }}>
-                        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-                          <button type="button" onClick={() => handleEditAsset(a)}>Edit Asset</button>
-                          <button type="button" onClick={() => handleAssetLinkClick(a.id)}>View Details</button>
-                        </div>
-                        {!a.description.startsWith('Scraped') && (
-                          <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{a.description}</p>
-                        )}
-                      </div>
-                    )}
                   </li>
                 );
               })}
@@ -727,11 +764,18 @@ export function CampaignBuilder() {
               </div>
               <div style={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
                 <label htmlFor="chap-content" style={{ display: 'block', fontWeight: 'bold' }}>Story Text</label>
-                <p style={{ margin: '0 0 0.5rem 0', fontSize: '0.85rem', color: '#666' }}>Use # for headings and @Asset[id]{`{Name}`} to link assets.</p>
+                <p style={{ margin: '0 0 0.5rem 0', fontSize: '0.85rem', color: '#666' }}>Use # for headings and @Asset[id]{`{Name}`} to link assets. Type @ to search.</p>
                 <textarea 
                   id="chap-content"
                   value={chapterContent}
                   onChange={e => setChapterContent(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === '@') {
+                      const pos = (e.target as HTMLTextAreaElement).selectionStart;
+                      setInsertionCursorPos(pos + 1);
+                      setShowAssetInsertionModal(true);
+                    }
+                  }}
                   style={{ width: '100%', flexGrow: 1, minHeight: '200px', padding: '0.5rem', fontFamily: 'monospace' }}
                 />
               </div>
@@ -743,6 +787,17 @@ export function CampaignBuilder() {
           </div>
         </div>
       )}
+
+      {/* Asset Insertion Modal */}
+      <AssetInsertionModal
+        isOpen={showAssetInsertionModal}
+        key={showAssetInsertionModal ? 'open' : 'closed'}
+        onClose={closeAssetInsertionModal}
+        onInsert={handleInsertAsset}
+        campaignAssets={activeCampaign.assets}
+        chapterId={editingChapterId || effectiveSelectedChapterId}
+        onCreateAsset={handleCreateAssetFromModal}
+      />
 
       {/* Asset Form Modal */}
       {showAssetForm && (
@@ -778,7 +833,6 @@ export function CampaignBuilder() {
                   style={{ width: '100%', padding: '0.5rem' }}
                 >
                   <option value="NPC">NPC</option>
-                  <option value="PC">PC</option>
                   <option value="Location">Location</option>
                   <option value="Item">Item</option>
                   <option value="Spell">Spell</option>
@@ -952,9 +1006,18 @@ export function CampaignBuilder() {
               if (matchedMonster) {
                 return (
                   <div>
-                    <h2 id="asset-viewer-title" ref={assetViewerHeadingRef} tabIndex={-1} className="sr-only">
-                      Monster Details: {matchedMonster.name}
-                    </h2>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                      <h2 id="asset-viewer-title" ref={assetViewerHeadingRef} tabIndex={-1} style={{ outline: 'none', margin: 0 }}>
+                        Monster Details: {matchedMonster.name}
+                      </h2>
+                      <button type="button" onClick={() => { closeAssetViewer(); handleEditAsset(viewingAsset); }}>Edit Asset</button>
+                    </div>
+                    {viewingAsset.description && !viewingAsset.description.startsWith('Scraped') && (
+                      <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#f0f7ff', borderRadius: '4px', borderLeft: '4px solid #0066cc' }}>
+                        <h3 style={{ marginTop: 0, fontSize: '1rem' }}>Notes</h3>
+                        <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{viewingAsset.description}</p>
+                      </div>
+                    )}
                     <MonsterDetails monster={matchedMonster} />
                   </div>
                 );
@@ -967,19 +1030,37 @@ export function CampaignBuilder() {
               if (matchedSpell) {
                 return (
                   <div>
-                    <SpellDetail spell={matchedSpell} id="asset-viewer-title" />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                      <h2 id="asset-viewer-title" ref={assetViewerHeadingRef} tabIndex={-1} style={{ outline: 'none', margin: 0 }}>
+                        Spell Details: {matchedSpell.name}
+                      </h2>
+                      <button type="button" onClick={() => { closeAssetViewer(); handleEditAsset(viewingAsset); }}>Edit Asset</button>
+                    </div>
+                    {viewingAsset.description && !viewingAsset.description.startsWith('Scraped') && (
+                      <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#f0f7ff', borderRadius: '4px', borderLeft: '4px solid #0066cc' }}>
+                        <h3 style={{ marginTop: 0, fontSize: '1rem' }}>Notes</h3>
+                        <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{viewingAsset.description}</p>
+                      </div>
+                    )}
+                    <SpellDetail spell={matchedSpell} />
                   </div>
                 );
               }
 
               return (
                 <>
-                  <h2 id="asset-viewer-title" ref={assetViewerHeadingRef} tabIndex={-1} style={{ outline: 'none', marginBottom: '0.5rem' }}>
-                    {viewingAsset.name} ({viewingAsset.type})
-                  </h2>
-                  <div style={{ marginTop: '1rem' }}>
-                    <p style={{ whiteSpace: 'pre-wrap' }}>{viewingAsset.description}</p>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                    <h2 id="asset-viewer-title" ref={assetViewerHeadingRef} tabIndex={-1} style={{ outline: 'none', margin: 0 }}>
+                      {viewingAsset.name} ({viewingAsset.type})
+                    </h2>
+                    <button type="button" onClick={() => { closeAssetViewer(); handleEditAsset(viewingAsset); }}>Edit Asset</button>
                   </div>
+                  {viewingAsset.description && !viewingAsset.description.startsWith('Scraped') && (
+                    <div style={{ marginTop: '1rem', padding: '1rem', backgroundColor: '#f0f7ff', borderRadius: '4px', borderLeft: '4px solid #0066cc' }}>
+                      <h3 style={{ marginTop: 0, fontSize: '1rem' }}>Notes</h3>
+                      <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{viewingAsset.description}</p>
+                    </div>
+                  )}
                 </>
               );
             })()}
