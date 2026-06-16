@@ -70,13 +70,16 @@ export const seedStateSaves = {
   id: 'test-campaign-saves',
   name: 'Test Campaign Saves',
   description: 'Test Description',
-  chapters: [],
+  chapters: [
+    { id: 'chap-save-1', title: 'Chapter 1', content: 'Save test chapter', order: 0 }
+  ],
   assets: [],
   players: [],
   encounters: [
     {
       id: 'test-encounter-saves',
       name: 'Test Encounter',
+      chapterIds: ['chap-save-1'],
       units: [
         {
           instanceId: 'unit-save-1',

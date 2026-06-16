@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { checkA11y } from './utils/axe-helper';
 import { seedStateSaves } from './seed-data';
 
-test('Monster Saving Throws Fallback in Operations Modal', async ({ page, request }) => {
+test('Monster Saving Throws Fallback in Operations Modal', async ({ page, request, context }) => {
   const apiBase = 'http://localhost:3005/api';
   
   // 1. Reset and seed data
@@ -23,31 +23,36 @@ test('Monster Saving Throws Fallback in Operations Modal', async ({ page, reques
 
   // 3. Go to combat and load encounter
   await page.getByRole('button', { name: 'Switch to Run Mode' }).click();
-  await page.getByRole('button', { name: 'Combat' }).click();
-  await page.getByRole('button', { name: /Load "Test Encounter"/ }).click();
+  
+  const [encounterPage] = await Promise.all([
+    context.waitForEvent('page'),
+    page.getByRole('link', { name: /Run Test Encounter/ }).click()
+  ]);
+  await encounterPage.waitForLoadState();
   
   // Wait for unit to appear in setup list
-  await expect(page.getByText('Save Test Monster')).toBeVisible();
-  await page.getByRole('button', { name: 'Start Combat' }).click();
+  await expect(encounterPage.getByText('Save Test Monster')).toBeVisible();
+  await encounterPage.getByRole('button', { name: 'Start Combat' }).click();
 
   // 4. Open monster operations
-  const optionsBtn = page.getByRole('button', { name: /Options/i }).first();
+  const optionsBtn = encounterPage.getByRole('button', { name: /Options/i }).first();
   await expect(optionsBtn).toBeVisible();
   await optionsBtn.click();
   
   // Wait for modal
-  await expect(page.locator('[role="dialog"]')).toBeVisible();
+  await expect(encounterPage.locator('[role="dialog"]')).toBeVisible();
   
   // Click Saving Throws
-  await page.locator('[role="dialog"] button:has-text("Saving Throws")').click();
+  await encounterPage.locator('[role="dialog"] button:has-text("Saving Throws")').click();
   
   // 5. Verify skill/save values for Aartuk Starhorror
   // Stats: STR +1, DEX +0, CON +2, INT +1, WIS +3, CHA +0
-  await expect(page.locator('button:has-text("STR: +1")')).toBeVisible();
-  await expect(page.locator('button:has-text("DEX: +0")')).toBeVisible();
-  await expect(page.locator('button:has-text("CON: +2")')).toBeVisible();
-  await expect(page.locator('button:has-text("WIS: +3")')).toBeVisible();
+  await expect(encounterPage.locator('button:has-text("STR: +1")')).toBeVisible();
+  await expect(encounterPage.locator('button:has-text("DEX: +0")')).toBeVisible();
+  await expect(encounterPage.locator('button:has-text("CON: +2")')).toBeVisible();
+  await expect(encounterPage.locator('button:has-text("WIS: +3")')).toBeVisible();
 
   // 6. Run a scan
-  await checkA11y(page, 'Monster Operations - Skills/Saves Fallback');
+  await checkA11y(encounterPage, 'Monster Operations - Skills/Saves Fallback');
+  await encounterPage.close();
 });

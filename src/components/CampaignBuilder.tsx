@@ -496,14 +496,6 @@ export function CampaignBuilder() {
     }
   }, [activeCampaign]);
 
-  const handleEncounterLinkClick = useCallback((id: string) => {
-    const encounter = activeCampaign?.encounters.find(e => e.id === id);
-    if (encounter) {
-      lastFocusedElement.current = document.activeElement as HTMLElement;
-      setEditingEncounter(encounter);
-    }
-  }, [activeCampaign]);
-
   const handleAddAssetClick = () => {
     lastFocusedElement.current = document.activeElement as HTMLElement;
     if (viewMode === 'chapters' && selectedChapterId) {
@@ -601,10 +593,10 @@ export function CampaignBuilder() {
                       }}>Chapter Options</button>
                     </div>
                     <div style={{ padding: '1.5rem', border: '1px solid #ccc', borderRadius: '4px', backgroundColor: '#f9f9f9' }}>
+                      <h3 style={{ marginTop: 0 }}>{chapter.title}</h3>
                       <Markdown
                         content={chapter.content}
                         onAssetClick={handleAssetLinkClick}
-                        onEncounterClick={handleEncounterLinkClick}
                         baseHeadingLevel={3}
                       />
                     </div>

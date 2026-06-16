@@ -1,4 +1,4 @@
-import { test, expect, Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import { checkA11y } from './utils/axe-helper';
 
 const SUITE_ID = 'asset-management-suite';

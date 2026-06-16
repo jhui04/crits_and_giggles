@@ -32,14 +32,19 @@ test.describe('Accessibility Baseline Scans', () => {
 
   test('Run Mode - Story Tab Baseline', async ({ page }) => {
     await page.click('text=Switch to Run Mode');
-    await page.click('text=Story');
     await checkA11y(page, 'Run Mode - Story Tab');
   });
 
-  test('Run Mode - Combat Tab Baseline', async ({ page }) => {
+  test('Run Mode - Encounter Runner Baseline', async ({ page, context }) => {
     await page.click('text=Switch to Run Mode');
-    await page.click('text=Combat');
-    await checkA11y(page, 'Run Mode - Combat Tab');
+    
+    const [encounterPage] = await Promise.all([
+      context.waitForEvent('page'),
+      page.getByRole('link', { name: /Run Test Encounter/ }).click()
+    ]);
+    await encounterPage.waitForLoadState();
+    await checkA11y(encounterPage, 'Run Mode - Encounter Runner');
+    await encounterPage.close();
   });
 
   test('Oracle Baseline', async ({ page }) => {

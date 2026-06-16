@@ -49,11 +49,51 @@ test.describe('Core User Journeys', () => {
     
     // Verify Run Mode UI
     await expect(page.locator('text=Run Mode')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Combat' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Story' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Story Chapters' })).toBeVisible();
 
     // Switch back
     await page.click('text=Switch to Create Mode');
     await expect(page.locator('text=Create Mode')).toBeVisible();
+  });
+
+  test('User can create an encounter for a chapter and view it in Run Mode', async ({ page }) => {
+    // 1. Setup: Create a new blank campaign
+    await page.click('button[aria-label="Open Main Menu"]');
+    await page.click('text=Switch Campaign');
+    await page.click('text=Create New Campaign');
+    await page.fill('#new-camp-name', 'Encounter Test Campaign');
+    await page.click('button:has-text("Create & Select")');
+
+    // 2. Create Chapter
+    await page.click('button:has-text("+ Add Chapter")');
+    await page.fill('#chap-title', 'Chapter 1: The Ambush');
+    await page.fill('#chap-content', 'The party travels through a dark forest.');
+    await page.click('button:has-text("Save")');
+    await expect(page.getByRole('heading', { name: 'Chapter 1: The Ambush', level: 3 })).toBeVisible();
+
+    // 3. Create Encounter
+    await page.click('button:has-text("+ Create Encounter")');
+    await page.fill('#encounter-name', 'Goblin Ambush');
+
+    // 4. Add Monster
+    await page.click('button:has-text("Add Monster...")');
+    // MonsterBrowser search
+    await page.fill('input[placeholder="Search monsters..."]', 'Goblin');
+    // Select the Goblin from the list (this opens preview)
+    await page.getByRole('button', { name: 'Goblin', exact: false }).first().click();
+    // Click "Add to Encounter" in the preview modal
+    await page.getByRole('button', { name: 'Add to Encounter' }).click();
+    await expect(page.locator('section[aria-label="Current Units"]')).toContainText('Goblin 1');
+
+    // 5. Save Encounter (handle alert)
+    page.once('dialog', dialog => dialog.dismiss()); // Just dismiss the success alert
+    await page.click('button:has-text("Save Encounter")');
+
+    // 6. Switch to Run Mode
+    await page.click('text=Switch to Run Mode');
+    await expect(page.locator('text=Run Mode')).toBeVisible();
+
+    // 7. Verify link is visible in Run Mode for the chapter
+    await expect(page.getByRole('link', { name: 'Run Goblin Ambush' })).toBeVisible();
   });
 });

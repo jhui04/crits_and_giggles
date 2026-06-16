@@ -7,8 +7,46 @@ import { useCampaigns } from '../context/CampaignContext';
 import { dataService } from '../services/DataService';
 
 export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: string | null }) {
-  const { activeCampaign } = useCampaigns();
+  const { activeCampaign, updateCampaign } = useCampaigns();
   const [activeEncounter, setActiveEncounter] = useState<Encounter | null>(null);
+
+  const syncEncounterState = useCallback((updatedCombatants: EncounterUnit[]) => {
+    if (!activeCampaign || !activeEncounter) return;
+
+    const updatedEncounter = {
+      ...activeEncounter,
+      units: activeEncounter.units.map(u => {
+        const found = updatedCombatants.find(c => c.instanceId === u.instanceId);
+        if (found) {
+          return {
+            ...u,
+            currentHp: found.currentHp,
+            maxHp: found.maxHp,
+            initiative: found.initiative
+          };
+        }
+        return u;
+      })
+    };
+
+    const updatedCampaign = {
+      ...activeCampaign,
+      encounters: activeCampaign.encounters.map(e => 
+        e.id === activeEncounter.id ? updatedEncounter : e
+      )
+    };
+
+    updateCampaign(updatedCampaign);
+    setActiveEncounter(updatedEncounter);
+  }, [activeCampaign, activeEncounter, updateCampaign]);
+
+  const handleClose = () => {
+    window.close();
+    // Fallback if window.close() is blocked
+    setTimeout(() => {
+      window.location.href = '/';
+    }, 100);
+  };
   const [combatants, setCombatants] = useState<EncounterUnit[]>([]);
   const [turnIndex, setTurnIndex] = useState(0);
   const [isCombatStarted, setIsCombatStarted] = useState(false);
@@ -66,10 +104,15 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     }, 0);
   }, [activeEncounter]);
 
+  const lastLoadedId = useRef<string | null>(null);
+
   useEffect(() => {
     if (targetEncounterId && activeCampaign) {
+      if (lastLoadedId.current === targetEncounterId) return;
+      
       const encounter = activeCampaign.encounters.find(e => e.id === targetEncounterId);
       if (encounter) {
+        lastLoadedId.current = targetEncounterId;
         // Use a timeout or functional update to avoid synchronous setState in effect
         setTimeout(() => loadEncounter(encounter), 0);
       }
@@ -182,7 +225,11 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
 
   const updateInitiative = (instanceId: string, val: string) => {
     const num = parseInt(val, 10) || 0;
-    setCombatants(prev => prev.map(u => u.instanceId === instanceId ? { ...u, initiative: num } : u));
+    setCombatants(prev => {
+      const next = prev.map(u => u.instanceId === instanceId ? { ...u, initiative: num } : u);
+      syncEncounterState(next);
+      return next;
+    });
   };
 
   const startCombat = () => {
@@ -205,6 +252,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
 
     const sorted = [...rolledCombatants].sort((a, b) => (b.initiative || 0) - (a.initiative || 0));
     setCombatants(sorted);
+    syncEncounterState(sorted);
     setIsCombatStarted(true);
     setTurnIndex(0);
     setAnnouncement(`Combat started. First up is ${sorted[0].name}.`);
@@ -219,19 +267,23 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     const val = amount !== undefined ? amount : parseInt(hpMods[instanceId] || '0', 10);
     if (isNaN(val) || val <= 0) return;
     
-    setCombatants(prev => prev.map(u => {
-      if (u.instanceId === instanceId) {
-        if (u.isPlayer) return u;
-        
-        const newHp = isDamage 
-          ? Math.max(0, (u.currentHp || 0) - val) 
-          : Math.min((u.maxHp || 0), (u.currentHp || 0) + val);
-        
-        setAnnouncement(`${u.name} takes ${val} ${isDamage ? 'damage' : 'healing'}. New HP is ${newHp}.`);
-        return { ...u, currentHp: newHp };
-      }
-      return u;
-    }));
+    setCombatants(prev => {
+      const next = prev.map(u => {
+        if (u.instanceId === instanceId) {
+          if (u.isPlayer) return u;
+          
+          const newHp = isDamage 
+            ? Math.max(0, (u.currentHp || 0) - val) 
+            : Math.min((u.maxHp || 0), (u.currentHp || 0) + val);
+          
+          setAnnouncement(`${u.name} takes ${val} ${isDamage ? 'damage' : 'healing'}. New HP is ${newHp}.`);
+          return { ...u, currentHp: newHp };
+        }
+        return u;
+      });
+      syncEncounterState(next);
+      return next;
+    });
     
     if (amount === undefined) {
       setHpMods(prev => ({ ...prev, [instanceId]: '' }));
@@ -292,7 +344,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     <div className="encounter-runner" >
       <header>
         <h2 ref={runnerHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>Running: {activeEncounter.name}</h2>
-        <button type="button" onClick={() => setActiveEncounter(null)}>Close Encounter</button>
+        <button type="button" onClick={handleClose}>Close Encounter Tab</button>
       </header>
 
       <div aria-live="assertive" className="sr-only">

@@ -33,9 +33,19 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
             const defaultCampaign: Campaign = {
               ...template,
               id: newId,
-              players: [],
-              encounters: []
+              players: template.players || [],
+              encounters: template.encounters || []
             };
+
+            // If template has no encounters, add a sample one to the first chapter
+            if (defaultCampaign.encounters.length === 0 && defaultCampaign.chapters.length > 0) {
+              defaultCampaign.encounters.push({
+                id: crypto.randomUUID(),
+                name: 'Sample Encounter',
+                chapterIds: [defaultCampaign.chapters[0].id],
+                units: []
+              });
+            }
             
             const created = await CampaignApiService.create(defaultCampaign);
             if (mounted) {
@@ -70,6 +80,27 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
     init();
     return () => { mounted = false; };
   }, []);
+
+  // Cross-tab synchronization
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'crits_campaigns' && e.newValue) {
+        setCampaigns(JSON.parse(e.newValue));
+      }
+      if (e.key === 'crits_active_campaign' && e.newValue) {
+        setActiveCampaignId(e.newValue);
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
+  // Sync campaigns state to localStorage for storage events
+  useEffect(() => {
+    if (isLoaded) {
+      localStorage.setItem('crits_campaigns', JSON.stringify(campaigns));
+    }
+  }, [campaigns, isLoaded]);
 
   // Sync active campaign details
   useEffect(() => {

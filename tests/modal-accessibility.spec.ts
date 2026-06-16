@@ -1,4 +1,4 @@
-import { test, expect, Page } from '@playwright/test';
+import { test, expect, Page, BrowserContext } from '@playwright/test';
 import { checkA11y } from './utils/axe-helper';
 import { getSeedState } from './seed-data';
 import fs from 'fs';
@@ -179,102 +179,104 @@ test.describe('Run Mode Accessibility', () => {
   });
 
   test('Story Tab Base', async ({ page }) => {
-    await page.getByRole('button', { name: 'Story' }).click();
     await expect(page.getByRole('heading', { name: 'Story Chapters' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Chapter 1' })).toBeVisible();
     await checkA11y(page, 'Story Tab');
   });
 
-  test('Load Encounter View', async ({ page }) => {
-    await page.getByRole('button', { name: 'Combat' }).click();
-    await verifyModalOpen(page, 'Load Encounter');
-    await checkA11y(page, 'Load Encounter View');
+  const setupEncounterPage = async (page: Page, context: BrowserContext) => {
+    const [encounterPage] = await Promise.all([
+      context.waitForEvent('page'),
+      page.getByRole('link', { name: /Run Test Encounter/ }).click()
+    ]);
+    await encounterPage.waitForLoadState();
+    return encounterPage;
+  };
+
+  test('Initiative Setup View', async ({ page, context }) => {
+    const encounterPage = await setupEncounterPage(page, context);
+    await expect(encounterPage.getByText('Initiative Setup')).toBeVisible();
+    await checkA11y(encounterPage, 'Initiative Setup View');
+    await encounterPage.close();
   });
 
-  test('Initiative Setup View', async ({ page }) => {
-    await page.getByRole('button', { name: 'Combat' }).click();
-    await page.getByRole('button', { name: /Load "Test Encounter"/ }).click();
-    await expect(page.getByText('Initiative Setup')).toBeVisible();
-    await checkA11y(page, 'Initiative Setup View');
+  test('Active Combat View', async ({ page, context }) => {
+    const encounterPage = await setupEncounterPage(page, context);
+    await encounterPage.getByRole('button', { name: 'Start Combat' }).click();
+    await expect(encounterPage.getByRole('heading', { name: 'Running: Test Encounter' })).toBeVisible();
+    await checkA11y(encounterPage, 'Active Combat View');
+    await encounterPage.close();
   });
 
-  test('Active Combat View', async ({ page }) => {
-    await page.getByRole('button', { name: 'Combat' }).click();
-    await page.getByRole('button', { name: /Load "Test Encounter"/ }).click();
-    await page.getByRole('button', { name: 'Start Combat' }).click();
-    await expect(page.getByRole('heading', { name: 'Running: Test Encounter' })).toBeVisible();
-    await checkA11y(page, 'Active Combat View');
-  });
-
-  test('Monster Operations Modal (Main)', async ({ page }) => {
-    await page.getByRole('button', { name: 'Combat' }).click();
-    await page.getByRole('button', { name: /Load "Test Encounter"/ }).click();
-    await page.getByRole('button', { name: 'Start Combat' }).click();
-    const trigger = page.getByRole('button', { name: 'Options' }).first();
+  test('Monster Operations Modal (Main)', async ({ page, context }) => {
+    const encounterPage = await setupEncounterPage(page, context);
+    await encounterPage.getByRole('button', { name: 'Start Combat' }).click();
+    const trigger = encounterPage.getByRole('button', { name: 'Options' }).first();
     await trigger.click();
-    await verifyModalOpen(page, /Actions$/); 
-    await checkA11y(page, 'Monster Operations Main');
-    await verifyModalClosed(page, trigger);
+    await verifyModalOpen(encounterPage, /Actions$/); 
+    await checkA11y(encounterPage, 'Monster Operations Main');
+    await verifyModalClosed(encounterPage, trigger);
+    await encounterPage.close();
   });
 
-  test('Monster Operations Modal (Damage/Heal)', async ({ page }) => {
-    await page.getByRole('button', { name: 'Combat' }).click();
-    await page.getByRole('button', { name: /Load "Test Encounter"/ }).click();
-    await page.getByRole('button', { name: 'Start Combat' }).click();
-    const trigger = page.getByRole('button', { name: 'Options' }).first();
+  test('Monster Operations Modal (Damage/Heal)', async ({ page, context }) => {
+    const encounterPage = await setupEncounterPage(page, context);
+    await encounterPage.getByRole('button', { name: 'Start Combat' }).click();
+    const trigger = encounterPage.getByRole('button', { name: 'Options' }).first();
     await trigger.click();
-    await page.getByRole('button', { name: 'Damage' }).click();
-    await expect(page.getByLabel('Damage Amount:')).toBeFocused();
-    await checkA11y(page, 'Monster Operations Damage');
-    await verifyModalClosed(page, trigger);
+    await encounterPage.getByRole('button', { name: 'Damage' }).click();
+    await expect(encounterPage.getByLabel('Damage Amount:')).toBeFocused();
+    await checkA11y(encounterPage, 'Monster Operations Damage');
+    await verifyModalClosed(encounterPage, trigger);
+    await encounterPage.close();
   });
 
-  test('Monster Operations Modal (Actions/Skills/Saves)', async ({ page }) => {
-    await page.getByRole('button', { name: 'Combat' }).click();
-    await page.getByRole('button', { name: /Load "Test Encounter"/ }).click();
-    await page.getByRole('button', { name: 'Start Combat' }).click();
-    const trigger = page.getByRole('button', { name: 'Options' }).first();
+  test('Monster Operations Modal (Actions/Skills/Saves)', async ({ page, context }) => {
+    const encounterPage = await setupEncounterPage(page, context);
+    await encounterPage.getByRole('button', { name: 'Start Combat' }).click();
+    const trigger = encounterPage.getByRole('button', { name: 'Options' }).first();
     await trigger.click();
-    await page.getByRole('button', { name: 'Actions' }).click();
-    await expect(page.locator('[role="dialog"] button').first()).toBeFocused();
-    await checkA11y(page, 'Monster Operations Actions List');
-    await verifyModalClosed(page, trigger);
+    await encounterPage.getByRole('button', { name: 'Actions' }).click();
+    await expect(encounterPage.locator('[role="dialog"] button').first()).toBeFocused();
+    await checkA11y(encounterPage, 'Monster Operations Actions List');
+    await verifyModalClosed(encounterPage, trigger);
+    await encounterPage.close();
   });
 
-  test('Combat Roll Result Modal', async ({ page }) => {
-    await page.getByRole('button', { name: 'Combat' }).click();
-    await page.getByRole('button', { name: /Load "Test Encounter"/ }).click();
-    await page.getByRole('button', { name: 'Start Combat' }).click();
-    const optionsTrigger = page.getByRole('button', { name: 'Options' }).first();
+  test('Combat Roll Result Modal', async ({ page, context }) => {
+    const encounterPage = await setupEncounterPage(page, context);
+    await encounterPage.getByRole('button', { name: 'Start Combat' }).click();
+    const optionsTrigger = encounterPage.getByRole('button', { name: 'Options' }).first();
     await optionsTrigger.click();
-    await page.getByRole('button', { name: 'Actions' }).click();
-    const actionTrigger = page.locator('[role="dialog"] button').first();
+    await encounterPage.getByRole('button', { name: 'Actions' }).click();
+    const actionTrigger = encounterPage.locator('[role="dialog"] button').first();
     const actionName = await actionTrigger.innerText();
     await actionTrigger.click();
-    await verifyModalOpen(page, new RegExp(actionName));
-    await checkA11y(page, 'Roll Result Modal');
-    await verifyModalClosed(page, optionsTrigger);
+    await verifyModalOpen(encounterPage, new RegExp(actionName));
+    await checkA11y(encounterPage, 'Roll Result Modal');
+    await verifyModalClosed(encounterPage, optionsTrigger);
+    await encounterPage.close();
   });
 
-  test('Combatant Details Modal (Player)', async ({ page }) => {
-    await page.getByRole('button', { name: 'Combat' }).click();
-    await page.getByRole('button', { name: /Load "Test Encounter"/ }).click();
-    await page.getByRole('button', { name: 'Start Combat' }).click();
-    const trigger = page.getByRole('button', { name: /Player 1 \(Player\)/ });
+  test('Combatant Details Modal (Player)', async ({ page, context }) => {
+    const encounterPage = await setupEncounterPage(page, context);
+    await encounterPage.getByRole('button', { name: 'Start Combat' }).click();
+    const trigger = encounterPage.getByRole('button', { name: /Player 1 \(Player\)/ });
     await trigger.click();
-    await verifyModalOpen(page, 'Player 1');
-    await checkA11y(page, 'Player Details');
-    await verifyModalClosed(page, trigger);
+    await verifyModalOpen(encounterPage, 'Player 1');
+    await checkA11y(encounterPage, 'Player Details');
+    await verifyModalClosed(encounterPage, trigger);
+    await encounterPage.close();
   });
 
-  test('Combatant Details Modal (Monster)', async ({ page }) => {
-    await page.getByRole('button', { name: 'Combat' }).click();
-    await page.getByRole('button', { name: /Load "Test Encounter"/ }).click();
-    await page.getByRole('button', { name: 'Start Combat' }).click();
-    const trigger = page.getByRole('button', { name: new RegExp(mockMonster.name) }).first();
+  test('Combatant Details Modal (Monster)', async ({ page, context }) => {
+    const encounterPage = await setupEncounterPage(page, context);
+    await encounterPage.getByRole('button', { name: 'Start Combat' }).click();
+    const trigger = encounterPage.getByRole('button', { name: new RegExp(mockMonster.name) }).first();
     await trigger.click();
-    await verifyModalOpen(page, mockMonster.name);
-    await checkA11y(page, 'Monster Details Modal');
-    await verifyModalClosed(page, trigger);
+    await verifyModalOpen(encounterPage, mockMonster.name);
+    await checkA11y(encounterPage, 'Monster Details Modal');
+    await verifyModalClosed(encounterPage, trigger);
+    await encounterPage.close();
   });
 });

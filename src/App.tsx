@@ -24,6 +24,10 @@ function App() {
   const [scrapedCampaigns, setScrapedCampaigns] = useState<Partial<Campaign>[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<string>('none');
 
+  // Multi-tab Encounter Support
+  const urlParams = new URLSearchParams(window.location.search);
+  const targetEncounterId = urlParams.get('encounter');
+
   useEffect(() => {
     fetch('/data/scraped_campaign.json')
       .then(res => res.json())
@@ -108,6 +112,7 @@ function App() {
       }
     }, 0);
   };
+
   const handleCreate = () => {
     if (newCampName) {
       const selectedCamp = scrapedCampaigns.find(c => c.id === selectedTemplate);
@@ -188,6 +193,15 @@ function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isCampaignModalOpen, isOracleOpen, isShortcutsHelpOpen, isMainMenuOpen]);
+
+  if (targetEncounterId) {
+    return (
+      <main>
+        <h1 className="sr-only">Encounter Runner</h1>
+        <EncounterRunner targetEncounterId={targetEncounterId} />
+      </main>
+    );
+  }
 
   return (
     <React.Fragment>
@@ -393,46 +407,14 @@ function CreateLayout() {
 }
 
 function RunLayout() {
-  const [activeTab, setActiveTab] = useState<'story' | 'combat'>('story');
   const { activeCampaign } = useCampaigns();
-
-  useEffect(() => {
-    const handleSwitchTab = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (detail === 'combat' || detail === 'story') {
-        setActiveTab(detail);
-      }
-    };
-    window.addEventListener('switch-tab', handleSwitchTab);
-    return () => window.removeEventListener('switch-tab', handleSwitchTab);
-  }, []);
 
   if (!activeCampaign) return <div style={{ padding: '2rem' }}>No active campaign.</div>;
 
   return (
     <div className="layout-run">
-      <nav className="sub-nav" aria-label="Run Mode Views">
-        <button 
-          type="button"
-          aria-current={activeTab === 'story' ? 'page' : undefined} 
-          onClick={() => setActiveTab('story')}
-          className={activeTab === 'story' ? 'active' : ''}
-        >
-          Story
-        </button>
-        <button 
-          type="button"
-          aria-current={activeTab === 'combat' ? 'page' : undefined} 
-          onClick={() => setActiveTab('combat')}
-          className={activeTab === 'combat' ? 'active' : ''}
-        >
-          Combat
-        </button>
-      </nav>
-
       <div className="tab-content">
-        {activeTab === 'story' && <CampaignRunner />}
-        {activeTab === 'combat' && <EncounterRunner />}
+        <CampaignRunner />
       </div>
     </div>
   );

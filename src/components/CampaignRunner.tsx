@@ -6,7 +6,7 @@ import { MonsterDetails } from './MonsterDetails';
 import { SpellDetail } from './SpellBrowser';
 import { dataService } from '../services/DataService';
 
-export function CampaignRunner({ onGoToEncounter }: { onGoToEncounter?: (id: string) => void }) {
+export function CampaignRunner() {
   const { activeCampaign } = useCampaigns();
   const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
@@ -40,12 +40,6 @@ export function CampaignRunner({ onGoToEncounter }: { onGoToEncounter?: (id: str
       alert(`Asset not found: ${assetId}`);
     }
   }, [activeCampaign]);
-
-  const handleEncounterClick = useCallback((encounterId: string) => {
-    if (onGoToEncounter) {
-      onGoToEncounter(encounterId);
-    }
-  }, [onGoToEncounter]);
 
   const runnerHeadingRef = useRef<HTMLHeadingElement>(null);
 
@@ -122,9 +116,57 @@ export function CampaignRunner({ onGoToEncounter }: { onGoToEncounter?: (id: str
                 <Markdown 
                   content={activeChapter.content} 
                   onAssetClick={handleAssetClick} 
-                  onEncounterClick={handleEncounterClick} 
                   baseHeadingLevel={1} 
                 />
+              </div>
+
+              <div style={{ marginTop: '2rem', paddingTop: '2rem', borderTop: '1px solid #eee', display: 'flex', gap: '2rem' }}>
+                <div style={{ flex: 1 }}>
+                  <h4>Chapter Assets</h4>
+                  {activeCampaign.assets.filter(a => a.chapterIds?.includes(activeChapter.id)).length === 0 ? (
+                    <p>No assets linked to this chapter.</p>
+                  ) : (
+                    <ul style={{ listStyle: 'none', padding: 0 }}>
+                      {activeCampaign.assets.filter(a => a.chapterIds?.includes(activeChapter.id)).map(asset => (
+                        <li key={asset.id} style={{ marginBottom: '0.5rem' }}>
+                          <button type="button" onClick={() => handleAssetClick(asset.id)}>
+                            {asset.name} ({asset.type})
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <h4>Chapter Encounters</h4>
+                  {activeCampaign.encounters.filter(e => e.chapterIds?.includes(activeChapter.id)).length === 0 ? (
+                    <p>No encounters linked to this chapter.</p>
+                  ) : (
+                    <ul style={{ listStyle: 'none', padding: 0 }}>
+                      {activeCampaign.encounters.filter(e => e.chapterIds?.includes(activeChapter.id)).map(enc => (
+                        <li key={enc.id} style={{ marginBottom: '0.5rem' }}>
+                          <a 
+                            href={`/?encounter=${enc.id}`} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            style={{ 
+                              display: 'inline-block',
+                              padding: '0.5rem 1rem',
+                              backgroundColor: '#eee',
+                              color: '#333',
+                              textDecoration: 'none',
+                              borderRadius: '4px',
+                              fontWeight: 'bold'
+                            }}
+                          >
+                            Run {enc.name}
+                            <span className="sr-only"> (opens in new tab)</span>
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               </div>
             </div>
           ) : (

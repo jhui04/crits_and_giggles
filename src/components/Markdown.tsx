@@ -4,7 +4,6 @@ import type { ReactNode } from 'react';
 interface MarkdownProps {
   content: string;
   onAssetClick: (id: string) => void;
-  onEncounterClick?: (id: string) => void;
   baseHeadingLevel?: number;
 }
 
@@ -14,7 +13,6 @@ interface MarkdownProps {
 export function Markdown({ 
   content, 
   onAssetClick, 
-  onEncounterClick = () => {}, 
   baseHeadingLevel = 3 
 }: MarkdownProps) {
   if (!content) return null;
@@ -50,27 +48,48 @@ export function Markdown({
           const entityId = match[2];
           const displayName = match[3] || entityId;
 
-          inlineElements.push(
-            <button 
-              type="button"
-              key={`${blockIndex}-${type}-${entityId}-${match.index}`}
-              onClick={() => type === 'Asset' ? onAssetClick(entityId) : onEncounterClick(entityId)}
-              className={`${type.toLowerCase()}-link-btn`}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: type === 'Asset' ? '#0066cc' : '#cc0000',
-                textDecoration: 'underline',
-                cursor: 'pointer',
-                padding: 0,
-                font: 'inherit',
-                fontWeight: 'bold'
-              }}
-              aria-label={`Open ${type.toLowerCase()}: ${displayName}`}
-            >
-              {displayName}
-            </button>
-          );
+          if (type === 'Asset') {
+            inlineElements.push(
+              <button 
+                type="button"
+                key={`${blockIndex}-${type}-${entityId}-${match.index}`}
+                onClick={() => onAssetClick(entityId)}
+                className="asset-link-btn"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#0066cc',
+                  textDecoration: 'underline',
+                  cursor: 'pointer',
+                  padding: 0,
+                  font: 'inherit',
+                  fontWeight: 'bold'
+                }}
+                aria-label={`Open asset: ${displayName}`}
+              >
+                {displayName}
+              </button>
+            );
+          } else {
+            inlineElements.push(
+              <a 
+                key={`${blockIndex}-${type}-${entityId}-${match.index}`}
+                href={`/?encounter=${entityId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="encounter-link"
+                style={{
+                  color: '#cc0000',
+                  textDecoration: 'underline',
+                  cursor: 'pointer',
+                  fontWeight: 'bold'
+                }}
+                aria-label={`Run encounter: ${displayName} (opens in new tab)`}
+              >
+                {displayName}
+              </a>
+            );
+          }
 
           lastIndex = linkRegex.lastIndex;
         }
