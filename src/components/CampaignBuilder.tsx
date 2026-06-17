@@ -55,14 +55,8 @@ export function CampaignBuilder() {
 
   // View & Chapter Context State
   const [viewMode, setViewMode] = useState<'chapters' | 'all'>('chapters');
-  const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
-
-  // Initialize selectedChapterId to the first chapter if none is selected
-  useEffect(() => {
-    if (!selectedChapterId && activeCampaign?.chapters && activeCampaign.chapters.length > 0) {
-      setSelectedChapterId(activeCampaign.chapters[0].id);
-    }
-  }, [activeCampaign, selectedChapterId]);
+  const [selectedChapterIdOverride, setSelectedChapterId] = useState<string | null>(null);
+  const selectedChapterId = selectedChapterIdOverride || (activeCampaign?.chapters?.[0]?.id ?? null);
 
   // Refs for focus management
   const campaignHeadingRef = useRef<HTMLHeadingElement>(null);
