@@ -57,14 +57,12 @@ export function CampaignBuilder() {
   const [viewMode, setViewMode] = useState<'chapters' | 'all'>('chapters');
   const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
 
-  // Derive the effectively selected chapter (fallback to first chapter if none or invalid)
-  const effectiveSelectedChapterId = (() => {
-    if (!activeCampaign || activeCampaign.chapters.length === 0) return null;
-    if (selectedChapterId && activeCampaign.chapters.find(c => c.id === selectedChapterId)) {
-      return selectedChapterId;
+  // Initialize selectedChapterId to the first chapter if none is selected
+  useEffect(() => {
+    if (!selectedChapterId && activeCampaign?.chapters && activeCampaign.chapters.length > 0) {
+      setSelectedChapterId(activeCampaign.chapters[0].id);
     }
-    return activeCampaign.chapters[0].id;
-  })();
+  }, [activeCampaign, selectedChapterId]);
 
   // Refs for focus management
   const campaignHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -364,7 +362,7 @@ export function CampaignBuilder() {
 
     // Ensure association with current chapter
     if (activeCampaign) {
-      const currentChapterId = editingChapterId || effectiveSelectedChapterId;
+      const currentChapterId = editingChapterId || selectedChapterId;
       if (currentChapterId) {
         const asset = activeCampaign.assets.find(a => a.id === assetId);
         if (asset && (!asset.chapterIds || !asset.chapterIds.includes(currentChapterId))) {
@@ -579,10 +577,10 @@ export function CampaignBuilder() {
           </section>
 
           {/* Active Chapter Content */}
-          {effectiveSelectedChapterId ? (
+          {selectedChapterId ? (
             <section>
               {(() => {
-                const chapter = activeCampaign.chapters.find(c => c.id === effectiveSelectedChapterId);
+                const chapter = activeCampaign.chapters.find(c => c.id === selectedChapterId);
                 if (!chapter) return <p>Chapter not found.</p>;
                 return (
                   <div>
@@ -613,7 +611,7 @@ export function CampaignBuilder() {
             <section style={{ flex: '1 1 300px' }}>
               <h3>Chapter Assets</h3>
               <ul style={{ listStyle: 'none', padding: 0, marginBottom: '1rem' }}>
-                {activeCampaign.assets.filter(a => a.chapterIds?.includes(effectiveSelectedChapterId || '')).map(a => {
+                {activeCampaign.assets.filter(a => a.chapterIds?.includes(selectedChapterId || '')).map(a => {
                   const displayName = getAssetDisplayName(a);
                   return (
                     <li key={a.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0' }}>
@@ -628,7 +626,7 @@ export function CampaignBuilder() {
                     </li>
                   );
                 })}
-                {activeCampaign.assets.filter(a => a.chapterIds?.includes(effectiveSelectedChapterId || '')).length === 0 && <li>No assets assigned to this chapter.</li>}
+                {activeCampaign.assets.filter(a => a.chapterIds?.includes(selectedChapterId || '')).length === 0 && <li>No assets assigned to this chapter.</li>}
               </ul>
               <button type="button" ref={addAssetBtnRef} onClick={handleAddAssetClick}>+ Add Asset</button>
             </section>
@@ -636,14 +634,14 @@ export function CampaignBuilder() {
             <section style={{ flex: '1 1 300px' }}>
               <h3>Chapter Encounters</h3>
               <ul style={{ listStyle: 'none', padding: 0, marginBottom: '1rem' }}>
-                {activeCampaign.encounters.filter(e => e.chapterIds?.includes(effectiveSelectedChapterId || '')).map(e => (
+                {activeCampaign.encounters.filter(e => e.chapterIds?.includes(selectedChapterId || '')).map(e => (
                   <li key={e.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0', display: 'flex', gap: '1rem', alignItems: 'center' }}>
                     <strong style={{ flexGrow: 1 }}>{e.name} ({e.units.length} units)</strong>
                     <button type="button" onClick={() => setEditingEncounter(e)}>Edit</button>
                     <button type="button" onClick={() => handleDeleteEncounter(e.id)}>Delete</button>
                   </li>
                 ))}
-                {activeCampaign.encounters.filter(e => e.chapterIds?.includes(effectiveSelectedChapterId || '')).length === 0 && <li>No encounters for this chapter.</li>}
+                {activeCampaign.encounters.filter(e => e.chapterIds?.includes(selectedChapterId || '')).length === 0 && <li>No encounters for this chapter.</li>}
               </ul>
               <button type="button" onClick={() => setIsCreatingEncounter(true)}>+ Create Encounter</button>
             </section>
@@ -710,14 +708,14 @@ export function CampaignBuilder() {
             </h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <button type="button" onClick={() => {
-                const chapter = activeCampaign.chapters.find(c => c.id === effectiveSelectedChapterId);
+                const chapter = activeCampaign.chapters.find(c => c.id === selectedChapterId);
                 if (chapter) handleEditChapter(chapter);
                 setShowChapterOptionsModal(false);
               }} style={{ padding: '0.75rem', fontWeight: 'bold' }}>
                 Edit Chapter
               </button>
               <button type="button" onClick={() => {
-                if (effectiveSelectedChapterId) handleDeleteChapter(effectiveSelectedChapterId);
+                if (selectedChapterId) handleDeleteChapter(selectedChapterId);
               }} style={{ padding: '0.75rem', color: '#cc0000' }}>
                 Delete Chapter
               </button>
@@ -787,7 +785,7 @@ export function CampaignBuilder() {
         onClose={closeAssetInsertionModal}
         onInsert={handleInsertAsset}
         campaignAssets={activeCampaign.assets}
-        chapterId={editingChapterId || effectiveSelectedChapterId}
+        chapterId={editingChapterId || selectedChapterId}
         onCreateAsset={handleCreateAssetFromModal}
       />
 
