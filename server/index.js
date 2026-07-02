@@ -227,7 +227,14 @@ app.delete('/api/danger/reset', (req, res) => {
 export { app };
 
 // Start server if not imported by a test runner (like supertest in vitest)
-if (process.env.NODE_ENV !== 'test' || process.env.PORT) {
+const isMain = process.argv[1] && (
+  process.argv[1].endsWith('server/index.js') || 
+  process.argv[1].endsWith('server\\index.js') ||
+  process.argv[1].endsWith('server/index') ||
+  process.argv[1].endsWith('server\\index')
+);
+
+if (process.env.NODE_ENV !== 'test' || process.env.PORT || isMain) {
   app.listen(port, () => {
     console.log(`Backend server running at http://localhost:${port}`);
   });

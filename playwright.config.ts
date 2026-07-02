@@ -14,7 +14,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: 'npx vite --port 5174',
+      command: 'npx vite preview --port 5174',
       url: 'http://localhost:5174',
       reuseExistingServer: false,
       timeout: 120 * 1000,

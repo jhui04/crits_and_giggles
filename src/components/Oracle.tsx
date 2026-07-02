@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { MonsterBrowser } from './MonsterBrowser';
 import { SpellBrowser } from './SpellBrowser';
+import { MagicItemBrowser } from './MagicItemBrowser';
 
 interface OracleProps {
   isOpen: boolean;
@@ -8,15 +9,15 @@ interface OracleProps {
 }
 
 export function Oracle({ isOpen, onClose }: OracleProps) {
-  const [filterType, setFilterType] = useState<'monster' | 'spell'>('monster');
+  const [filterType, setFilterType] = useState<'monster' | 'spell' | 'item'>('monster');
   const modalHeadingRef = useRef<HTMLHeadingElement>(null);
   const lastActiveButtonRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (isOpen) {
       setTimeout(() => {
-        if (filterType === 'monster') {
-          // MonsterBrowser handles its own autofocus
+        if (filterType === 'monster' || filterType === 'item') {
+          // MonsterBrowser and MagicItemBrowser handle their own autofocus
           return;
         }
         if (lastActiveButtonRef.current) {
@@ -65,7 +66,7 @@ export function Oracle({ isOpen, onClose }: OracleProps) {
           <select 
             id="oracle-type-filter"
             value={filterType}
-            onChange={(e) => setFilterType(e.target.value as 'monster' | 'spell')}
+            onChange={(e) => setFilterType(e.target.value as 'monster' | 'spell' | 'item')}
             style={{ 
               width: '100%', padding: '1rem', 
               background: '#333', color: 'white', 
@@ -75,6 +76,7 @@ export function Oracle({ isOpen, onClose }: OracleProps) {
           >
             <option value="monster">Monsters</option>
             <option value="spell">Spells</option>
+            <option value="item">Magic Items</option>
           </select>
         </div>
 
@@ -82,9 +84,13 @@ export function Oracle({ isOpen, onClose }: OracleProps) {
           <div style={{ background: '#222', padding: '1.5rem', borderRadius: '4px' }}>
             <MonsterBrowser onSelect={undefined} autoFocus />
           </div>
-        ) : (
+        ) : filterType === 'spell' ? (
           <div style={{ background: '#222', padding: '1.5rem', borderRadius: '4px' }}>
             <SpellBrowser />
+          </div>
+        ) : (
+          <div style={{ background: '#222', padding: '1.5rem', borderRadius: '4px' }}>
+            <MagicItemBrowser />
           </div>
         )}
       </div>

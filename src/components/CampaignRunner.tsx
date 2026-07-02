@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useCampaigns } from '../context/CampaignContext';
 import { Markdown } from './Markdown';
-import type { Asset, Monster, Spell } from '../types';
+import type { Asset, Monster, Spell, MagicItem } from '../types';
 import { MonsterDetails } from './MonsterDetails';
 import { SpellDetail } from './SpellBrowser';
+import { MagicItemDetail } from './MagicItemBrowser';
 import { dataService } from '../services/DataService';
 
 export function CampaignRunner() {
@@ -13,6 +14,7 @@ export function CampaignRunner() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [monsters, setMonsters] = useState<Monster[]>([]);
   const [spells, setSpells] = useState<Spell[]>([]);
+  const [magicItems, setMagicItems] = useState<MagicItem[]>([]);
 
   const modalHeadingRef = useRef<HTMLHeadingElement>(null);
   const lastFocusedElement = useRef<HTMLElement | null>(null);
@@ -20,6 +22,7 @@ export function CampaignRunner() {
   useEffect(() => {
     dataService.getAllMonsters().then(setMonsters);
     dataService.getAllSpells().then(setSpells);
+    dataService.getAllMagicItems().then(setMagicItems);
   }, []);
 
   const closeModal = useCallback(() => {
@@ -210,6 +213,18 @@ export function CampaignRunner() {
                 return (
                   <div>
                     <SpellDetail spell={matchedSpell} id="asset-modal-title" />
+                  </div>
+                );
+              }
+
+              let matchedMagicItem = magicItems.find(mi => mi.id === selectedAsset.id);
+              if (!matchedMagicItem) {
+                matchedMagicItem = magicItems.find(mi => mi.name.toLowerCase() === selectedAsset.name.toLowerCase());
+              }
+              if (matchedMagicItem) {
+                return (
+                  <div>
+                    <MagicItemDetail magicItem={matchedMagicItem} id="asset-modal-title" onAssetClick={handleAssetClick} />
                   </div>
                 );
               }

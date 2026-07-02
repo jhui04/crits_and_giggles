@@ -2,9 +2,10 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useCampaigns } from '../context/CampaignContext';
 import { EncounterBuilder } from './EncounterBuilder';
 import { Markdown } from './Markdown';
-import type { AssetType, Asset, Chapter, Encounter, Monster, Spell, PlayerCharacter } from '../types';
+import type { AssetType, Asset, Chapter, Encounter, Monster, Spell, PlayerCharacter, MagicItem } from '../types';
 import { MonsterDetails } from './MonsterDetails';
 import { SpellDetail } from './SpellBrowser';
+import { MagicItemDetail } from './MagicItemBrowser';
 import { dataService } from '../services/DataService';
 import { AssetInsertionModal } from './AssetInsertionModal';
 
@@ -14,10 +15,12 @@ export function CampaignBuilder() {
   // Global Data
   const [monsters, setMonsters] = useState<Monster[]>([]);
   const [spells, setSpells] = useState<Spell[]>([]);
+  const [magicItems, setMagicItems] = useState<MagicItem[]>([]);
 
   useEffect(() => {
     dataService.getAllMonsters().then(setMonsters);
     dataService.getAllSpells().then(setSpells);
+    dataService.getAllMagicItems().then(setMagicItems);
   }, []);
 
   // Campaign Settings State
@@ -260,9 +263,12 @@ export function CampaignBuilder() {
     } else if (asset.type === 'Spell') {
       const spell = spells.find(s => s.id.toString() === asset.id);
       if (spell) return spell.name;
+    } else if (asset.type === 'Item') {
+      const item = magicItems.find(mi => mi.id === asset.id);
+      if (item) return item.name;
     }
     return asset.name;
-  }, [monsters, spells]);
+  }, [monsters, spells, magicItems]);
 
   const handleAddPlayer = async () => {
     if (!activeCampaign || !playerName) return;
@@ -1027,6 +1033,30 @@ export function CampaignBuilder() {
                       </div>
                     )}
                     <SpellDetail spell={matchedSpell} />
+                  </div>
+                );
+              }
+
+              let matchedMagicItem = magicItems.find(mi => mi.id === viewingAsset.id);
+              if (!matchedMagicItem) {
+                matchedMagicItem = magicItems.find(mi => mi.name.toLowerCase() === viewingAsset.name.toLowerCase());
+              }
+              if (matchedMagicItem) {
+                return (
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                      <h2 id="asset-viewer-title" ref={assetViewerHeadingRef} tabIndex={-1} style={{ outline: 'none', margin: 0 }}>
+                        Magic Item Details: {matchedMagicItem.name}
+                      </h2>
+                      <button type="button" onClick={() => { closeAssetViewer(); handleEditAsset(viewingAsset); }}>Edit Asset</button>
+                    </div>
+                    {viewingAsset.description && !viewingAsset.description.startsWith('Scraped') && (
+                      <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#f0f7ff', borderRadius: '4px', borderLeft: '4px solid #0066cc' }}>
+                        <h3 style={{ marginTop: 0, fontSize: '1rem' }}>Notes</h3>
+                        <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{viewingAsset.description}</p>
+                      </div>
+                    )}
+                    <MagicItemDetail magicItem={matchedMagicItem} onAssetClick={handleAssetLinkClick} />
                   </div>
                 );
               }

@@ -235,4 +235,36 @@ test.describe('Asset Insertion Modal', () => {
     // Use specific name pattern for campaign assets (which are now buttons)
     await expect(page.getByRole('button', { name: /Aartuk Starhorror \(NPC\)/ })).toBeVisible();
   });
+
+  test('should search and insert a global magic item', async ({ page }) => {
+    await page.getByRole('button', { name: 'Chapter Options' }).click();
+    await page.getByRole('button', { name: 'Edit Chapter' }).click();
+
+    const textarea = page.locator('#chap-content');
+    await textarea.focus();
+    await page.keyboard.press('@');
+
+    const assetModal = page.getByRole('dialog', { name: 'Insert Asset Link' });
+    
+    // Uncheck "Only campaign" to search global assets
+    await assetModal.getByLabel('Only show assets already in the campaign').uncheck();
+
+    const searchInput = assetModal.getByPlaceholder('Search assets...');
+    await searchInput.pressSequentially('Acheron Blade', { delay: 50 });
+
+    const itemButton = assetModal.getByRole('button', { name: /Acheron Blade/ }).first();
+    await expect(itemButton).toBeVisible();
+    await itemButton.click();
+
+    // Modal closes and links magic item
+    await expect(assetModal).not.toBeVisible();
+    const content = await textarea.inputValue();
+    expect(content).toContain('Acheron Blade');
+
+    // Save chapter
+    await page.getByRole('button', { name: 'Save' }).click();
+
+    // Item should now display as a campaign asset button
+    await expect(page.getByRole('button', { name: /Acheron Blade \(Item\)/ })).toBeVisible();
+  });
 });

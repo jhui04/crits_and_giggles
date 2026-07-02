@@ -175,17 +175,22 @@ def main():
 
                     for a in elem.find_all('a', class_='tooltip-hover'):
                         href = a.get('data-tooltip-href', '')
-                        if '/monsters/' not in href and '/spells/' not in href:
+                        if '/monsters/' not in href and '/spells/' not in href and '/magic-items/' not in href:
                             continue
 
                         item_name = clean_text(a.get_text(strip=True))
                         asset_id = str(uuid.uuid4())
-                        id_match = re.search(r'/(?:monsters|spells)/(\d+)', href)
+                        id_match = re.search(r'/(?:monsters|spells|magic-items)/(\d+)', href)
                         if id_match:
                             asset_id = id_match.group(1)
 
                         if asset_id not in known_assets:
-                            item_type = 'NPC' if '/monsters/' in href else 'Spell'
+                            if '/monsters/' in href:
+                                item_type = 'NPC'
+                            elif '/spells/' in href:
+                                item_type = 'Spell'
+                            else:
+                                item_type = 'Item'
                             known_assets[asset_id] = item_name
                             new_asset = {
                                 "id": asset_id,
@@ -213,7 +218,7 @@ def main():
                         current_chapter = {
                             "id": str(uuid.uuid4()),
                             "title": text,
-                            "content": f"# {text}\n\n",
+                            "content": "",
                             "order": len(campaign['chapters'])
                         }
                     elif current_chapter and elem.name == 'h3':

@@ -278,7 +278,8 @@ def parse_monster_html(html_content, url=""):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--force', action='store_true', help='Ignore persistent state and start from page 1')
+    parser.add_argument('--force', action='store_true', help='Reparse all monsters starting from page 1, preserving persistent state lists')
+    parser.add_argument('--reset-state', action='store_true', help='Ignore persistent state entirely, starting with a clean/blank state')
     parser.add_argument('--offline', action='store_true', help='Do not make web requests. Only process cached files.')
     parser.add_argument('--test-google', action='store_true', help='Test playwright connection by fetching google.com')
     args = parser.parse_args()
@@ -330,10 +331,18 @@ def main():
             close_playwright()
             return
 
-        state = {"last_page": 1, "blocked_sources": []}
-        if not args.force and os.path.exists(STATE_FILE):
+        state = {"last_page": 1, "blocked_sources": [], "unowned_urls": []}
+        
+        # Load persistent state if we are not performing a reset-state operation
+        if not args.reset_state and os.path.exists(STATE_FILE):
             with open(STATE_FILE, 'r', encoding='utf-8') as f:
                 state = json.load(f)
+            if "unowned_urls" not in state:
+                state["unowned_urls"] = []
+                
+        # If --force is specified, override starting page to 1 but keep loaded state lists intact
+        if args.force:
+            state["last_page"] = 1
 
         if os.path.exists(DATA_FILE):
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
@@ -433,6 +442,10 @@ def main():
                     
                 monster_url = urljoin(BASE_URL, name_elem['href'])
                 monster_name = name_elem.get_text(strip=True).strip('"')
+
+                if monster_url in state.get("unowned_urls", []):
+                    print(f"Skipping '{monster_name}' (marked as unowned in state)")
+                    continue
                 raw_source = source_elem.get_text(strip=True) if source_elem else "Unknown"
                 source = clean_source_name(raw_source)
 
@@ -468,12 +481,40 @@ def main():
                     with open(local_filepath, 'r', encoding='utf-8') as f:
                         html_content = f.read()
                 else:
+                    if args.offline:
+                        print(f"Offline mode: Skipping '{monster_name}' (not cached)")
+                        continue
                     html_content = fetch_html(monster_url)
 
                 m_soup = BeautifulSoup(html_content, 'html.parser')
-                if m_soup.select_one('.mon-stat-block-2024') is None and m_soup.select_one('.mon-stat-block') is None:
-                    print(f"No stat block found for '{monster_name}'. Skipping.")
-                    continue
+                has_stat_block = (m_soup.select_one('.mon-stat-block-2024') is not None or 
+                                  m_soup.select_one('.mon-stat-block') is not None)
+
+                if not has_stat_block:
+                    title_text = m_soup.find('title').get_text(strip=True) if m_soup.find('title') else ""
+                    is_redirected = "Marketplace" in title_text or "Shop" in title_text or "What's inside" in title_text or "Choose Your Plan" in title_text
+                    has_lock_text = m_soup.find(string=re.compile(r'unlock this content|purchase the', re.I)) is not None
+                    is_known_locked_state = is_redirected or has_lock_text or "marketplace" in monster_url.lower() or "store" in monster_url.lower()
+
+                    if is_known_locked_state:
+                        print(f"No stat block found for '{monster_name}' and verified as locked/unowned. Skipping.")
+                        if monster_url not in state["unowned_urls"]:
+                            state["unowned_urls"].append(monster_url)
+                        
+                        # Delete any cached files if they exist to free up space
+                        if os.path.exists(local_filepath):
+                            try:
+                                os.remove(local_filepath)
+                                print(f"Deleted cached file for unowned monster: {local_filepath}")
+                            except Exception as e:
+                                print(f"Error removing {local_filepath}: {e}")
+                        continue
+                    else:
+                        raise RuntimeError(
+                            f"Monster '{monster_name}' parsing failed: missing stat blocks, but "
+                            f"title ('{title_text}') does not match expected locked/marketplace redirect signatures. "
+                            "Hitting potential Cloudflare challenge or network error."
+                        )
 
                 try:
                     monster_data = parse_monster_html(html_content, monster_url)

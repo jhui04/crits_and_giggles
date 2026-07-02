@@ -1,4 +1,4 @@
-import type { Monster, Spell } from '../types';
+import type { Monster, Spell, MagicItem, MagicItemFilters } from '../types';
 
 export interface MonsterFilters {
   search: string;
@@ -16,8 +16,10 @@ export interface SpellFilters {
 class DataService {
   private monsters: Monster[] = [];
   private spells: Spell[] = [];
+  private magicItems: MagicItem[] = [];
   private monsterPromise: Promise<Monster[]> | null = null;
   private spellPromise: Promise<Spell[]> | null = null;
+  private magicItemPromise: Promise<MagicItem[]> | null = null;
 
   async getAllMonsters(): Promise<Monster[]> {
     if (this.monsters.length > 0) return this.monsters;
@@ -126,6 +128,59 @@ class DataService {
         }
         if (filters.levels && filters.levels.length > 0 && !filters.levels.includes(s.level.toString())) return false;
         if (filters.schools && filters.schools.length > 0 && !filters.schools.includes(s.school)) return false;
+        return true;
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  async getAllMagicItems(): Promise<MagicItem[]> {
+    if (this.magicItems.length > 0) return this.magicItems;
+    if (this.magicItemPromise) return this.magicItemPromise;
+
+    this.magicItemPromise = fetch(`/data/magic_items.json?t=${new Date().getTime()}`)
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+        return res.json();
+      })
+      .then(data => {
+        const list = Array.isArray(data) ? data : (data.magicItems || []);
+        this.magicItems = list;
+        return this.magicItems;
+      })
+      .catch(err => {
+        console.error("DataService: Failed to load magic items:", err);
+        this.magicItemPromise = null;
+        return [];
+      });
+
+    return this.magicItemPromise;
+  }
+
+  getMagicItemFilters(items: MagicItem[]) {
+    if (!items || items.length === 0) return { types: [], rarities: [], sources: [] };
+    
+    const types = Array.from(new Set(items.map(i => i.type).filter(Boolean))) as string[];
+    const rarities = Array.from(new Set(items.map(i => i.rarity).filter(Boolean))) as string[];
+    const sources = Array.from(new Set(items.map(i => i.source).filter(Boolean))) as string[];
+
+    return {
+      types: types.sort(),
+      rarities: rarities.sort(),
+      sources: sources.sort()
+    };
+  }
+
+  filterMagicItems(items: MagicItem[], filters: MagicItemFilters): MagicItem[] {
+    if (!items) return [];
+    return items
+      .filter(i => {
+        if (filters.search) {
+          const search = filters.search.toLowerCase();
+          if (!i.name.toLowerCase().includes(search)) return false;
+        }
+        if (filters.types && filters.types.length > 0 && !filters.types.includes(i.type)) return false;
+        if (filters.rarities && filters.rarities.length > 0 && !filters.rarities.includes(i.rarity)) return false;
+        if (filters.sources && filters.sources.length > 0 && !filters.sources.includes(i.source)) return false;
         return true;
       })
       .sort((a, b) => a.name.localeCompare(b.name));

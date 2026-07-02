@@ -25,7 +25,7 @@ export function ShortcutsHelp({ isOpen, onClose }: ShortcutsHelpProps) {
   };
 
   const shortcuts = [
-    { key: 'Alt + O', description: 'Open/Close The Oracle (Search Monsters and Spells)' },
+    { key: 'Alt + O', description: 'Open/Close The Oracle (Search Monsters, Spells, and Magic Items)' },
     { key: 'Alt + M', description: 'Toggle between Create Mode and Run Mode' },
     { key: 'Alt + C', description: 'Open Campaign Switcher' },
     { key: 'Alt + S', description: 'Switch to Spells tab' },

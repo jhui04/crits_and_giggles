@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import type { Asset, AssetType, Monster, Spell } from '../types';
+import type { Asset, AssetType, Monster, Spell, MagicItem } from '../types';
 import { dataService } from '../services/DataService';
 
 interface AssetInsertionModalProps {
@@ -34,6 +34,7 @@ export function AssetInsertionModal({
   // Global data for search
   const [globalMonsters, setGlobalMonsters] = useState<Monster[]>([]);
   const [globalSpells, setGlobalSpells] = useState<Spell[]>([]);
+  const [globalMagicItems, setGlobalMagicItems] = useState<MagicItem[]>([]);
 
   // Create Mode State
   const [newName, setNewName] = useState('');
@@ -80,6 +81,7 @@ export function AssetInsertionModal({
     if (isOpen) {
       dataService.getAllMonsters().then(setGlobalMonsters);
       dataService.getAllSpells().then(setGlobalSpells);
+      dataService.getAllMagicItems().then(setGlobalMagicItems);
       
       // Focus management
       setTimeout(() => {
@@ -110,6 +112,12 @@ export function AssetInsertionModal({
           name: s.name,
           type: 'Spell' as AssetType,
           description: `Level ${s.level} ${s.school}`
+        })),
+        ...globalMagicItems.map(item => ({
+          id: item.id,
+          name: item.name,
+          type: 'Item' as AssetType,
+          description: `${item.rarity} ${item.type}${item.requires_attunement ? ' (Attunement)' : ''}`
         }))
       ];
       

@@ -119,3 +119,28 @@ export interface Campaign {
   players: PlayerCharacter[];
   encounters: Encounter[];
 }
+
+export interface MagicItem {
+  id: string;
+  name: string;
+  url: string;
+  slug: string;
+  type: string;
+  subtype: string;
+  rarity: string;
+  requires_attunement: boolean;
+  attunement_notes: string;
+  notes: string;
+  tags: string[];
+  source: string;
+  description: LoreItem[];
+  html_description: string;
+  scraped_at: string;
+}
+
+export interface MagicItemFilters {
+  search: string;
+  types?: string[];
+  rarities?: string[];
+  sources?: string[];
+}

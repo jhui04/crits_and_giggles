@@ -1,0 +1,10 @@
+{
+  "validation": {
+    "PostInvocation": [
+      {
+        "type": "command",
+        "command": "py .agents/validate.py"
+      }
+    ]
+  }
+}
