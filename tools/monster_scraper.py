@@ -6,7 +6,9 @@ import random
 import argparse
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
-from playwright.sync_api import sync_playwright
+import sys
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from scraper_base import ScraperManager, RequestLimitExceeded
 
 STATE_FILE = "tools/scraper_state.json"
 DATA_FILE = "public/data/monsters.json"
@@ -276,74 +278,36 @@ def parse_monster_html(html_content, url=""):
     return monster
 
 
+def validate_monster(html_content, url):
+    soup = BeautifulSoup(html_content, 'html.parser')
+    is_valid = (soup.select_one('.mon-stat-block-2024') is not None or 
+                soup.select_one('.mon-stat-block') is not None)
+    source = "Unknown"
+    source_elem = soup.select_one('.monster-source')
+    if source_elem:
+        source = clean_source_name(clean_text(source_elem.get_text().replace('Source:', '').strip()))
+    return is_valid, source
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--force', action='store_true', help='Reparse all monsters starting from page 1, preserving persistent state lists')
     parser.add_argument('--reset-state', action='store_true', help='Ignore persistent state entirely, starting with a clean/blank state')
     parser.add_argument('--offline', action='store_true', help='Do not make web requests. Only process cached files.')
-    parser.add_argument('--test-google', action='store_true', help='Test playwright connection by fetching google.com')
+    parser.add_argument('--limit', type=int, default=1000, help='Limit the number of HTTP requests to make during this run')
     args = parser.parse_args()
 
-    playwright_context = None
-    browser = None
-    context = None
-    page = None
-
-    def get_page():
-        nonlocal playwright_context, browser, context, page
-        if page is None:
-            playwright_context = sync_playwright().start()
-            try:
-                print("Connecting to Chrome via remote debugging port 9222...")
-                browser = playwright_context.chromium.connect_over_cdp("http://127.0.0.1:9222")
-                context = browser.contexts[0]
-                
-                for existing_page in context.pages:
-                    if existing_page.url == "about:blank" or "dndbeyond.com" in existing_page.url:
-                        page = existing_page
-                        break
-                
-                if not page:
-                    page = context.pages[-1] if context.pages else context.new_page()
-            except Exception as e:
-                print(f"Failed to connect to Chrome. Did you launch it with --remote-debugging-port=9222? Error: {e}")
-                raise e
-        return page
-
-    def close_playwright():
-        if page: 
-            try: page.close()
-            except: pass
-        if browser: 
-            try: browser.close()
-            except: pass
-        if playwright_context: 
-            try: playwright_context.stop()
-            except: pass
+    manager = ScraperManager(
+        cache_dir="dnd_beyond/monsters",
+        state_file=STATE_FILE,
+        validate_asset_fn=validate_monster,
+        offline=args.offline,
+        force=args.force,
+        reset_state=args.reset_state,
+        max_requests=args.limit
+    )
 
     try:
-        if args.test_google:
-            p_page = get_page()
-            print("Test Mode: Navigating to https://www.google.com")
-            p_page.goto("https://www.google.com")
-            content = p_page.content()
-            print(f"Successfully fetched Google! HTML length: {len(content)}")
-            close_playwright()
-            return
-
-        state = {"last_page": 1, "blocked_sources": [], "unowned_urls": []}
-        
-        # Load persistent state if we are not performing a reset-state operation
-        if not args.reset_state and os.path.exists(STATE_FILE):
-            with open(STATE_FILE, 'r', encoding='utf-8') as f:
-                state = json.load(f)
-            if "unowned_urls" not in state:
-                state["unowned_urls"] = []
-                
-        # If --force is specified, override starting page to 1 but keep loaded state lists intact
-        if args.force:
-            state["last_page"] = 1
-
+        # Load existing monsters
         if os.path.exists(DATA_FILE):
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
                 all_monsters = json.load(f)
@@ -360,201 +324,109 @@ def main():
             with open(DATA_FILE, 'w', encoding='utf-8') as f:
                 json.dump(all_monsters, f, indent=2)
 
-        requests_made = 0
-        max_requests = 1000
         success_count = 0
-
-        def fetch_html(url):
-            nonlocal requests_made
-            if args.offline:
-                print(f"Offline mode: Skipping fetch for {url}")
-                return ""
-                
-            print(f"Fetching {url}...")
-            p_page = get_page()
-            p_page.goto(url)
-            # Give D&D Beyond a moment to render dynamic JS components
-            p_page.wait_for_timeout(1000) 
-            html = p_page.content()
-            requests_made += 1
-            
-            if requests_made < max_requests:
-                delay = 5 + random.uniform(0, 30)
-                print(f"Sleeping for {delay:.2f} seconds... (Requests made: {requests_made})")
-                time.sleep(delay)
-                
-            return html
-
-        current_page = state["last_page"]
+        current_page = manager.state["last_page"]
         previous_page_monsters = set()
 
-        while requests_made < max_requests:
-            url = f"{BASE_URL}/monsters?filter-partnered-content=t&page={current_page}"
-            page_filepath = os.path.join("dnd_beyond", "monsters", f"page{current_page}.html")
-            page_html = ""
+        print(f"Starting scraper. Limit: {args.limit} requests.")
 
-            if os.path.exists(page_filepath):
-                print(f"Found cached list page {current_page}, skipping web request...")
-                with open(page_filepath, 'r', encoding='utf-8') as f:
-                    page_html = f.read()
-            else:
-                page_html = fetch_html(url)
+        try:
+            while True:
+                url = f"{BASE_URL}/monsters?filter-partnered-content=t&page={current_page}"
+                page_html = manager.get_list_page(url, current_page)
+                if not page_html:
+                    break
+
+                soup = BeautifulSoup(page_html, 'html.parser')
+                monster_rows = soup.select('.row.monster-name')
                 
-                # Check for obvious bot protection flags
-                if "just a moment" in page_html.lower() and "cloudflare" in page_html.lower():
-                    print("Cloudflare block detected! Please solve it in the Chrome browser window.")
-                    time.sleep(15)
-                    p_page = get_page()
-                    page_html = p_page.content()
+                if not monster_rows:
+                    print(f"No more monsters found on page {current_page}.")
+                    break
 
-                os.makedirs(os.path.dirname(page_filepath), exist_ok=True)
-                with open(page_filepath, 'w', encoding='utf-8') as f:
-                    f.write(page_html)
+                current_page_monsters = set()
+                for row in monster_rows:
+                    name_elem = row.select_one('.name a.link')
+                    if name_elem:
+                        current_page_monsters.add(name_elem.get_text(strip=True))
 
-            soup = BeautifulSoup(page_html, 'html.parser')
-            monster_rows = soup.select('.row.monster-name')
-            
-            if not monster_rows:
-                print(f"No more monsters found on page {current_page}.")
-                break
-
-            current_page_monsters = set()
-            for row in monster_rows:
-                name_elem = row.select_one('.name a.link')
-                if name_elem:
-                    current_page_monsters.add(name_elem.get_text(strip=True))
-
-            if current_page_monsters == previous_page_monsters and len(current_page_monsters) > 0:
-                print(f"Page {current_page} has the exact same monsters as the previous page. We have reached the end of the list.")
-                break
-                
-            previous_page_monsters = current_page_monsters
-
-            for row in monster_rows:
-                if requests_made >= max_requests:
+                if current_page_monsters == previous_page_monsters and len(current_page_monsters) > 0:
+                    print(f"Page {current_page} has the exact same monsters as the previous page. We have reached the end of the list.")
                     break
                     
-                name_elem = row.select_one('.name a.link')
-                source_elem = row.select_one('.source')
-                
-                if not name_elem:
-                    continue
+                previous_page_monsters = current_page_monsters
+
+                for row in monster_rows:
+                    name_elem = row.select_one('.name a.link')
+                    source_elem = row.select_one('.source')
                     
-                monster_url = urljoin(BASE_URL, name_elem['href'])
-                monster_name = name_elem.get_text(strip=True).strip('"')
-
-                if monster_url in state.get("unowned_urls", []):
-                    print(f"Skipping '{monster_name}' (marked as unowned in state)")
-                    continue
-                raw_source = source_elem.get_text(strip=True) if source_elem else "Unknown"
-                source = clean_source_name(raw_source)
-
-                # Deduce ID from URL
-                id_match = re.search(r'/monsters/(\d+)-', monster_url)
-                if id_match:
-                    monster_id = id_match.group(1)
-                else:
-                    monster_id = slugify(monster_name)
-
-                if source in state["blocked_sources"]:
-                    print(f"Skipping '{monster_name}' (Source blocked: {source})")
-                    continue
-
-                safe_source = re.sub(r'[<>:"/\\|?*\x00-\x1F]', '', source).strip()
-                safe_filename = slugify(monster_name) + ".html"
-                local_dir = os.path.join("dnd_beyond", "monsters", safe_source)
-                local_filepath = os.path.join(local_dir, safe_filename)
-                html_content = ""
-
-                already_in_json = False
-                target_idx = -1
-                for idx, m in enumerate(all_monsters):
-                    # We only deduplicate by ID, not by name. 
-                    # It is intentional to keep duplicate monsters with the same name if they come from different sources.
-                    if m.get('id') == monster_id:
-                        already_in_json = True
-                        target_idx = idx
-                        break
-
-                if os.path.exists(local_filepath):
-                    print(f"Found local file for '{monster_name}', skipping web request...")
-                    with open(local_filepath, 'r', encoding='utf-8') as f:
-                        html_content = f.read()
-                else:
-                    if args.offline:
-                        print(f"Offline mode: Skipping '{monster_name}' (not cached)")
+                    if not name_elem:
                         continue
-                    html_content = fetch_html(monster_url)
-
-                m_soup = BeautifulSoup(html_content, 'html.parser')
-                has_stat_block = (m_soup.select_one('.mon-stat-block-2024') is not None or 
-                                  m_soup.select_one('.mon-stat-block') is not None)
-
-                if not has_stat_block:
-                    title_text = m_soup.find('title').get_text(strip=True) if m_soup.find('title') else ""
-                    is_redirected = "Marketplace" in title_text or "Shop" in title_text or "What's inside" in title_text or "Choose Your Plan" in title_text
-                    has_lock_text = m_soup.find(string=re.compile(r'unlock this content|purchase the', re.I)) is not None
-                    is_known_locked_state = is_redirected or has_lock_text or "marketplace" in monster_url.lower() or "store" in monster_url.lower()
-
-                    if is_known_locked_state:
-                        print(f"No stat block found for '{monster_name}' and verified as locked/unowned. Skipping.")
-                        if monster_url not in state["unowned_urls"]:
-                            state["unowned_urls"].append(monster_url)
                         
-                        # Delete any cached files if they exist to free up space
-                        if os.path.exists(local_filepath):
-                            try:
-                                os.remove(local_filepath)
-                                print(f"Deleted cached file for unowned monster: {local_filepath}")
-                            except Exception as e:
-                                print(f"Error removing {local_filepath}: {e}")
+                    monster_url = urljoin(BASE_URL, name_elem['href'])
+                    monster_name = name_elem.get_text(strip=True).strip('"')
+
+                    if monster_url in manager.state.get("unowned_urls", []):
+                        print(f"Skipping '{monster_name}' (marked as unowned in state)")
                         continue
-                    else:
-                        raise RuntimeError(
-                            f"Monster '{monster_name}' parsing failed: missing stat blocks, but "
-                            f"title ('{title_text}') does not match expected locked/marketplace redirect signatures. "
-                            "Hitting potential Cloudflare challenge or network error."
-                        )
+                    raw_source = source_elem.get_text(strip=True) if source_elem else "Unknown"
+                    source = clean_source_name(raw_source)
 
-                try:
-                    monster_data = parse_monster_html(html_content, monster_url)
-                    if not monster_data.get('source') and source != "Unknown":
-                        monster_data['source'] = source
-                        
-                    if already_in_json:
-                        all_monsters[target_idx] = monster_data
-                        print(f"Updated '{monster_name}' ({source}) in JSON.")
+                    # Deduce ID from URL
+                    id_match = re.search(r'/monsters/(\d+)-', monster_url)
+                    if id_match:
+                        monster_id = id_match.group(1)
                     else:
-                        all_monsters.append(monster_data)
-                        success_count += 1
-                        print(f"Successfully scraped '{monster_name}'.")
-                    
-                    if not os.path.exists(local_filepath):
-                        os.makedirs(local_dir, exist_ok=True)
-                        with open(local_filepath, 'w', encoding='utf-8') as f:
-                            f.write(html_content)
-                    
-                    with open(DATA_FILE, 'w', encoding='utf-8') as f:
-                        json.dump(all_monsters, f, indent=2)
-                        
-                except Exception as e:
-                    print(f"Failed to parse '{monster_name}': {e}")
-                    
-            if requests_made >= max_requests:
-                break
-                
-            current_page += 1
-            state["last_page"] = current_page
-            with open(STATE_FILE, 'w', encoding='utf-8') as f:
-                json.dump(state, f, indent=2)
+                        monster_id = slugify(monster_name)
 
-        state["last_page"] = current_page
-        with open(STATE_FILE, 'w', encoding='utf-8') as f:
-            json.dump(state, f, indent=2)
-            
-        print(f"Finished. Saved {success_count} new monsters. Total requests: {requests_made}.")
+                    if source in manager.state["blocked_sources"]:
+                        print(f"Skipping '{monster_name}' (Source blocked: {source})")
+                        continue
+
+                    already_in_json = False
+                    target_idx = -1
+                    for idx, m in enumerate(all_monsters):
+                        if m.get('id') == monster_id:
+                            already_in_json = True
+                            target_idx = idx
+                            break
+
+                    html_content = manager.get_asset_html(slugify(monster_name), monster_url, known_source=source)
+                    if html_content is None:
+                        continue
+
+                    try:
+                        monster_data = parse_monster_html(html_content, monster_url)
+                        if not monster_data.get('source') and source != "Unknown":
+                            monster_data['source'] = source
+                            
+                        if already_in_json:
+                            all_monsters[target_idx] = monster_data
+                            print(f"Updated '{monster_name}' ({source}) in JSON.")
+                        else:
+                            all_monsters.append(monster_data)
+                            success_count += 1
+                            print(f"Successfully scraped '{monster_name}'.")
+                        
+                        with open(DATA_FILE, 'w', encoding='utf-8') as f:
+                            json.dump(all_monsters, f, indent=2)
+                            
+                    except Exception as e:
+                        print(f"Failed to parse '{monster_name}': {e}")
+
+                current_page += 1
+                manager.state["last_page"] = current_page
+                manager.save_state()
+
+        except RequestLimitExceeded as e:
+            print(f"Stopping scraper: {e}")
+
+        manager.state["last_page"] = current_page
+        manager.save_state()
+        print(f"Finished. Saved {success_count} new monsters.")
+        
     finally:
-        close_playwright()
+        manager.close_playwright()
 
 if __name__ == "__main__":
     main()

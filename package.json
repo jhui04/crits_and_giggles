@@ -9,7 +9,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "npx vitest run && npx playwright test"
+    "test": "npm run build && npx vitest run && npx playwright test"
   },
   "dependencies": {
     "better-sqlite3": "^12.10.0",
