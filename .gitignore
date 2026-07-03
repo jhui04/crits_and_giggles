@@ -25,9 +25,10 @@ dist-ssr
 
 # Project specific
 design.md
+data
 dnd_beyond
+public/data
 test-results
 playwright-report
 blob-report
-test-results
 
