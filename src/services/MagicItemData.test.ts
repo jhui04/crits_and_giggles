@@ -28,7 +28,7 @@ describe('Magic Item Data Integrity', () => {
 
   describe('Scraper coverage validation', () => {
     const itemCacheDir = path.join(__dirname, '../../dnd_beyond/magic_items');
-    const statePath = path.join(__dirname, '../../tools/magic_item_scraper_state.json');
+    const statePath = path.join(__dirname, '../../tools/state/magic_item_scraper_state.json');
 
     it('should have no duplicate magic item IDs in the dataset', () => {
       const idCounts = new Map<string, number>();

@@ -280,7 +280,7 @@ describe('Monster Data Integrity', () => {
 
   describe('Scraper coverage validation', () => {
     const monsterCacheDir = path.join(__dirname, '../../dnd_beyond/monsters');
-    const statePath = path.join(__dirname, '../../tools/scraper_state.json');
+    const statePath = path.join(__dirname, '../../tools/state/monster_scraper_state.json');
 
     it('should have no duplicate monster IDs in the dataset', () => {
       const idCounts = new Map<string, number>();
