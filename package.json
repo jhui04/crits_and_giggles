@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"npm run server\" \"vite\"",
+    "dev": "npm run build && concurrently \"npm run server\" \"vite\"",
     "server": "nodemon --watch server server/index.js",
     "build": "tsc -b && vite build",
     "lint": "eslint .",

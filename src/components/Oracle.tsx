@@ -11,21 +11,12 @@ interface OracleProps {
 export function Oracle({ isOpen, onClose }: OracleProps) {
   const [filterType, setFilterType] = useState<'monster' | 'spell' | 'item'>('monster');
   const modalHeadingRef = useRef<HTMLHeadingElement>(null);
-  const lastActiveButtonRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (isOpen) {
       setTimeout(() => {
-        if (filterType === 'monster' || filterType === 'item') {
-          // MonsterBrowser and MagicItemBrowser handle their own autofocus
-          return;
-        }
-        if (lastActiveButtonRef.current) {
-          lastActiveButtonRef.current.focus();
-        } else {
-          modalHeadingRef.current?.focus();
-        }
-      }, 50);
+        modalHeadingRef.current?.focus();
+      }, 0);
     }
   }, [isOpen, filterType]);
 
@@ -86,11 +77,11 @@ export function Oracle({ isOpen, onClose }: OracleProps) {
           </div>
         ) : filterType === 'spell' ? (
           <div style={{ background: '#222', padding: '1.5rem', borderRadius: '4px' }}>
-            <SpellBrowser />
+            <SpellBrowser autoFocus />
           </div>
         ) : (
           <div style={{ background: '#222', padding: '1.5rem', borderRadius: '4px' }}>
-            <MagicItemBrowser />
+            <MagicItemBrowser autoFocus />
           </div>
         )}
       </div>

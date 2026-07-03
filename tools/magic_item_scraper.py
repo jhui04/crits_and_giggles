@@ -184,7 +184,7 @@ def main():
     parser.add_argument('--force', action='store_true', help='Reparse all assets starting from page 1, preserving persistent state lists')
     parser.add_argument('--reset-state', action='store_true', help='Ignore persistent state entirely, starting with a clean/blank state')
     parser.add_argument('--offline', action='store_true', help='Do not make web requests. Only process cached files.')
-    parser.add_argument('--limit', type=int, default=100, help='Limit the number of HTTP requests to make during this run')
+    parser.add_argument('--limit', type=int, default=1000, help='Limit the number of HTTP requests to make during this run')
     args = parser.parse_args()
 
     manager = ScraperManager(

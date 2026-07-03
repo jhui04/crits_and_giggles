@@ -35,7 +35,9 @@ export function MonsterBrowser({ onSelect, ctaLabel = "Add to Encounter", autoFo
 
   useEffect(() => {
     if (autoFocus && !loading) {
-      searchInputRef.current?.focus();
+      setTimeout(() => {
+        searchInputRef.current?.focus();
+      }, 50);
     }
   }, [autoFocus, loading]);
 

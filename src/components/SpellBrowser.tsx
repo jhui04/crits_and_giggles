@@ -3,7 +3,11 @@ import type { Spell } from '../types';
 import { DiceService } from '../services/DiceService';
 import { dataService } from '../services/DataService';
 
-export function SpellBrowser() {
+interface SpellBrowserProps {
+  autoFocus?: boolean;
+}
+
+export function SpellBrowser({ autoFocus = false }: SpellBrowserProps) {
   const [spells, setSpells] = useState<Spell[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -40,6 +44,14 @@ export function SpellBrowser() {
       filtersHeadingRef.current.focus();
     }
   }, [isFiltersOpen]);
+
+  useEffect(() => {
+    if (autoFocus && !isLoading) {
+      setTimeout(() => {
+        searchInputRef.current?.focus();
+      }, 50);
+    }
+  }, [autoFocus, isLoading]);
 
   const availableFilters = useMemo(() => dataService.getSpellFilters(spells), [spells]);
 

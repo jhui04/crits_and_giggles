@@ -1,9 +1,13 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import type { MagicItem, LoreItem } from '../types';
 import { dataService } from '../services/DataService';
 import { Markdown } from './Markdown';
 
-export function MagicItemBrowser() {
+interface MagicItemBrowserProps {
+  autoFocus?: boolean;
+}
+
+export function MagicItemBrowser({ autoFocus = false }: MagicItemBrowserProps) {
   const [items, setItems] = useState<MagicItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -18,6 +22,13 @@ export function MagicItemBrowser() {
   const lastSelectedItemButtonRef = useRef<HTMLButtonElement | null>(null);
   const detailsContentRef = useRef<HTMLDivElement>(null);
   const filtersContentRef = useRef<HTMLDivElement>(null);
+  // Mirrors selectedItem and isFiltersOpen on every render so timer callbacks see current values
+  const selectedItemRef = useRef<MagicItem | null>(null);
+  const isFiltersOpenRef = useRef(false);
+  useLayoutEffect(() => {
+    selectedItemRef.current = selectedItem;
+    isFiltersOpenRef.current = isFiltersOpen;
+  });
 
   useEffect(() => {
     let isMounted = true;
@@ -43,6 +54,18 @@ export function MagicItemBrowser() {
       filtersHeadingRef.current.focus();
     }
   }, [isFiltersOpen]);
+
+  useEffect(() => {
+    if (autoFocus && !isLoading) {
+      const timer = setTimeout(() => {
+        // Guard: don't steal focus if a detail or filters modal opened within the 50ms window
+        if (!selectedItemRef.current && !isFiltersOpenRef.current) {
+          searchInputRef.current?.focus();
+        }
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [autoFocus, isLoading]);
 
   useEffect(() => {
     const handleFocusTrap = (e: KeyboardEvent, container: HTMLDivElement | null, includeHeading = false) => {
@@ -134,7 +157,6 @@ export function MagicItemBrowser() {
             onChange={e => setFilters({ ...filters, search: e.target.value })}
             placeholder="e.g. Acheron Blade"
             style={{ width: '100%', padding: '0.5rem' }}
-            autoFocus
           />
         </div>
         <button 

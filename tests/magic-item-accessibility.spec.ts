@@ -35,6 +35,9 @@ test.describe('Oracle Magic Item Accessibility', () => {
     // Switch Search Type to Magic Items
     await page.selectOption('#oracle-type-filter', 'item');
 
+    // Heading must receive focus first (confirms SR exits Forms Mode before input takes over)
+    await expect(page.locator('#oracle-title')).toBeFocused();
+
     // Focus must land on the magic item search input automatically
     const searchInput = page.locator('#magic-item-search');
     await expect(searchInput).toBeFocused();
@@ -77,6 +80,10 @@ test.describe('Oracle Magic Item Accessibility', () => {
 
     // Switch Search Type to Magic Items
     await page.selectOption('#oracle-type-filter', 'item');
+
+    // Heading must receive focus first (confirms SR exits Forms Mode before input takes over)
+    await expect(page.locator('#oracle-title')).toBeFocused();
+
     const oracle = page.locator('[role="dialog"][aria-labelledby="oracle-title"]');
     const searchInput = oracle.locator('#magic-item-search');
     await searchInput.fill('Acheron Blade');
@@ -115,6 +122,9 @@ test.describe('Oracle Magic Item Accessibility', () => {
     // Switch Search Type to Magic Items
     await page.selectOption('#oracle-type-filter', 'item');
 
+    // Heading must receive focus first (confirms SR exits Forms Mode before input takes over)
+    await expect(page.locator('#oracle-title')).toBeFocused();
+
     // Click Filters to open filters modal
     const oracle = page.locator('[role="dialog"][aria-labelledby="oracle-title"]');
     await oracle.locator('button:has-text("Filters")').click();
@@ -147,6 +157,9 @@ test.describe('Oracle Magic Item Accessibility', () => {
     await page.click('button[aria-label="Open Main Menu"]');
     await page.click('button:has-text("The Oracle")');
     await page.selectOption('#oracle-type-filter', 'item');
+
+    // Heading must receive focus first (confirms SR exits Forms Mode before input takes over)
+    await expect(page.locator('#oracle-title')).toBeFocused();
 
     const oracle = page.locator('[role="dialog"][aria-labelledby="oracle-title"]');
     await oracle.locator('button:has-text("Filters")').click();

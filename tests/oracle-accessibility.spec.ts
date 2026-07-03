@@ -63,25 +63,51 @@ test.describe('Oracle Accessibility', () => {
     await expect(oracle).not.toBeVisible();
   });
 
-  test('Oracle type filter updates results', async ({ page }) => {
+  test('Oracle type filter moves focus correctly after type switch and updates results', async ({ page }) => {
     // Open Oracle via Main Menu
     await page.click('button[aria-label="Open Main Menu"]');
     await page.click('button:has-text("The Oracle")');
 
     const oracle = page.locator('[role="dialog"][aria-labelledby="oracle-title"]');
-    
-    // Switch to Spells Only
+    const heading = page.locator('#oracle-title');
+
+    // --- Switch to Spells ---
     await page.selectOption('#oracle-type-filter', 'spell');
-    
-    // Search for a spell
-    await page.locator('#spell-search').fill('Aid');
-    const results = oracle.locator('ul li button');
-    await expect(results.first()).toContainText('Aid');
-    
-    // Switch back to Monsters
+
+    // Heading must receive focus first (SR exits Forms Mode)
+    await expect(heading).toBeFocused();
+
+    // Then the spell search input must receive focus
+    const spellSearch = page.locator('#spell-search');
+    await expect(spellSearch).toBeFocused();
+
+    // Verify search works
+    await spellSearch.fill('Aid');
+    const spellResults = oracle.locator('ul li button');
+    await expect(spellResults.first()).toContainText('Aid');
+
+    // --- Switch to Magic Items ---
+    await page.selectOption('#oracle-type-filter', 'item');
+
+    // Heading must receive focus first
+    await expect(heading).toBeFocused();
+
+    // Then the magic item search input must receive focus
+    const magicItemSearch = page.locator('#magic-item-search');
+    await expect(magicItemSearch).toBeFocused();
+
+    // --- Switch back to Monsters ---
     await page.selectOption('#oracle-type-filter', 'monster');
+
+    // Heading must receive focus first
+    await expect(heading).toBeFocused();
+
+    // Then the monster search input must receive focus
+    const monsterSearch = page.locator('#monster-search');
+    await expect(monsterSearch).toBeFocused();
+
+    await monsterSearch.fill('Aboleth');
     const monsterResults = oracle.locator('ul li button');
-    await page.locator('#monster-search').fill('Aboleth');
     await expect(monsterResults.first()).toContainText('Aboleth');
   });
 });

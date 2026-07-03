@@ -24,7 +24,7 @@ class ScraperManager:
         reset_state=False,
         max_requests=1000,
         request_delay_min=5,
-        request_delay_max=30
+        request_delay_max=15
     ):
         self.cache_dir = cache_dir
         self.state_file = state_file
