@@ -26,6 +26,7 @@ dist-ssr
 *.sw?
 
 # Project specific
+*.sqlite3-shm
 design.md
 data
 dnd_beyond
