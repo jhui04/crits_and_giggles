@@ -35,7 +35,7 @@ describe('Magic Item Data Integrity', () => {
       items.forEach(i => {
         idCounts.set(i.id, (idCounts.get(i.id) || 0) + 1);
       });
-      const duplicates = Array.from(idCounts.entries()).filter(([_, count]) => count > 1);
+      const duplicates = Array.from(idCounts.entries()).filter(([, count]) => count > 1);
       expect(duplicates.length, `Duplicate magic item IDs found: ${JSON.stringify(duplicates)}`).toBe(0);
     });
 

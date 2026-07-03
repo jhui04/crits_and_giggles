@@ -134,7 +134,7 @@ export function AssetInsertionModal({
       const matchesType = typeFilter === 'All' || asset.type === typeFilter;
       return matchesSearch && matchesType;
     }).sort((a, b) => a.name.localeCompare(b.name));
-  }, [campaignAssets, globalMonsters, globalSpells, onlyCampaign, searchTerm, typeFilter]);
+  }, [campaignAssets, globalMonsters, globalSpells, globalMagicItems, onlyCampaign, searchTerm, typeFilter]);
 
   const handleSaveAndInsert = () => {
     if (!newName) return;

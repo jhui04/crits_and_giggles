@@ -287,7 +287,7 @@ describe('Monster Data Integrity', () => {
       monsters.forEach(m => {
         idCounts.set(m.id, (idCounts.get(m.id) || 0) + 1);
       });
-      const duplicates = Array.from(idCounts.entries()).filter(([_, count]) => count > 1);
+      const duplicates = Array.from(idCounts.entries()).filter(([, count]) => count > 1);
       expect(duplicates.length, `Duplicate monster IDs found: ${JSON.stringify(duplicates)}`).toBe(0);
     });
 
