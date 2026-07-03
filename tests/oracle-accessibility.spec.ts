@@ -80,7 +80,8 @@ test.describe('Oracle Accessibility', () => {
     
     // Switch back to Monsters
     await page.selectOption('#oracle-type-filter', 'monster');
+    const monsterResults = oracle.locator('ul li button');
     await page.locator('#monster-search').fill('Aboleth');
-    await expect(page.locator('text=Aboleth')).toBeVisible();
+    await expect(monsterResults.first()).toContainText('Aboleth');
   });
 });
