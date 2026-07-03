@@ -262,4 +262,98 @@ describe('Monster Data Integrity', () => {
       expect(hasLegendary).toBe(true);
     });
   });
+
+  describe('Scraper coverage validation', () => {
+    const monsterCacheDir = path.join(__dirname, '../../dnd_beyond/monsters');
+    const statePath = path.join(__dirname, '../../tools/scraper_state.json');
+
+    it('should have no duplicate monster IDs in the dataset', () => {
+      const idCounts = new Map<string, number>();
+      monsters.forEach(m => {
+        idCounts.set(m.id, (idCounts.get(m.id) || 0) + 1);
+      });
+      const duplicates = Array.from(idCounts.entries()).filter(([_, count]) => count > 1);
+      expect(duplicates.length, `Duplicate monster IDs found: ${JSON.stringify(duplicates)}`).toBe(0);
+    });
+
+    it('should include all owned monsters and contain no extra/unowned monsters', () => {
+      // 1. Gather all unique monster URLs and IDs from cached list pages
+      const uniqueUrls = new Set<string>();
+      const listPageIds = new Set<string>();
+      
+      if (!fs.existsSync(monsterCacheDir)) {
+        return; // Skip if cache is not present locally
+      }
+      
+      const files = fs.readdirSync(monsterCacheDir);
+      const listPages = files.filter(f => f.startsWith('page') && f.endsWith('.html'));
+      
+      const urlRegex = /\/monsters\/(\d+)-([^"\s>]+)/g;
+      
+      listPages.forEach(file => {
+        const filePath = path.join(monsterCacheDir, file);
+        const html = fs.readFileSync(filePath, 'utf-8');
+        
+        let match;
+        urlRegex.lastIndex = 0;
+        while ((match = urlRegex.exec(html)) !== null) {
+          const absoluteUrl = `https://www.dndbeyond.com${match[0]}`;
+          uniqueUrls.add(absoluteUrl);
+          listPageIds.add(match[1]);
+        }
+      });
+      
+      expect(uniqueUrls.size).toBeGreaterThan(0);
+      
+      // 2. Load unowned URLs from the scraper state
+      let unownedUrls: string[] = [];
+      if (fs.existsSync(statePath)) {
+        const state = JSON.parse(fs.readFileSync(statePath, 'utf-8'));
+        unownedUrls = state.unowned_urls || [];
+      }
+      
+      const unownedUrlsSet = new Set<string>(unownedUrls);
+      
+      // 3. Filter candidate list to only include owned monster URLs
+      const ownedUrls = Array.from(uniqueUrls).filter(url => !unownedUrlsSet.has(url));
+      
+      // 4. Map existing monster database IDs and URLs
+      const databaseIds = new Set<string>(monsters.map(m => m.id));
+      
+      // --- CHECK A: Detect missing monsters ---
+      const missingMonsters: { id: string; url: string }[] = [];
+      ownedUrls.forEach(url => {
+        const idMatch = url.match(/\/monsters\/(\d+)-/);
+        if (idMatch) {
+          const monsterId = idMatch[1];
+          if (!databaseIds.has(monsterId)) {
+            missingMonsters.push({ id: monsterId, url });
+          }
+        }
+      });
+      
+      if (missingMonsters.length > 0) {
+        console.error('Missing Monsters Details:', missingMonsters);
+      }
+      expect(missingMonsters.length, `Scraper missed ${missingMonsters.length} owned monsters`).toBe(0);
+
+      // --- CHECK B: Detect extra/orphaned/unowned monsters ---
+      const extraMonsters: { id: string; name: string; url: string; reason: string }[] = [];
+      monsters.forEach(m => {
+        // Reason 1: Monster is marked as unowned/locked in the state file
+        if (unownedUrlsSet.has(m.url)) {
+          extraMonsters.push({ id: m.id, name: m.name, url: m.url, reason: 'Marked as unowned in state' });
+        }
+        // Reason 2: Monster ID is not present in cached list pages
+        else if (!listPageIds.has(m.id)) {
+          extraMonsters.push({ id: m.id, name: m.name, url: m.url, reason: 'Not found in cached list pages' });
+        }
+      });
+
+      if (extraMonsters.length > 0) {
+        console.error('Extra Monsters Details:', extraMonsters);
+      }
+      expect(extraMonsters.length, `Database has ${extraMonsters.length} extra/unowned monsters`).toBe(0);
+    });
+  });
 });

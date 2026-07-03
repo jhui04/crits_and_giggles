@@ -104,93 +104,80 @@ def parse_magic_item_detail_html(html_content, url=""):
     
     # Check if page redirected to a shop/marketplace page
     title_text = soup.find('title').get_text(strip=True) if soup.find('title') else ""
-    is_redirected = "Marketplace" in title_text or "Shop" in title_text or "What's inside" in title_text
+    is_redirected = "Marketplace" in title_text or "Shop" in title_text or "What's inside" in title_text or "Choose Your Plan" in title_text
     
     detail_content_div = soup.select_one('.detail-content')
-    if detail_content_div and not is_redirected:
-        # We successfully loaded the details page
+    if not detail_content_div or is_redirected:
+        raise ValueError("Magic item detail page is locked/unowned.")
         
-        # 1. Source
-        source_el = detail_content_div.select_one('.source.item-source, .more-info-footer-source')
-        if source_el:
-            raw_source = clean_text(source_el.get_text().replace('Source:', '').strip())
-            data['source'] = clean_source_name(raw_source)
-        else:
-            data['source'] = 'Unknown'
-            
-        # 2. Type, Rarity, Attunement details
-        details_span = detail_content_div.select_one('.item-info .details span')
-        details_str = clean_text(details_span.get_text()) if details_span else ""
-        parsed = parse_details_string(details_str)
-        data.update(parsed)
-        
-        # 3. Description (as a list of LoreItem structures)
-        desc_div = detail_content_div.select_one('.more-info-content')
-        if desc_div:
-            description_items = []
-            for child in desc_div.children:
-                if child.name == 'p':
-                    # Skip the notes-string paragraph to prevent duplicating it in the description list
-                    if child.has_attr('class') and 'notes-string' in child['class']:
-                        continue
-                    text = clean_text(child.get_text())
-                    if text:
-                        description_items.append(text)
-                elif child.name in ['ul', 'ol']:
-                    items = [clean_text(li.get_text()) for li in child.find_all('li') if clean_text(li.get_text())]
-                    if items:
-                        description_items.append({"type": "list", "items": items})
-                elif child.name == 'table':
-                    rows = []
-                    for tr in child.find_all('tr'):
-                        cells = [clean_text(td.get_text()) for td in tr.find_all(['td', 'th'])]
-                        if any(cells):
-                            rows.append(cells)
-                    if rows:
-                        description_items.append({"type": "table", "rows": rows})
-            data['description'] = description_items
-            data['html_description'] = str(desc_div)
-        else:
-            data['description'] = []
-            data['html_description'] = ""
-            
-        # 4. Notes (clean standard list values)
-        notes_el = detail_content_div.select_one('.notes-string')
-        if notes_el:
-            notes_text = clean_text(notes_el.get_text())
-            if notes_text.lower().startswith('notes:'):
-                notes_text = notes_text[6:].strip()
-            data['notes'] = notes_text
-            
-        # 5. Tags
-        tags = []
-        for tag_el in detail_content_div.select('.tags.item-tags .tag.item-tag'):
-            tags.append(clean_text(tag_el.get_text()))
-        data['tags'] = tags
-        
+    # We successfully loaded the details page
+    
+    # 1. Source
+    source_el = detail_content_div.select_one('.source.item-source, .more-info-footer-source')
+    if source_el:
+        raw_source = clean_text(source_el.get_text().replace('Source:', '').strip())
+        data['source'] = clean_source_name(raw_source)
     else:
-        # Fallback if page redirected (e.g. locked partnered content)
-        h1_el = soup.find('h1')
-        h1_text = clean_text(h1_el.get_text()) if h1_el else ""
+        data['source'] = 'Unknown'
         
-        source = "Unknown"
-        if h1_text:
-            source = h1_text
-        elif "Marketplace" in title_text:
-            source = title_text.split('-')[0].strip()
-        elif "Shop" in title_text:
-            source = title_text.replace('Shop D&D Beyond', '').strip(' -')
-            
-        data['source'] = clean_source_name(source)
-        data['is_locked'] = True
+    # 2. Type, Rarity, Attunement details
+    details_span = detail_content_div.select_one('.item-info .details span')
+    details_str = clean_text(details_span.get_text()) if details_span else ""
+    parsed = parse_details_string(details_str)
+    data.update(parsed)
+    
+    # 3. Description (as a list of LoreItem structures)
+    desc_div = detail_content_div.select_one('.more-info-content')
+    if desc_div:
+        description_items = []
+        for child in desc_div.children:
+            if child.name == 'p':
+                # Skip the notes-string paragraph to prevent duplicating it in the description list
+                if child.has_attr('class') and 'notes-string' in child['class']:
+                    continue
+                text = clean_text(child.get_text())
+                if text:
+                    description_items.append(text)
+            elif child.name in ['ul', 'ol']:
+                items = [clean_text(li.get_text()) for li in child.find_all('li') if clean_text(li.get_text())]
+                if items:
+                    description_items.append({"type": "list", "items": items})
+            elif child.name == 'table':
+                rows = []
+                for tr in child.find_all('tr'):
+                    cells = [clean_text(td.get_text()) for td in tr.find_all(['td', 'th'])]
+                    if any(cells):
+                        rows.append(cells)
+                if rows:
+                    description_items.append({"type": "table", "rows": rows})
+        data['description'] = description_items
+        data['html_description'] = str(desc_div)
+    else:
+        data['description'] = []
+        data['html_description'] = ""
         
+    # 4. Notes (clean standard list values)
+    notes_el = detail_content_div.select_one('.notes-string')
+    if notes_el:
+        notes_text = clean_text(notes_el.get_text())
+        if notes_text.lower().startswith('notes:'):
+            notes_text = notes_text[6:].strip()
+        data['notes'] = notes_text
+        
+    # 5. Tags
+    tags = []
+    for tag_el in detail_content_div.select('.tags.item-tags .tag.item-tag'):
+        tags.append(clean_text(tag_el.get_text()))
+    data['tags'] = tags
+    
     return data
 
 def validate_magic_item(html_content, url):
-    detail_data = parse_magic_item_detail_html(html_content, url)
-    is_valid = not detail_data.get('is_locked')
-    source = detail_data.get('source', 'Unknown')
-    return is_valid, source
+    try:
+        detail_data = parse_magic_item_detail_html(html_content, url)
+        return True, detail_data.get('source', 'Unknown')
+    except ValueError:
+        return False, 'Unknown'
 
 def main():
     parser = argparse.ArgumentParser()
@@ -346,28 +333,36 @@ def main():
                         "scraped_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
                     }
 
-                    # Parse the detailed HTML
-                    detail_data = parse_magic_item_detail_html(html_content, item_url)
+                    try:
+                        # Parse the detailed HTML
+                        detail_data = parse_magic_item_detail_html(html_content, item_url)
 
-                    # Merge list-level metadata and detail-level metadata for unlocked items
-                    for key, val in detail_data.items():
-                        if val is not None and val != "Unknown" and val != "":
-                            # Overwrite baseline with details page info if detailed page info is valid
-                            item_data[key] = val
+                        # Merge list-level metadata and detail-level metadata for unlocked items
+                        for key, val in detail_data.items():
+                            if val is not None and val != "Unknown" and val != "":
+                                # Overwrite baseline with details page info if detailed page info is valid
+                                item_data[key] = val
 
-                    # Save to JSON
-                    if already_in_json:
-                        all_items[target_idx] = item_data
-                        print(f"Updated '{item_name}' ({item_data['source']}) in JSON.")
-                    else:
-                        all_items.append(item_data)
-                        print(f"Successfully scraped '{item_name}' ({item_data['source']}).")
-                        success_count += 1
+                        # Save to JSON
+                        if already_in_json:
+                            all_items[target_idx] = item_data
+                            print(f"Updated '{item_name}' ({item_data['source']}) in JSON.")
+                        else:
+                            all_items.append(item_data)
+                            print(f"Successfully scraped '{item_name}' ({item_data['source']}).")
+                            success_count += 1
 
-                    # Save to file after each item to prevent loss
-                    os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
-                    with open(DATA_FILE, 'w', encoding='utf-8') as f:
-                        json.dump(all_items, f, indent=2)
+                        # Save to file after each item to prevent loss
+                        os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
+                        with open(DATA_FILE, 'w', encoding='utf-8') as f:
+                            json.dump(all_items, f, indent=2)
+                    except Exception as e:
+                        print(f"Failed to parse '{item_name}': {e}")
+                        if already_in_json:
+                            all_items = [x for x in all_items if x.get('id') != item_id]
+                            print(f"Removed '{item_name}' from JSON due to parsing failure.")
+                            with open(DATA_FILE, 'w', encoding='utf-8') as f:
+                                json.dump(all_items, f, indent=2)
 
                 current_page += 1
                 manager.state["last_page"] = current_page
