@@ -21,7 +21,7 @@ from urllib.parse import urljoin
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from scraper_base import ScraperManager, RequestLimitExceeded
 
-STATE_FILE = "tools/magic_item_scraper_state.json"
+STATE_FILE = "tools/state/magic_item_scraper_state.json"
 DATA_FILE = "public/data/magic_items.json"
 BASE_URL = "https://www.dndbeyond.com"
 

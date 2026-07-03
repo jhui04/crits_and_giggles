@@ -28,6 +28,7 @@ design.md
 data
 dnd_beyond
 public/data
+tools/state
 test-results
 playwright-report
 blob-report

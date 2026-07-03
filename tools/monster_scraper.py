@@ -10,7 +10,7 @@ import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from scraper_base import ScraperManager, RequestLimitExceeded
 
-STATE_FILE = "tools/scraper_state.json"
+STATE_FILE = "tools/state/monster_scraper_state.json"
 DATA_FILE = "public/data/monsters.json"
 BASE_URL = "https://www.dndbeyond.com"
 
