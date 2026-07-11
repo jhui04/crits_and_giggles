@@ -219,6 +219,13 @@ export function AssetInsertionModal({
                     <option value="Location">Location</option>
                     <option value="Item">Item</option>
                     <option value="Spell">Spell</option>
+                    <option value="Organization">Organization</option>
+                    <option value="Religion">Religion</option>
+                    <option value="Lore">Lore</option>
+                    <option value="Faction">Faction</option>
+                    <option value="Race">Race</option>
+                    <option value="Class">Class</option>
+                    <option value="Background">Background</option>
                   </select>
                 </div>
               </div>
@@ -292,6 +299,13 @@ export function AssetInsertionModal({
                 <option value="Location">Location</option>
                 <option value="Item">Item</option>
                 <option value="Spell">Spell</option>
+                <option value="Organization">Organization</option>
+                <option value="Religion">Religion</option>
+                <option value="Lore">Lore</option>
+                <option value="Faction">Faction</option>
+                <option value="Race">Race</option>
+                <option value="Class">Class</option>
+                <option value="Background">Background</option>
               </select>
             </div>
             <div>

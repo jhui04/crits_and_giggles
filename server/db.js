@@ -33,10 +33,40 @@ export function initDb() {
   // We'll try to do it safely but since it's a major change, we'll just ensure they are created correctly.
   
   db.exec(`
-    CREATE TABLE IF NOT EXISTS campaigns (
+    CREATE TABLE IF NOT EXISTS worlds (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       description TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS world_assets (
+      id TEXT NOT NULL,
+      world_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT,
+      tags TEXT,               -- JSON array stored as text
+      PRIMARY KEY (id, world_id),
+      FOREIGN KEY (world_id) REFERENCES worlds(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS world_asset_connections (
+      id TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      world_id TEXT NOT NULL,
+      relationship TEXT NOT NULL,
+      PRIMARY KEY (id, world_id),
+      FOREIGN KEY (source_id, world_id) REFERENCES world_assets(id, world_id) ON DELETE CASCADE,
+      FOREIGN KEY (target_id, world_id) REFERENCES world_assets(id, world_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS campaigns (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      world_id TEXT,
+      FOREIGN KEY (world_id) REFERENCES worlds(id) ON DELETE SET NULL
     );
 
     CREATE TABLE IF NOT EXISTS chapters (
@@ -55,6 +85,7 @@ export function initDb() {
       type TEXT NOT NULL,
       name TEXT NOT NULL,
       description TEXT,
+      world_asset_id TEXT,
       PRIMARY KEY (id, campaign_id),
       FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
     );
@@ -111,4 +142,17 @@ export function initDb() {
       FOREIGN KEY (encounter_id, campaign_id) REFERENCES encounters(id, campaign_id) ON DELETE CASCADE
     );
   `);
+
+  // Migration for existing tables:
+  try {
+    db.exec('ALTER TABLE campaigns ADD COLUMN world_id TEXT;');
+  } catch (e) {
+    // Column already exists, ignore
+  }
+
+  try {
+    db.exec('ALTER TABLE assets ADD COLUMN world_asset_id TEXT;');
+  } catch (e) {
+    // Column already exists, ignore
+  }
 }

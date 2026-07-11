@@ -4,7 +4,10 @@ import { CampaignRunner } from './components/CampaignRunner';
 import { EncounterRunner } from './components/EncounterRunner';
 import { Oracle } from './components/Oracle';
 import { ShortcutsHelp } from './components/ShortcutsHelp';
+import { WorldSwitcher } from './components/WorldSwitcher';
+import { WorldBuilder } from './components/WorldBuilder';
 import { useCampaigns } from './context/CampaignContext';
+import { useWorlds } from './context/WorldContext';
 import type { Campaign } from './types';
 
 type AppMode = 'create' | 'run';
@@ -12,14 +15,17 @@ type AppMode = 'create' | 'run';
 function App() {
   const [mode, setMode] = useState<AppMode>('create');
   const { campaigns, activeCampaign, setActiveCampaignId, createCampaign, deleteCampaign } = useCampaigns();
+  const { activeWorld } = useWorlds();
   
   const [isCampaignModalOpen, setIsCampaignModalOpen] = useState(false);
+  const [isWorldSwitcherOpen, setIsWorldSwitcherOpen] = useState(false);
   const [isOracleOpen, setIsOracleOpen] = useState(false);
   const [isShortcutsHelpOpen, setIsShortcutsHelpOpen] = useState(false);
   const [isMainMenuOpen, setIsMainMenuOpen] = useState(false);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [newCampName, setNewCampName] = useState('');
   const [newCampDesc, setNewCampDesc] = useState('');
+  const [createTab, setCreateTab] = useState<'campaign' | 'world'>('campaign');
 
   const [scrapedCampaigns, setScrapedCampaigns] = useState<Partial<Campaign>[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<string>('none');
@@ -41,8 +47,9 @@ function App() {
       .catch(err => console.log('No scraped campaign available.', err));
   }, []);
 
-  const switchCampBtnRef = useRef<HTMLButtonElement>(null);
+   const switchCampBtnRef = useRef<HTMLButtonElement>(null);
   const switchCampHeadingRef = useRef<HTMLHeadingElement>(null);
+  const switchWorldBtnRef = useRef<HTMLButtonElement>(null);
   const mainMenuBtnRef = useRef<HTMLButtonElement>(null);
   const mainMenuHeadingRef = useRef<HTMLHeadingElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
@@ -73,8 +80,24 @@ function App() {
     setIsCampaignModalOpen(false);
     setIsCreatingNew(false);
     setTimeout(() => {
-      if (switchCampBtnRef.current && document.body.contains(switchCampBtnRef.current)) {
+      if (switchCampBtnRef.current && switchCampBtnRef.current !== document.body && document.body.contains(switchCampBtnRef.current)) {
         switchCampBtnRef.current.focus();
+      } else {
+        mainMenuBtnRef.current?.focus();
+      }
+    }, 0);
+  };
+
+  const openWorldSwitcher = () => {
+    switchWorldBtnRef.current = document.activeElement as HTMLButtonElement;
+    setIsWorldSwitcherOpen(true);
+  };
+
+  const closeWorldSwitcher = () => {
+    setIsWorldSwitcherOpen(false);
+    setTimeout(() => {
+      if (switchWorldBtnRef.current && switchWorldBtnRef.current !== document.body && document.body.contains(switchWorldBtnRef.current)) {
+        switchWorldBtnRef.current.focus();
       } else {
         mainMenuBtnRef.current?.focus();
       }
@@ -89,7 +112,7 @@ function App() {
   const closeOracle = () => {
     setIsOracleOpen(false);
     setTimeout(() => {
-      if (lastFocusedBeforeOracle.current && document.body.contains(lastFocusedBeforeOracle.current)) {
+      if (lastFocusedBeforeOracle.current && lastFocusedBeforeOracle.current !== document.body && document.body.contains(lastFocusedBeforeOracle.current)) {
         lastFocusedBeforeOracle.current.focus();
       } else {
         mainMenuBtnRef.current?.focus();
@@ -105,7 +128,7 @@ function App() {
   const closeShortcutsHelp = () => {
     setIsShortcutsHelpOpen(false);
     setTimeout(() => {
-      if (lastFocusedBeforeHelp.current && document.body.contains(lastFocusedBeforeHelp.current)) {
+      if (lastFocusedBeforeHelp.current && lastFocusedBeforeHelp.current !== document.body && document.body.contains(lastFocusedBeforeHelp.current)) {
         lastFocusedBeforeHelp.current.focus();
       } else {
         mainMenuBtnRef.current?.focus();
@@ -142,7 +165,7 @@ function App() {
 
   useEffect(() => {
     if (isMainMenuOpen) {
-      setTimeout(() => mainMenuHeadingRef.current?.focus(), 0);
+      setTimeout(() => mainMenuHeadingRef.current?.focus(), 50);
     }
   }, [isMainMenuOpen]);
 
@@ -175,6 +198,22 @@ function App() {
           else openCampaignModal();
           return;
         }
+        if (key === 'w') {
+          e.preventDefault();
+          if (isWorldSwitcherOpen) closeWorldSwitcher();
+          else openWorldSwitcher();
+          return;
+        }
+        if (key === '1') {
+          e.preventDefault();
+          setCreateTab('campaign');
+          return;
+        }
+        if (key === '2') {
+          e.preventDefault();
+          setCreateTab('world');
+          return;
+        }
       }
 
       // Prevent default behavior for Enter and Space on non-interactive elements
@@ -185,6 +224,8 @@ function App() {
       if (e.key === 'Escape' && !e.defaultPrevented) {
         if (isCampaignModalOpen) {
           closeCampaignModal();
+        } else if (isWorldSwitcherOpen) {
+          closeWorldSwitcher();
         } else if (isMainMenuOpen) {
           closeMainMenu();
         }
@@ -192,7 +233,7 @@ function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isCampaignModalOpen, isOracleOpen, isShortcutsHelpOpen, isMainMenuOpen]);
+  }, [isCampaignModalOpen, isOracleOpen, isShortcutsHelpOpen, isMainMenuOpen, isWorldSwitcherOpen, createTab, mode]);
 
   if (targetEncounterId) {
     return (
@@ -205,7 +246,7 @@ function App() {
 
   return (
     <React.Fragment>
-      <div className="app-container" aria-hidden={isMainMenuOpen || isCampaignModalOpen || isOracleOpen || isShortcutsHelpOpen}>  
+      <div className="app-container" aria-hidden={isMainMenuOpen || isCampaignModalOpen || isWorldSwitcherOpen || isOracleOpen || isShortcutsHelpOpen}>  
         <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h1 style={{ margin: 0 }}>
             <button
@@ -220,6 +261,9 @@ function App() {
           </h1>
           <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
             <span style={{ marginRight: '1rem' }}>
+              <strong>World:</strong> {activeWorld ? activeWorld.name : 'None Selected'}
+            </span>
+            <span style={{ marginRight: '1rem' }}>
               <strong>Campaign:</strong> {activeCampaign ? activeCampaign.name : 'None Selected'}
             </span>
           </div>
@@ -228,7 +272,7 @@ function App() {
           <div className="sr-only" aria-live="polite">
             Current Mode: {mode === 'create' ? 'Create Mode' : 'Run Mode'}
           </div>
-          {mode === 'create' ? <CreateLayout /> : <RunLayout />}
+          {mode === 'create' ? <CreateLayout activeTab={createTab} setActiveTab={setCreateTab} /> : <RunLayout />}
         </main>
 
         <footer className="mode-toggle-footer">
@@ -245,6 +289,7 @@ function App() {
 
       <Oracle isOpen={isOracleOpen} onClose={closeOracle} />
       <ShortcutsHelp isOpen={isShortcutsHelpOpen} onClose={closeShortcutsHelp} />
+      <WorldSwitcher isOpen={isWorldSwitcherOpen} onClose={closeWorldSwitcher} />
 
       {/* Main Menu Modal */}
       {isMainMenuOpen && (
@@ -272,6 +317,13 @@ function App() {
                 style={{ padding: '0.75rem', fontSize: '1.1rem' }}
               >
                 Switch Campaign (Alt+C)
+              </button>
+              <button
+                type="button"
+                onClick={() => { closeMainMenu(false); openWorldSwitcher(); }}
+                style={{ padding: '0.75rem', fontSize: '1.1rem' }}
+              >
+                Switch World (Alt+W)
               </button>
               <button
                 type="button"
@@ -385,23 +437,108 @@ function App() {
   );
 }
 
-function CreateLayout() {
+function CreateLayout({ activeTab, setActiveTab }: { activeTab: 'campaign' | 'world'; setActiveTab: (tab: 'campaign' | 'world') => void }) {
   const { activeCampaign } = useCampaigns();
-  
-  if (!activeCampaign) {
-    return (
-      <div style={{ padding: '2rem', textAlign: 'center' }}>
-        <h2>Welcome to Crits & Giggles</h2>
-        <p>Please select or create a campaign to get started.</p>
-      </div>
-    );
-  }
+  const { activeWorld } = useWorlds();
+
+  // Focus panel heading when activeTab changes
+  useEffect(() => {
+    if (activeTab === 'campaign') {
+      setTimeout(() => {
+        const heading = document.getElementById('campaign-builder-heading') || document.getElementById('campaign-no-select-heading');
+        heading?.focus();
+      }, 50);
+    } else {
+      setTimeout(() => {
+        const heading = document.getElementById('world-info-title') || document.getElementById('world-no-select-heading');
+        heading?.focus();
+      }, 50);
+    }
+  }, [activeTab]);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      e.preventDefault();
+      setActiveTab(activeTab === 'campaign' ? 'world' : 'campaign');
+    }
+  };
 
   return (
     <div className="layout-create">
-      <div className="tab-content">
-        <CampaignBuilder />
-      </div>
+      <nav role="tablist" aria-label="Create Mode views" style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid #ccc', paddingBottom: '0.5rem', marginBottom: '1.5rem' }}>
+        <button
+          role="tab"
+          id="tab-campaign"
+          aria-selected={activeTab === 'campaign'}
+          aria-controls="panel-campaign"
+          onClick={() => setActiveTab('campaign')}
+          onKeyDown={handleKeyDown}
+          style={{
+            padding: '0.5rem 1rem',
+            border: 'none',
+            borderBottom: activeTab === 'campaign' ? '2px solid #1976d2' : 'none',
+            background: 'none',
+            cursor: 'pointer',
+            fontWeight: activeTab === 'campaign' ? 'bold' : 'normal',
+          }}
+        >
+          Campaign (Alt+1)
+        </button>
+        <button
+          role="tab"
+          id="tab-world"
+          aria-selected={activeTab === 'world'}
+          aria-controls="panel-world"
+          onClick={() => setActiveTab('world')}
+          onKeyDown={handleKeyDown}
+          style={{
+            padding: '0.5rem 1rem',
+            border: 'none',
+            borderBottom: activeTab === 'world' ? '2px solid #1976d2' : 'none',
+            background: 'none',
+            cursor: 'pointer',
+            fontWeight: activeTab === 'world' ? 'bold' : 'normal',
+          }}
+        >
+          World (Alt+2)
+        </button>
+      </nav>
+
+      {activeTab === 'campaign' ? (
+        <div 
+          role="tabpanel" 
+          id="panel-campaign" 
+          aria-labelledby="tab-campaign"
+          tabIndex={-1}
+          style={{ outline: 'none' }}
+        >
+          {!activeCampaign ? (
+            <div style={{ padding: '2rem', textAlign: 'center' }}>
+              <h2 id="campaign-no-select-heading" tabIndex={-1} style={{ outline: 'none' }}>Welcome to Crits & Giggles</h2>
+              <p>Please select or create a campaign to get started.</p>
+            </div>
+          ) : (
+            <CampaignBuilder />
+          )}
+        </div>
+      ) : (
+        <div 
+          role="tabpanel" 
+          id="panel-world" 
+          aria-labelledby="tab-world"
+          tabIndex={-1}
+          style={{ outline: 'none' }}
+        >
+          {!activeWorld ? (
+            <div style={{ padding: '2rem', textAlign: 'center' }}>
+              <h2 id="world-no-select-heading" tabIndex={-1} style={{ outline: 'none' }}>No World Selected</h2>
+              <p>Please select or create a world using Switch World (Alt+W) to get started.</p>
+            </div>
+          ) : (
+            <WorldBuilder />
+          )}
+        </div>
+      )}
     </div>
   );
 }

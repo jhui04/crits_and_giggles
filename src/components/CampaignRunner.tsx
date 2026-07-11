@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useCampaigns } from '../context/CampaignContext';
+import { useWorlds } from '../context/WorldContext';
 import { Markdown } from './Markdown';
 import type { Asset, Monster, Spell, MagicItem } from '../types';
 import { MonsterDetails } from './MonsterDetails';
@@ -9,6 +10,7 @@ import { dataService } from '../services/DataService';
 
 export function CampaignRunner() {
   const { activeCampaign } = useCampaigns();
+  const { activeWorld } = useWorlds();
   const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -190,12 +192,32 @@ export function CampaignRunner() {
             maxWidth: '500px', width: '90%', maxHeight: '80vh', overflowY: 'auto'
           }}>
             {(() => {
+              const worldAsset = selectedAsset.worldAssetId && activeWorld 
+                ? activeWorld.assets.find(wa => wa.id === selectedAsset.worldAssetId)
+                : undefined;
+
+              const getIncomingConnections = (assetId: string) => {
+                const incoming: { sourceAsset: any, relationship: string }[] = [];
+                if (activeWorld) {
+                  activeWorld.assets.forEach(as => {
+                    as.connections.forEach(conn => {
+                      if (conn.targetId === assetId) {
+                        incoming.push({ sourceAsset: as, relationship: conn.relationship });
+                      }
+                    });
+                  });
+                }
+                return incoming;
+              };
+              const incomingConns = worldAsset ? getIncomingConnections(worldAsset.id) : [];
+
+              let detailContent = null;
               let matchedMonster = monsters.find(m => m.id === selectedAsset.id);
               if (!matchedMonster) {
                 matchedMonster = monsters.find(m => m.name.toLowerCase() === selectedAsset.name.toLowerCase());
               }
               if (matchedMonster) {
-                return (
+                detailContent = (
                   <div>
                     <h3 id="asset-modal-title" ref={modalHeadingRef} tabIndex={-1} className="sr-only">
                       Monster Details: {matchedMonster.name}
@@ -203,40 +225,75 @@ export function CampaignRunner() {
                     <MonsterDetails monster={matchedMonster} />
                   </div>
                 );
-              }
-
-              let matchedSpell = spells.find(s => s.id.toString() === selectedAsset.id);
-              if (!matchedSpell) {
-                matchedSpell = spells.find(s => s.name.toLowerCase() === selectedAsset.name.toLowerCase());
-              }
-              if (matchedSpell) {
-                return (
-                  <div>
-                    <SpellDetail spell={matchedSpell} id="asset-modal-title" />
-                  </div>
-                );
-              }
-
-              let matchedMagicItem = magicItems.find(mi => mi.id === selectedAsset.id);
-              if (!matchedMagicItem) {
-                matchedMagicItem = magicItems.find(mi => mi.name.toLowerCase() === selectedAsset.name.toLowerCase());
-              }
-              if (matchedMagicItem) {
-                return (
-                  <div>
-                    <MagicItemDetail magicItem={matchedMagicItem} id="asset-modal-title" onAssetClick={handleAssetClick} />
-                  </div>
-                );
+              } else {
+                let matchedSpell = spells.find(s => s.id.toString() === selectedAsset.id);
+                if (!matchedSpell) {
+                  matchedSpell = spells.find(s => s.name.toLowerCase() === selectedAsset.name.toLowerCase());
+                }
+                if (matchedSpell) {
+                  detailContent = (
+                    <div>
+                      <SpellDetail spell={matchedSpell} id="asset-modal-title" />
+                    </div>
+                  );
+                } else {
+                  let matchedMagicItem = magicItems.find(mi => mi.id === selectedAsset.id);
+                  if (!matchedMagicItem) {
+                    matchedMagicItem = magicItems.find(mi => mi.name.toLowerCase() === selectedAsset.name.toLowerCase());
+                  }
+                  if (matchedMagicItem) {
+                    detailContent = (
+                      <div>
+                        <MagicItemDetail magicItem={matchedMagicItem} id="asset-modal-title" onAssetClick={handleAssetClick} />
+                      </div>
+                    );
+                  } else {
+                    detailContent = (
+                      <>
+                        <h3 id="asset-modal-title" ref={modalHeadingRef} tabIndex={-1} style={{ outline: 'none', marginBottom: '0.5rem' }}>
+                          {selectedAsset.name} ({selectedAsset.type})
+                        </h3>
+                        <div style={{ marginTop: '1rem' }}>
+                          <p style={{ whiteSpace: 'pre-wrap' }}>{selectedAsset.description}</p>
+                        </div>
+                      </>
+                    );
+                  }
+                }
               }
 
               return (
                 <>
-                  <h3 id="asset-modal-title" ref={modalHeadingRef} tabIndex={-1} style={{ outline: 'none', marginBottom: '0.5rem' }}>
-                    {selectedAsset.name} ({selectedAsset.type})
-                  </h3>
-                  <div style={{ marginTop: '1rem' }}>
-                    <p style={{ whiteSpace: 'pre-wrap' }}>{selectedAsset.description}</p>
-                  </div>
+                  {detailContent}
+                  {worldAsset && (
+                    <section aria-labelledby="world-context-heading" style={{ marginTop: '2rem', borderTop: '2px solid #ccc', paddingTop: '1.5rem' }}>
+                      <h3 id="world-context-heading" style={{ marginTop: 0 }}>World Context</h3>
+                      <p><strong>Type:</strong> {worldAsset.type}</p>
+                      {worldAsset.tags.length > 0 && (
+                        <p><strong>Tags:</strong> {worldAsset.tags.join(', ')}</p>
+                      )}
+                      <h4>Connections</h4>
+                      {worldAsset.connections.length === 0 && incomingConns.length === 0 ? (
+                        <p>No connections recorded.</p>
+                      ) : (
+                        <ul aria-label={`Connections for ${worldAsset.name}`} style={{ paddingLeft: '1.25rem' }}>
+                          {worldAsset.connections.map(conn => {
+                            const target = activeWorld?.assets.find(t => t.id === conn.targetId);
+                            return (
+                              <li key={conn.id}>
+                                "{conn.relationship}" → <strong>{target ? `${target.name} (${target.type})` : 'Unknown Asset'}</strong>
+                              </li>
+                            );
+                          })}
+                          {incomingConns.map(({ sourceAsset, relationship }, idx) => (
+                            <li key={idx}>
+                              <strong>{sourceAsset.name} ({sourceAsset.type})</strong> "{relationship}" → this
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </section>
+                  )}
                 </>
               );
             })()}

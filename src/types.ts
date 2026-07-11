@@ -76,7 +76,31 @@ export interface Chapter {
   order: number;
 }
 
-export type AssetType = 'NPC' | 'Location' | 'Item' | 'Spell';
+export type WorldAssetType = 'NPC' | 'Location' | 'Item' | 'Spell' | 'Organization' | 'Religion' | 'Lore' | 'Faction' | 'Race' | 'Class' | 'Background';
+
+export type AssetType = WorldAssetType;
+
+export interface WorldAssetConnection {
+  id: string;
+  targetId: string;       // The other WorldAsset's ID
+  relationship: string;   // e.g. "is capital of", "rules", "is member of"
+}
+
+export interface WorldAsset {
+  id: string;
+  type: WorldAssetType;
+  name: string;
+  description: string;
+  tags: string[];
+  connections: WorldAssetConnection[];
+}
+
+export interface World {
+  id: string;
+  name: string;
+  description: string;
+  assets: WorldAsset[];
+}
 
 export interface Asset {
   id: string;
@@ -84,6 +108,7 @@ export interface Asset {
   name: string;
   description: string;
   chapterIds?: string[];
+  worldAssetId?: string;
 }
 
 export interface Spell {
@@ -118,6 +143,7 @@ export interface Campaign {
   assets: Asset[];
   players: PlayerCharacter[];
   encounters: Encounter[];
+  worldId?: string;
 }
 
 export interface MagicItem {

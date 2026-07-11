@@ -3,6 +3,15 @@ import json
 import re
 import time
 import random
+import sys
+
+if hasattr(sys.stdout, 'reconfigure'):
+    try: sys.stdout.reconfigure(encoding='utf-8')
+    except: pass
+if hasattr(sys.stderr, 'reconfigure'):
+    try: sys.stderr.reconfigure(encoding='utf-8')
+    except: pass
+
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 from playwright.sync_api import sync_playwright
@@ -11,6 +20,10 @@ BASE_URL = "https://www.dndbeyond.com"
 
 class RequestLimitExceeded(Exception):
     """Raised when the maximum number of network requests for the session is reached."""
+    pass
+
+class ChromeConnectionError(Exception):
+    """Raised when connecting to the running Chrome instance fails."""
     pass
 
 class ScraperManager:
@@ -73,8 +86,14 @@ class ScraperManager:
                 if not self.page:
                     self.page = self.context.pages[-1] if self.context.pages else self.context.new_page()
             except Exception as e:
-                print(f"Failed to connect to Chrome. Error: {e}")
-                raise e
+                print(f"Failed to connect to Chrome via remote debugging on port 9222. Error: {e}")
+                print("\n" + "="*80)
+                print("CRITICAL ERROR: Playwright could not connect to Chrome.")
+                print("Please ensure that you have run 'tools/run_dev_chrome.bat' first to open")
+                print("an active Chrome instance on remote debugging port 9222, and that you are logged")
+                print("into D&D Beyond in that window so the appropriate session cookies are loaded.")
+                print("="*80 + "\n")
+                raise ChromeConnectionError("Failed to connect to Chrome remote debugging port. Make sure tools/run_dev_chrome.bat is running and logged in.") from e
         return self.page
 
     def close_playwright(self):

@@ -2,14 +2,17 @@ import { useState, useEffect, useRef } from 'react';
 import { MonsterBrowser } from './MonsterBrowser';
 import { SpellBrowser } from './SpellBrowser';
 import { MagicItemBrowser } from './MagicItemBrowser';
+import { WorldAssetBrowser } from './WorldAssetBrowser';
 
 interface OracleProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
+type OracleFilterType = 'monster' | 'spell' | 'item' | 'world';
+
 export function Oracle({ isOpen, onClose }: OracleProps) {
-  const [filterType, setFilterType] = useState<'monster' | 'spell' | 'item'>('monster');
+  const [filterType, setFilterType] = useState<OracleFilterType>('monster');
   const modalHeadingRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
@@ -57,7 +60,7 @@ export function Oracle({ isOpen, onClose }: OracleProps) {
           <select 
             id="oracle-type-filter"
             value={filterType}
-            onChange={(e) => setFilterType(e.target.value as 'monster' | 'spell' | 'item')}
+            onChange={(e) => setFilterType(e.target.value as OracleFilterType)}
             style={{ 
               width: '100%', padding: '1rem', 
               background: '#333', color: 'white', 
@@ -68,6 +71,7 @@ export function Oracle({ isOpen, onClose }: OracleProps) {
             <option value="monster">Monsters</option>
             <option value="spell">Spells</option>
             <option value="item">Magic Items</option>
+            <option value="world">World Assets</option>
           </select>
         </div>
 
@@ -78,6 +82,10 @@ export function Oracle({ isOpen, onClose }: OracleProps) {
         ) : filterType === 'spell' ? (
           <div style={{ background: '#222', padding: '1.5rem', borderRadius: '4px' }}>
             <SpellBrowser autoFocus />
+          </div>
+        ) : filterType === 'world' ? (
+          <div style={{ background: '#222', padding: '1.5rem', borderRadius: '4px' }}>
+            <WorldAssetBrowser autoFocus />
           </div>
         ) : (
           <div style={{ background: '#222', padding: '1.5rem', borderRadius: '4px' }}>

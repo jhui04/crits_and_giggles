@@ -26,11 +26,13 @@ dist-ssr
 *.sw?
 
 # Project specific
+.chrome_dev
 *.sqlite3-shm
 design.md
 data
 dnd_beyond
 public/data
+scratch
 tools/state
 test-results
 playwright-report

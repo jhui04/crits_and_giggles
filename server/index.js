@@ -7,19 +7,33 @@ const app = express();
 const port = process.env.PORT || 3001;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 app.use(morgan('dev'));
 
 initDb();
 
+// Helper to get full world
+function getFullWorld(id) {
+  const world = db.prepare('SELECT id, name, description FROM worlds WHERE id = ?').get(id);
+  if (!world) return null;
+
+  const assets = db.prepare('SELECT id, type, name, description, tags FROM world_assets WHERE world_id = ?').all(id);
+  for (const asset of assets) {
+    asset.tags = asset.tags ? JSON.parse(asset.tags) : [];
+    asset.connections = db.prepare('SELECT id, target_id as targetId, relationship FROM world_asset_connections WHERE source_id = ? AND world_id = ?').all(asset.id, id);
+  }
+  world.assets = assets;
+  return world;
+}
+
 // Helper to get full campaign
 function getFullCampaign(id) {
-  const campaign = db.prepare('SELECT * FROM campaigns WHERE id = ?').get(id);
+  const campaign = db.prepare('SELECT id, name, description, world_id as worldId FROM campaigns WHERE id = ?').get(id);
   if (!campaign) return null;
 
   campaign.chapters = db.prepare('SELECT id, title, content, order_index as "order" FROM chapters WHERE campaign_id = ? ORDER BY order_index').all(id);
   
-  const assets = db.prepare('SELECT id, type, name, description FROM assets WHERE campaign_id = ?').all(id);
+  const assets = db.prepare('SELECT id, type, name, description, world_asset_id as worldAssetId FROM assets WHERE campaign_id = ?').all(id);
   for (const asset of assets) {
     asset.chapterIds = db.prepare('SELECT chapter_id FROM asset_chapters WHERE asset_id = ? AND campaign_id = ?').all(asset.id, id).map(r => r.chapter_id);
   }
@@ -40,6 +54,116 @@ function getFullCampaign(id) {
 
   return campaign;
 }
+
+// GET /api/worlds
+app.get('/api/worlds', (req, res) => {
+  try {
+    const worlds = db.prepare('SELECT id FROM worlds').all().map(w => getFullWorld(w.id)).filter(Boolean);
+    res.json(worlds);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch worlds', details: err.message });
+  }
+});
+
+// GET /api/worlds/:id
+app.get('/api/worlds/:id', (req, res) => {
+  try {
+    const world = getFullWorld(req.params.id);
+    if (world) {
+      res.json(world);
+    } else {
+      res.status(404).json({ error: 'World not found' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch world', details: err.message });
+  }
+});
+
+// POST /api/worlds
+app.post('/api/worlds', (req, res) => {
+  const { id } = req.body;
+  
+  const insertWorld = db.transaction((data) => {
+    db.prepare('DELETE FROM worlds WHERE id = ?').run(data.id);
+    db.prepare('INSERT INTO worlds (id, name, description) VALUES (?, ?, ?)').run(data.id, data.name, data.description);
+    
+    if (data.assets) {
+      const insertAsset = db.prepare('INSERT INTO world_assets (id, world_id, type, name, description, tags) VALUES (?, ?, ?, ?, ?, ?)');
+      const insertConnection = db.prepare('INSERT INTO world_asset_connections (id, source_id, target_id, world_id, relationship) VALUES (?, ?, ?, ?, ?)');
+      
+      data.assets.forEach(as => {
+        insertAsset.run(as.id, data.id, as.type, as.name, as.description, JSON.stringify(as.tags || []));
+      });
+      
+      data.assets.forEach(as => {
+        if (as.connections) {
+          as.connections.forEach(conn => {
+            insertConnection.run(conn.id, as.id, conn.targetId, data.id, conn.relationship);
+          });
+        }
+      });
+    }
+  });
+
+  try {
+    insertWorld(req.body);
+    const result = getFullWorld(id);
+    res.status(201).json(result);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to create world', details: err.message });
+  }
+});
+
+// PUT /api/worlds/:id
+app.put('/api/worlds/:id', (req, res) => {
+  const worldId = req.params.id;
+
+  const updateWorld = db.transaction((data) => {
+    db.prepare('UPDATE worlds SET name = ?, description = ? WHERE id = ?').run(data.name, data.description, worldId);
+    
+    db.prepare('DELETE FROM world_assets WHERE world_id = ?').run(worldId);
+    db.prepare('DELETE FROM world_asset_connections WHERE world_id = ?').run(worldId);
+
+    if (data.assets) {
+      const insertAsset = db.prepare('INSERT INTO world_assets (id, world_id, type, name, description, tags) VALUES (?, ?, ?, ?, ?, ?)');
+      const insertConnection = db.prepare('INSERT INTO world_asset_connections (id, source_id, target_id, world_id, relationship) VALUES (?, ?, ?, ?, ?)');
+      
+      data.assets.forEach(as => {
+        insertAsset.run(as.id, worldId, as.type, as.name, as.description, JSON.stringify(as.tags || []));
+      });
+      
+      data.assets.forEach(as => {
+        if (as.connections) {
+          as.connections.forEach(conn => {
+            insertConnection.run(conn.id, as.id, conn.targetId, worldId, conn.relationship);
+          });
+        }
+      });
+    }
+  });
+
+  try {
+    updateWorld(req.body);
+    const result = getFullWorld(worldId);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update world', details: err.message });
+  }
+});
+
+// DELETE /api/worlds/:id
+app.delete('/api/worlds/:id', (req, res) => {
+  try {
+    const result = db.prepare('DELETE FROM worlds WHERE id = ?').run(req.params.id);
+    if (result.changes > 0) {
+      res.status(204).send();
+    } else {
+      res.status(404).json({ error: 'World not found' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete world', details: err.message });
+  }
+});
 
 // GET /api/campaigns
 app.get('/api/campaigns', (req, res) => {
@@ -73,7 +197,7 @@ app.post('/api/campaigns', (req, res) => {
     // Robustness: ensure we overwrite if it exists (idempotent seeding)
     db.prepare('DELETE FROM campaigns WHERE id = ?').run(data.id);
     
-    db.prepare('INSERT INTO campaigns (id, name, description) VALUES (?, ?, ?)').run(data.id, data.name, data.description);
+    db.prepare('INSERT INTO campaigns (id, name, description, world_id) VALUES (?, ?, ?, ?)').run(data.id, data.name, data.description, data.worldId || null);
     
     if (data.chapters) {
       const insertChapter = db.prepare('INSERT INTO chapters (id, campaign_id, title, content, order_index) VALUES (?, ?, ?, ?, ?)');
@@ -81,10 +205,10 @@ app.post('/api/campaigns', (req, res) => {
     }
     
     if (data.assets) {
-      const insertAsset = db.prepare('INSERT INTO assets (id, campaign_id, type, name, description) VALUES (?, ?, ?, ?, ?)');
+      const insertAsset = db.prepare('INSERT INTO assets (id, campaign_id, type, name, description, world_asset_id) VALUES (?, ?, ?, ?, ?, ?)');
       const insertAssetChapter = db.prepare('INSERT INTO asset_chapters (asset_id, chapter_id, campaign_id) VALUES (?, ?, ?)');
       data.assets.forEach(as => {
-        insertAsset.run(as.id, data.id, as.type, as.name, as.description);
+        insertAsset.run(as.id, data.id, as.type, as.name, as.description, as.worldAssetId || null);
         if (as.chapterIds) {
           as.chapterIds.forEach(chapId => insertAssetChapter.run(as.id, chapId, data.id));
         }
@@ -132,7 +256,7 @@ app.put('/api/campaigns/:id', (req, res) => {
   const campaignId = req.params.id;
 
   const updateCampaign = db.transaction((data) => {
-    db.prepare('UPDATE campaigns SET name = ?, description = ? WHERE id = ?').run(data.name, data.description, campaignId);
+    db.prepare('UPDATE campaigns SET name = ?, description = ?, world_id = ? WHERE id = ?').run(data.name, data.description, data.worldId || null, campaignId);
     
     db.prepare('DELETE FROM chapters WHERE campaign_id = ?').run(campaignId);
     db.prepare('DELETE FROM assets WHERE campaign_id = ?').run(campaignId);
@@ -150,10 +274,10 @@ app.put('/api/campaigns/:id', (req, res) => {
     }
     
     if (data.assets) {
-      const insertAsset = db.prepare('INSERT INTO assets (id, campaign_id, type, name, description) VALUES (?, ?, ?, ?, ?)');
+      const insertAsset = db.prepare('INSERT INTO assets (id, campaign_id, type, name, description, world_asset_id) VALUES (?, ?, ?, ?, ?, ?)');
       const insertAssetChapter = db.prepare('INSERT INTO asset_chapters (asset_id, chapter_id, campaign_id) VALUES (?, ?, ?)');
       data.assets.forEach(as => {
-        insertAsset.run(as.id, campaignId, as.type, as.name, as.description);
+        insertAsset.run(as.id, campaignId, as.type, as.name, as.description, as.worldAssetId || null);
         if (as.chapterIds) {
           as.chapterIds.forEach(chapId => insertAssetChapter.run(as.id, chapId, campaignId));
         }
@@ -217,6 +341,7 @@ app.delete('/api/danger/reset', (req, res) => {
   }
   try {
     db.prepare('DELETE FROM campaigns').run();
+    db.prepare('DELETE FROM worlds').run();
     // CASCADE will handle the rest
     res.status(204).send();
   } catch (err) {

@@ -19,6 +19,54 @@ def clean_text(text):
     text = re.sub(r'\s+', ' ', text)
     return text.strip()
 
+def replace_world_references(text, wildemount_asset_ids, world_assets_by_id, campaign, current_chapter):
+    # Split text by existing @Asset tags to avoid nested links
+    pattern = r'(@Asset\[[^\]]+\]\{[^}]+\})'
+    parts = re.split(pattern, text)
+    
+    for i in range(len(parts)):
+        if i % 2 == 0: # Non-tag segment
+            for name_lower, world_id in wildemount_asset_ids.items():
+                if len(name_lower) < 3:
+                    continue
+                
+                word_pattern = r'\b(' + re.escape(name_lower) + r')\b'
+                
+                def replacer(match):
+                    matched_name = match.group(1)
+                    # Find or create campaign asset
+                    campaign_asset_id = None
+                    for ex_asset in campaign['assets']:
+                        if ex_asset.get('worldAssetId') == world_id:
+                            campaign_asset_id = ex_asset['id']
+                            if current_chapter:
+                                if "chapterIds" not in ex_asset:
+                                    ex_asset["chapterIds"] = []
+                                if current_chapter["id"] not in ex_asset["chapterIds"]:
+                                    ex_asset["chapterIds"].append(current_chapter["id"])
+                            break
+                    
+                    if not campaign_asset_id:
+                        campaign_asset_id = str(uuid.uuid4())
+                        world_asset = world_assets_by_id.get(world_id, {})
+                        item_type = world_asset.get('type', 'Location')
+                        new_asset = {
+                            "id": campaign_asset_id,
+                            "name": world_asset.get('name', matched_name),
+                            "type": item_type,
+                            "description": f"World reference to {matched_name}",
+                            "worldAssetId": world_id
+                        }
+                        if current_chapter:
+                            new_asset["chapterIds"] = [current_chapter["id"]]
+                        campaign['assets'].append(new_asset)
+                    
+                    return f"@Asset[{campaign_asset_id}]{{{matched_name}}}"
+                
+                parts[i] = re.sub(word_pattern, replacer, parts[i], flags=re.IGNORECASE)
+                
+    return "".join(parts)
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--force', action='store_true', help='Ignore persistent state')
@@ -81,6 +129,23 @@ def main():
         return html
 
     try:
+        # Load wildemount asset mapping if available
+        wildemount_asset_ids = {}
+        world_assets_by_id = {}
+        mapping_path = "tools/state/wildemount_asset_ids.json"
+        world_path = "public/data/scraped_world.json"
+        if os.path.exists(mapping_path):
+            with open(mapping_path, 'r', encoding='utf-8') as f:
+                wildemount_asset_ids = json.load(f)
+        if os.path.exists(world_path):
+            with open(world_path, 'r', encoding='utf-8') as f:
+                try:
+                    world_data = json.load(f)
+                    for asset in world_data.get("assets", []):
+                        world_assets_by_id[asset["id"]] = asset
+                except Exception as e:
+                    print(f"Error loading scraped_world.json: {e}")
+
         # 1. Fetch main index
         index_filepath = os.path.join("dnd_beyond", "adventures", "index.html")
         os.makedirs(os.path.dirname(index_filepath), exist_ok=True)
@@ -164,7 +229,8 @@ def main():
                     "description": f"Adventure scraped from D&D Beyond: {camp_name}",
                     "chapters": [],
                     "assets": [],
-                    "encounters": []
+                    "encounters": [],
+                    "worldId": "4a2b9c3d-1e5f-4a7b-8c9d-1e5f4a7b8c9d"
                 }
                 known_assets = {}
                 current_chapter = None
@@ -211,6 +277,10 @@ def main():
                                     asset["chapterIds"].append(current_chapter["id"])
 
                         text = text.replace(item_name, f"@Asset[{asset_id}]{{{item_name}}}")
+                    
+                    # Replace references to Wildemount World Assets
+                    if wildemount_asset_ids and world_assets_by_id:
+                        text = replace_world_references(text, wildemount_asset_ids, world_assets_by_id, campaign, current_chapter)
                     if elem.name in ['h1', 'h2']:
                         if current_chapter:
                             campaign['chapters'].append(current_chapter)

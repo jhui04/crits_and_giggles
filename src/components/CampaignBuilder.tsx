@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useCampaigns } from '../context/CampaignContext';
+import { useWorlds } from '../context/WorldContext';
 import { EncounterBuilder } from './EncounterBuilder';
 import { Markdown } from './Markdown';
 import type { AssetType, Asset, Chapter, Encounter, Monster, Spell, PlayerCharacter, MagicItem } from '../types';
@@ -11,6 +12,7 @@ import { AssetInsertionModal } from './AssetInsertionModal';
 
 export function CampaignBuilder() {
   const { activeCampaign, updateCampaign } = useCampaigns();
+  const { worlds, activeWorld, updateWorld } = useWorlds();
   
   // Global Data
   const [monsters, setMonsters] = useState<Monster[]>([]);
@@ -25,6 +27,12 @@ export function CampaignBuilder() {
 
   // Campaign Settings State
   const [showCampaignForm, setShowCampaignForm] = useState(false);
+
+  // World Association State
+  const [showWorldLinkModal, setShowWorldLinkModal] = useState(false);
+  const [showLinkAssetModal, setShowLinkAssetModal] = useState(false);
+  const [linkAssetSearch, setLinkAssetSearch] = useState('');
+  const [linkAssetTypeFilter, setLinkAssetTypeFilter] = useState('All');
 
   // Player State
   const [showPlayerForm, setShowPlayerForm] = useState(false);
@@ -297,6 +305,24 @@ export function CampaignBuilder() {
     
     let newAssets;
     if (editingAssetId) {
+      const existing = activeCampaign.assets.find(a => a.id === editingAssetId);
+      if (existing?.worldAssetId && activeWorld) {
+        const updatedWorldAssets = activeWorld.assets.map(wa => {
+          if (wa.id === existing.worldAssetId) {
+            return {
+              ...wa,
+              name: assetName,
+              type: assetType,
+              description: assetDesc
+            };
+          }
+          return wa;
+        });
+        await updateWorld({
+          ...activeWorld,
+          assets: updatedWorldAssets
+        });
+      }
       newAssets = activeCampaign.assets.map(a => a.id === editingAssetId ? { ...a, name: assetName, type: assetType, description: assetDesc, chapterIds: selectedAssetChapterIds } : a);
     } else {
       const newAsset: Asset = {
@@ -528,10 +554,167 @@ export function CampaignBuilder() {
   // Calculate global aria-hidden for the main content when modals are open
   const isAnyModalOpen = showCampaignForm || showPlayerForm || showChapterForm || showAssetForm || viewingAsset || showAssetInsertionModal;
 
+  const handleUnlinkWorld = async () => {
+    if (confirm('Are you sure you want to unlink this campaign from its world? Existing assets with links to the world will retain their data but will no longer be linked.')) {
+      await updateCampaign({
+        ...activeCampaign,
+        worldId: undefined
+      });
+    }
+  };
+
+  const linkedWorld = worlds.find(w => w.id === activeCampaign.worldId);
+  const linkedWorldName = linkedWorld?.name;
+
   return (
     <div >
+
+      {/* Link World Modal */}
+      {showWorldLinkModal && (
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="world-picker-title" style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex',
+          alignItems: 'center', justifyContent: 'center', zIndex: 1600
+        }}>
+          <div className="modal-content" style={{
+            backgroundColor: 'white', padding: '2rem', borderRadius: '8px',
+            maxWidth: '400px', width: '90%', maxHeight: '80vh', overflowY: 'auto'
+          }}>
+            <h2 id="world-picker-title" style={{ marginTop: 0 }}>Link Campaign to World</h2>
+            {worlds.length === 0 ? (
+              <p>No worlds found. Please create a world first (Alt+W).</p>
+            ) : (
+              <ul style={{ listStyle: 'none', padding: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {worlds.map(w => (
+                  <li key={w.id}>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await updateCampaign({
+                          ...activeCampaign,
+                          worldId: w.id
+                        });
+                        setShowWorldLinkModal(false);
+                      }}
+                      style={{ width: '100%', textAlign: 'left', padding: '0.75rem' }}
+                    >
+                      {w.name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowWorldLinkModal(false)}
+              style={{ marginTop: '1.5rem', width: '100%', padding: '0.75rem', backgroundColor: '#eee' }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Link World Asset Modal */}
+      {showLinkAssetModal && linkedWorld && (
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="link-asset-title" style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex',
+          alignItems: 'center', justifyContent: 'center', zIndex: 1600
+        }}>
+          <div className="modal-content" style={{
+            backgroundColor: 'white', padding: '2rem', borderRadius: '8px',
+            maxWidth: '500px', width: '90%', maxHeight: '80vh', overflowY: 'auto'
+          }}>
+            <h2 id="link-asset-title" style={{ marginTop: 0 }}>Link World Asset to Campaign</h2>
+            
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+              <input 
+                type="search" 
+                placeholder="Search world assets..." 
+                value={linkAssetSearch}
+                onChange={e => setLinkAssetSearch(e.target.value)}
+                style={{ flex: 1, padding: '0.5rem' }}
+                aria-label="Search world assets"
+              />
+              <select 
+                value={linkAssetTypeFilter}
+                onChange={e => setLinkAssetTypeFilter(e.target.value)}
+                style={{ padding: '0.5rem' }}
+                aria-label="Filter by type"
+              >
+                <option value="All">All Types</option>
+                {['NPC', 'Location', 'Item', 'Spell', 'Organization', 'Religion', 'Lore', 'Faction', 'Race', 'Class', 'Background'].map(t => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+            </div>
+
+            {(() => {
+              const availableAssets = linkedWorld.assets.filter(wa => {
+                const alreadyLinked = activeCampaign.assets.some(a => a.worldAssetId === wa.id);
+                if (alreadyLinked) return false;
+
+                const matchesSearch = wa.name.toLowerCase().includes(linkAssetSearch.toLowerCase()) ||
+                                      wa.description.toLowerCase().includes(linkAssetSearch.toLowerCase());
+                const matchesType = linkAssetTypeFilter === 'All' || wa.type === linkAssetTypeFilter;
+                return matchesSearch && matchesType;
+              });
+
+              if (availableAssets.length === 0) {
+                return <p>No unlinked world assets found matching the criteria.</p>;
+              }
+
+              return (
+                <ul style={{ listStyle: 'none', padding: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {availableAssets.map(wa => (
+                    <li key={wa.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem', border: '1px solid #eee', borderRadius: '4px' }}>
+                      <div>
+                        <span style={{ fontSize: '0.8rem', textTransform: 'uppercase', backgroundColor: '#eee', padding: '0.1rem 0.3rem', marginRight: '0.5rem', borderRadius: '2px' }}>
+                          {wa.type}
+                        </span>
+                        <strong>{wa.name}</strong>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const newAsset: Asset = {
+                            id: crypto.randomUUID(),
+                            name: wa.name,
+                            type: wa.type,
+                            description: wa.description,
+                            worldAssetId: wa.id,
+                            chapterIds: viewMode === 'chapters' && selectedChapterId ? [selectedChapterId] : []
+                          };
+                          await updateCampaign({
+                            ...activeCampaign,
+                            assets: [...activeCampaign.assets, newAsset]
+                          });
+                          setShowLinkAssetModal(false);
+                        }}
+                        style={{ padding: '0.3rem 0.6rem' }}
+                      >
+                        Link Asset
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              );
+            })()}
+
+            <button
+              type="button"
+              onClick={() => setShowLinkAssetModal(false)}
+              style={{ marginTop: '1.5rem', width: '100%', padding: '0.75rem', backgroundColor: '#eee' }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       <nav className="sub-nav" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-        <h2 style={{ margin: 0 }}>Campaign Builder</h2>
+        <h2 id="campaign-builder-heading" tabIndex={-1} style={{ margin: 0, outline: 'none' }}>Campaign Builder</h2>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
           <div className="tab-group" style={{ marginRight: '1rem' }}>
             <button
@@ -554,6 +737,25 @@ export function CampaignBuilder() {
           <button type="button" ref={editCampaignBtnRef} onClick={handleOpenSettings}>Campaign Settings</button>
         </div>
       </nav>
+
+      {/* World Connection Section */}
+      <section aria-labelledby="world-link-heading" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem', backgroundColor: '#fcfcfc', border: '1px solid #ddd', borderRadius: '4px', marginBottom: '1.5rem' }}>
+        <div>
+          <h3 id="world-link-heading" style={{ margin: 0, fontSize: '1.1rem' }}>World Association</h3>
+          <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.95rem' }}>
+            Linked to: <strong>{linkedWorldName || 'None'}</strong>
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button type="button" onClick={() => setShowWorldLinkModal(true)}>Change World</button>
+          {activeCampaign.worldId && (
+            <>
+              <button type="button" onClick={handleUnlinkWorld}>Unlink World</button>
+              <button type="button" onClick={() => setShowLinkAssetModal(true)}>Link World Asset</button>
+            </>
+          )}
+        </div>
+      </section>
 
       {viewMode === 'chapters' ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }} aria-hidden={!!isAnyModalOpen}>
@@ -826,6 +1028,13 @@ export function CampaignBuilder() {
                   <option value="Location">Location</option>
                   <option value="Item">Item</option>
                   <option value="Spell">Spell</option>
+                  <option value="Organization">Organization</option>
+                  <option value="Religion">Religion</option>
+                  <option value="Lore">Lore</option>
+                  <option value="Faction">Faction</option>
+                  <option value="Race">Race</option>
+                  <option value="Class">Class</option>
+                  <option value="Background">Background</option>
                 </select>
               </div>
               <fieldset style={{ border: '1px solid #ccc', padding: '1rem', borderRadius: '4px' }}>
