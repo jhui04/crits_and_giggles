@@ -64,6 +64,8 @@ export const getSeedState = (id: string = 'test-campaign') => ({
   ]
 });
 
+const aartukMonster = monstersData.find((m: any) => m.name === 'Aartuk Starhorror') || monstersData[0];
+
 export const seedState = getSeedState('test-campaign');
 
 export const seedStateSaves = {
@@ -83,7 +85,7 @@ export const seedStateSaves = {
       units: [
         {
           instanceId: 'unit-save-1',
-          monsterId: mockMonster.id, // Aartuk Starhorror
+          monsterId: aartukMonster.id, // Aartuk Starhorror
           name: 'Save Test Monster',
           maxHp: 10,
           currentHp: 10,

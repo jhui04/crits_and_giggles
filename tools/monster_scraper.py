@@ -27,9 +27,11 @@ SOURCE_EXCEPTIONS = {
     "Monster Manual": "Monster Manual (2014)"
 }
 
-def clean_source_name(raw_source):
+def clean_source_name(raw_source, is_2024=False):
     s = re.sub(r'(?i),*\s*p(?:age|g)?\.?\s*\d+', '', raw_source).strip(', ')
     s = s.split('•')[0].strip()
+    if s == "Monster Manual":
+        return "Monster Manual (2024)" if is_2024 else "Monster Manual (2014)"
     if s in SOURCE_EXCEPTIONS:
         s = SOURCE_EXCEPTIONS[s]
     return s
@@ -228,7 +230,7 @@ def parse_monster_html(html_content, url=""):
     source_elem = soup.select_one('.monster-source')
     if source_elem:
         raw_source = clean_text(source_elem.get_text().replace('Source:', '').strip())
-        monster["source"] = clean_source_name(raw_source)
+        monster["source"] = clean_source_name(raw_source, is_2024)
 
     description_blocks = soup.select('.mon-details__description-block .mon-details__description-block-content')
     if description_blocks:
@@ -287,6 +289,185 @@ def validate_monster(html_content, url):
     if source_elem:
         source = clean_source_name(clean_text(source_elem.get_text().replace('Source:', '').strip()))
     return is_valid, source
+def merge_values(val1, val2, path, monster_name):
+    if val1 is None and val2 is None:
+        return None
+    if val1 is None:
+        return val2
+    if val2 is None:
+        return val1
+
+    if type(val1) != type(val2):
+        raise ValueError(f"Merge conflict in monster '{monster_name}' at field '{path}': Type mismatch '{type(val1)}' vs '{type(val2)}'")
+
+    if isinstance(val1, (int, bool, float)):
+        if val1 != val2:
+            raise ValueError(f"Merge conflict in monster '{monster_name}' at field '{path}': '{val1}' vs '{val2}'")
+        return val1
+
+    if isinstance(val1, str):
+        if val1 in val2:
+            return val2
+        elif val2 in val1:
+            return val1
+        else:
+            raise ValueError(f"Merge conflict in monster '{monster_name}' at field '{path}': '{val1}' vs '{val2}'")
+
+    if isinstance(val1, dict):
+        merged = {}
+        all_keys = set(val1.keys()) | set(val2.keys())
+        for k in all_keys:
+            new_path = f"{path}.{k}" if path else k
+            if k in val1 and k in val2:
+                merged[k] = merge_values(val1[k], val2[k], new_path, monster_name)
+            elif k in val1:
+                merged[k] = val1[k]
+            else:
+                merged[k] = val2[k]
+        return merged
+
+    if isinstance(val1, list):
+        is_list_of_dicts = (len(val1) > 0 and isinstance(val1[0], dict)) or (len(val2) > 0 and isinstance(val2[0], dict))
+        if is_list_of_dicts:
+            has_name = any(isinstance(item, dict) and 'name' in item for item in val1 + val2)
+            if has_name:
+                merged_list = []
+                dict_map1 = {item.get('name'): item for item in val1 if isinstance(item, dict) and 'name' in item}
+                dict_map2 = {item.get('name'): item for item in val2 if isinstance(item, dict) and 'name' in item}
+                
+                # Combine names preserving order: canonical names first, then incoming names
+                names1 = [item.get('name') for item in val1 if isinstance(item, dict) and 'name' in item]
+                names2 = [item.get('name') for item in val2 if isinstance(item, dict) and 'name' in item]
+                
+                combined_names = []
+                for name in names1:
+                    if name not in combined_names:
+                        combined_names.append(name)
+                for name in names2:
+                    if name not in combined_names:
+                        combined_names.append(name)
+                        
+                for name in combined_names:
+                    new_path = f"{path}[name={name}]" if path else f"name={name}"
+                    if name in dict_map1 and name in dict_map2:
+                        merged_list.append(merge_values(dict_map1[name], dict_map2[name], new_path, monster_name))
+                    elif name in dict_map1:
+                        merged_list.append(dict_map1[name])
+                    else:
+                        merged_list.append(dict_map2[name])
+                        
+                non_named1 = [item for item in val1 if not (isinstance(item, dict) and 'name' in item)]
+                non_named2 = [item for item in val2 if not (isinstance(item, dict) and 'name' in item)]
+                for item in non_named1:
+                    if item not in merged_list:
+                        merged_list.append(item)
+                for item in non_named2:
+                    if item not in merged_list:
+                        merged_list.append(item)
+                return merged_list
+            else:
+                # Fallback for list of dicts without 'name' field (e.g. damage field)
+                def is_dict_contained(d, lst):
+                    return any(d == item for item in lst)
+                
+                all_in_2 = all(is_dict_contained(item, val2) for item in val1)
+                all_in_1 = all(is_dict_contained(item, val1) for item in val2)
+                
+                if all_in_2:
+                    return val2
+                elif all_in_1:
+                    return val1
+                else:
+                    raise ValueError(f"Merge conflict in monster '{monster_name}' at field '{path}': Disjoint or conflicting lists of unnamed dicts '{val1}' vs '{val2}'")
+        else:
+            set1 = set(val1)
+            set2 = set(val2)
+            if set1.issubset(set2):
+                return val2
+            elif set2.issubset(set1):
+                return val1
+            else:
+                raise ValueError(f"Merge conflict in monster '{monster_name}' at field '{path}': Disjoint or overlapping lists '{val1}' vs '{val2}'")
+
+    raise ValueError(f"Merge conflict in monster '{monster_name}' at field '{path}': Unsupported type '{type(val1)}'")
+
+
+def merge_monsters(canonical, incoming):
+    all_keys = set(canonical.keys()) | set(incoming.keys())
+    keys_to_merge = all_keys - {'id', 'url', 'source'}
+    monster_name = canonical.get('name') or incoming.get('name') or "Unknown"
+    for k in keys_to_merge:
+        if k in canonical and k in incoming:
+            canonical[k] = merge_values(canonical[k], incoming[k], k, monster_name)
+        elif k in incoming:
+            canonical[k] = incoming[k]
+    return canonical
+
+
+def deduplicate_monsters(monsters_list):
+    existing_stubs = [m for m in monsters_list if 'duplicate_of' in m]
+    full_monsters = [m for m in monsters_list if 'duplicate_of' not in m]
+
+    groups = {}
+    for m in full_monsters:
+        name_key = m.get('name', '').lower().strip()
+        groups.setdefault(name_key, []).append(m)
+
+    final_output = []
+    final_output.extend(existing_stubs)
+
+    def is_duplicate(m1, m2):
+        keys1 = {k for k in m1.keys() if k not in ('id', 'url', 'source')}
+        keys2 = {k for k in m2.keys() if k not in ('id', 'url', 'source')}
+        if keys1 != keys2:
+            return False
+        for k in keys1:
+            if m1[k] != m2[k]:
+                return False
+        return True
+
+    for name_key, group in groups.items():
+        # Scan for Basic Rules (2014) and Monster Manual (2014) pair
+        br_monster = None
+        mm_monster = None
+        for m in group:
+            if m.get('source') == 'Basic Rules (2014)':
+                br_monster = m
+            elif m.get('source') == 'Monster Manual (2014)':
+                mm_monster = m
+
+        if br_monster and mm_monster:
+            # Attempt to run merge_monsters, allowing exceptions to bubble up
+            merge_monsters(br_monster, mm_monster)
+            # Generate stub for Monster Manual entry
+            final_output.append({
+                "id": mm_monster["id"],
+                "duplicate_of": br_monster["id"]
+            })
+            # Remove mm_monster from group
+            group = [m for m in group if m is not mm_monster]
+
+        # sort group by id lexicographically
+        sorted_group = sorted(group, key=lambda x: str(x.get('id', '')))
+        group_originals = []
+        for m in sorted_group:
+            matched_original = None
+            for orig in group_originals:
+                if is_duplicate(m, orig):
+                    matched_original = orig
+                    break
+            if matched_original is not None:
+                final_output.append({
+                    "id": m["id"],
+                    "duplicate_of": matched_original["id"]
+                })
+            else:
+                group_originals.append(m)
+                final_output.append(m)
+
+    final_output.sort(key=lambda x: str(x.get('id', '')))
+    return final_output
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -322,7 +503,7 @@ def main():
         all_monsters = list(unique_monsters.values())
         if len(all_monsters) > 0:
             with open(DATA_FILE, 'w', encoding='utf-8') as f:
-                json.dump(all_monsters, f, indent=2)
+                json.dump(deduplicate_monsters(all_monsters), f, indent=2)
 
         success_count = 0
         current_page = manager.state["last_page"]
@@ -407,12 +588,13 @@ def main():
                             all_monsters.append(monster_data)
                             success_count += 1
                             print(f"Successfully scraped '{monster_name}'.")
-                        
-                        with open(DATA_FILE, 'w', encoding='utf-8') as f:
-                            json.dump(all_monsters, f, indent=2)
                             
                     except Exception as e:
                         print(f"Failed to parse '{monster_name}': {e}")
+
+                if len(all_monsters) > 0:
+                    with open(DATA_FILE, 'w', encoding='utf-8') as f:
+                        json.dump(deduplicate_monsters(all_monsters), f, indent=2)
 
                 current_page += 1
                 manager.state["last_page"] = current_page

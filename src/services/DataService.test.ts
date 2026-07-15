@@ -108,4 +108,37 @@ describe('DataService Integrity Test', () => {
     expect(resolvedString).not.toBeNull();
     expect(resolvedString!.id).toBe(101);
   });
+
+  it('should correctly parse monsters with stubs and resolve them synchronously via getMonsterByIdSync', async () => {
+    const mockMonstersData = [
+      { id: '101', name: 'Goblin', cr: '1/4', meta: { size: 'Small', type: 'Humanoid' }, source: 'MM', attributes: { ac: { value: 15 }, hp: { value: 7, dice: '2d6' }, speeds: { walk: 30 } }, stats: { STR: { score: 8, modifier: -1 } }, skills: [], vulnerabilities: [], resistances: [], immunities: { damage: [], condition: [] }, senses: [], languages: [], traits: [], actions: [], legendary_actions: [], reactions: [] },
+      { id: '102', duplicate_of: '101' }
+    ];
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => mockMonstersData
+    });
+
+    (dataService as any).monsters = [];
+    (dataService as any).monsterPromise = null;
+
+    const monsters = await dataService.getAllMonsters();
+
+    // Verify stubs are filtered out from the main list
+    expect(monsters.length).toBe(1);
+    expect(monsters[0].id).toBe('101');
+
+    // Verify lookup resolves the stub ('102') to the original ('101')
+    const resolvedOriginal = dataService.getMonsterByIdSync('102');
+    expect(resolvedOriginal).not.toBeNull();
+    expect(resolvedOriginal!.id).toBe('101');
+    expect(resolvedOriginal!.name).toBe('Goblin');
+
+    // Verify lookup for original still works
+    const resolvedDirect = dataService.getMonsterByIdSync('101');
+    expect(resolvedDirect).not.toBeNull();
+    expect(resolvedDirect!.id).toBe('101');
+  });
 });

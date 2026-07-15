@@ -14,6 +14,7 @@ describe('Monster Data Integrity', () => {
 
   describe('Structural integrity of all monsters', () => {
     monsters.forEach((monster) => {
+      if (monster.duplicate_of) return;
       it(`should have all required fields structurally present and valid for ${monster.name}`, () => {
         // Base fields
         expect(typeof monster.id).toBe('string');
@@ -263,17 +264,17 @@ describe('Monster Data Integrity', () => {
     // the scraper is actually capable of finding them.
 
     it('should find at least one monster with damage immunities', () => {
-      const hasDamageImmunities = monsters.some(m => m.immunities.damage.length > 0);
+      const hasDamageImmunities = monsters.some(m => !m.duplicate_of && m.immunities.damage.length > 0);
       expect(hasDamageImmunities).toBe(true);
     });
 
     it('should find at least one monster with skills', () => {
-      const hasSkills = monsters.some(m => m.skills.length > 0);
+      const hasSkills = monsters.some(m => !m.duplicate_of && m.skills.length > 0);
       expect(hasSkills).toBe(true);
     });
 
     it('should find at least one monster with legendary actions', () => {
-      const hasLegendary = monsters.some(m => m.legendary_actions.length > 0);
+      const hasLegendary = monsters.some(m => !m.duplicate_of && m.legendary_actions.length > 0);
       expect(hasLegendary).toBe(true);
     });
   });
@@ -355,6 +356,7 @@ describe('Monster Data Integrity', () => {
       // --- CHECK B: Detect extra/orphaned/unowned monsters ---
       const extraMonsters: { id: string; name: string; url: string; reason: string }[] = [];
       monsters.forEach(m => {
+        if (m.duplicate_of) return;
         // Reason 1: Monster is marked as unowned/locked in the state file
         if (unownedUrlsSet.has(m.url)) {
           extraMonsters.push({ id: m.id, name: m.name, url: m.url, reason: 'Marked as unowned in state' });

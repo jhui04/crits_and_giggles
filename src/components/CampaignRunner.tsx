@@ -212,9 +212,9 @@ export function CampaignRunner() {
               const incomingConns = worldAsset ? getIncomingConnections(worldAsset.id) : [];
 
               let detailContent = null;
-              let matchedMonster = monsters.find(m => m.id === selectedAsset.id);
+              let matchedMonster = dataService.getMonsterByIdSync(selectedAsset.id);
               if (!matchedMonster) {
-                matchedMonster = monsters.find(m => m.name.toLowerCase() === selectedAsset.name.toLowerCase());
+                matchedMonster = monsters.find(m => m.name.toLowerCase() === selectedAsset.name.toLowerCase()) || null;
               }
               if (matchedMonster) {
                 detailContent = (

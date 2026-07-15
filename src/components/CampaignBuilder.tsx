@@ -266,7 +266,7 @@ export function CampaignBuilder() {
 
   const getAssetDisplayName = useCallback((asset: Asset) => {
     if (asset.type === 'NPC') {
-      const monster = monsters.find(m => m.id === asset.id);
+      const monster = dataService.getMonsterByIdSync(asset.id);
       if (monster) return monster.name;
     } else if (asset.type === 'Spell') {
       const spell = dataService.getSpellByIdSync(asset.id);
@@ -1198,9 +1198,9 @@ export function CampaignBuilder() {
             maxWidth: '500px', width: '90%', maxHeight: '80vh', overflowY: 'auto'
           }}>
             {(() => {
-              let matchedMonster = monsters.find(m => m.id === viewingAsset.id);
+              let matchedMonster = dataService.getMonsterByIdSync(viewingAsset.id);
               if (!matchedMonster) {
-                matchedMonster = monsters.find(m => m.name.toLowerCase() === viewingAsset.name.toLowerCase());
+                matchedMonster = monsters.find(m => m.name.toLowerCase() === viewingAsset.name.toLowerCase()) || null;
               }
               if (matchedMonster) {
                 return (

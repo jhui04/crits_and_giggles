@@ -86,10 +86,7 @@ export function WorldBuilder() {
   // Focus management when World Asset Details modal opens
   useEffect(() => {
     if (selectedWorldAssetId) {
-      const timer = setTimeout(() => {
-        worldAssetDetailsHeadingRef.current?.focus();
-      }, 50);
-      return () => clearTimeout(timer);
+      worldAssetDetailsHeadingRef.current?.focus();
     }
   }, [selectedWorldAssetId]);
 

@@ -39,6 +39,7 @@ export interface Monster {
   actions: { name: string; content: string; is_attack?: boolean; attack_bonus?: number; damage?: { dice: string; type: string }[] }[];
   legendary_actions: { name: string; content: string; cost?: number; is_attack?: boolean; attack_bonus?: number; damage?: { dice: string; type: string }[] }[];
   reactions: { name: string; content: string }[];
+  duplicate_of?: string;
 }
 
 export interface PlayerCharacter {
