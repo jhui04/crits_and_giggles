@@ -269,7 +269,7 @@ export function CampaignBuilder() {
       const monster = monsters.find(m => m.id === asset.id);
       if (monster) return monster.name;
     } else if (asset.type === 'Spell') {
-      const spell = spells.find(s => s.id.toString() === asset.id);
+      const spell = dataService.getSpellByIdSync(asset.id);
       if (spell) return spell.name;
     } else if (asset.type === 'Item') {
       const item = magicItems.find(mi => mi.id === asset.id);
@@ -1222,9 +1222,9 @@ export function CampaignBuilder() {
                 );
               }
 
-              let matchedSpell = spells.find(s => s.id.toString() === viewingAsset.id);
+              let matchedSpell = dataService.getSpellByIdSync(viewingAsset.id);
               if (!matchedSpell) {
-                matchedSpell = spells.find(s => s.name.toLowerCase() === viewingAsset.name.toLowerCase());
+                matchedSpell = spells.find(s => s.name.toLowerCase() === viewingAsset.name.toLowerCase()) || null;
               }
               if (matchedSpell) {
                 return (

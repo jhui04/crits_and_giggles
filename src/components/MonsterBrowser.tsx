@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useLayoutEffect, useRef } from 'react';
 import type { Monster } from '../types';
 import { dataService } from '../services/DataService';
 import type { MonsterFilters } from '../services/DataService';
@@ -22,6 +22,13 @@ export function MonsterBrowser({ onSelect, ctaLabel = "Add to Encounter", autoFo
   const filtersHeadingRef = useRef<HTMLHeadingElement>(null);
   const lastFocusedElementRef = useRef<HTMLElement | null>(null);
 
+  const previewMonsterRef = useRef<Monster | null>(null);
+  const isFiltersOpenRef = useRef(false);
+  useLayoutEffect(() => {
+    previewMonsterRef.current = previewMonster;
+    isFiltersOpenRef.current = isFiltersOpen;
+  });
+
   useEffect(() => {
     let isMounted = true;
     dataService.getAllMonsters().then(data => {
@@ -35,9 +42,13 @@ export function MonsterBrowser({ onSelect, ctaLabel = "Add to Encounter", autoFo
 
   useEffect(() => {
     if (autoFocus && !loading) {
-      setTimeout(() => {
-        searchInputRef.current?.focus();
+      const timer = setTimeout(() => {
+        // Guard: don't steal focus if a detail or filters modal opened within the 50ms window
+        if (!previewMonsterRef.current && !isFiltersOpenRef.current) {
+          searchInputRef.current?.focus();
+        }
       }, 50);
+      return () => clearTimeout(timer);
     }
   }, [autoFocus, loading]);
 

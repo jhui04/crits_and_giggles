@@ -11,6 +11,7 @@ export interface SpellFilters {
   search: string;
   levels?: string[];
   schools?: string[];
+  sources?: string[];
 }
 
 class DataService {
@@ -20,6 +21,7 @@ class DataService {
   private monsterPromise: Promise<Monster[]> | null = null;
   private spellPromise: Promise<Spell[]> | null = null;
   private magicItemPromise: Promise<MagicItem[]> | null = null;
+  private spellDuplicateMap: Map<number, number> = new Map();
 
   async getAllMonsters(): Promise<Monster[]> {
     if (this.monsters.length > 0) return this.monsters;
@@ -60,7 +62,15 @@ class DataService {
       })
       .then(data => {
         const list = Array.isArray(data) ? data : (data.spells || []);
-        this.spells = list;
+        this.spells = [];
+        this.spellDuplicateMap.clear();
+        for (const s of list) {
+          if (s.duplicate_of) {
+            this.spellDuplicateMap.set(s.id, s.duplicate_of);
+          } else {
+            this.spells.push(s);
+          }
+        }
         return this.spells;
       })
       .catch(err => {
@@ -70,6 +80,13 @@ class DataService {
       });
 
     return this.spellPromise;
+  }
+
+  getSpellByIdSync(id: number | string): Spell | null {
+    const numericId = typeof id === 'string' ? parseInt(id, 10) : id;
+    if (isNaN(numericId)) return null;
+    const targetId = this.spellDuplicateMap.get(numericId) || numericId;
+    return this.spells.find(s => s.id === targetId) || null;
   }
 
   getMonsterFilters(monsters: Monster[]) {
@@ -111,10 +128,12 @@ class DataService {
   }
 
   getSpellFilters(spells: Spell[]) {
-    if (!spells || spells.length === 0) return { schools: [] };
+    if (!spells || spells.length === 0) return { schools: [], sources: [] };
     const schools = Array.from(new Set(spells.map(s => s.school).filter(Boolean))) as string[];
+    const sources = Array.from(new Set(spells.map(s => s.source).filter(Boolean))) as string[];
     return {
-      schools: schools.sort()
+      schools: schools.sort(),
+      sources: sources.sort()
     };
   }
 
@@ -128,6 +147,7 @@ class DataService {
         }
         if (filters.levels && filters.levels.length > 0 && !filters.levels.includes(s.level.toString())) return false;
         if (filters.schools && filters.schools.length > 0 && !filters.schools.includes(s.school)) return false;
+        if (filters.sources && filters.sources.length > 0 && !filters.sources.includes(s.source)) return false;
         return true;
       })
       .sort((a, b) => a.name.localeCompare(b.name));

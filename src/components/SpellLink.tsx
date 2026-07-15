@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import type { Spell } from '../types';
 import { SpellDetail } from './SpellBrowser';
+import { dataService } from '../services/DataService';
 
 interface SpellLinkProps {
   spellName: string;
@@ -18,10 +19,8 @@ export function SpellLink({ spellName }: SpellLinkProps) {
 
   useEffect(() => {
     if (!spellCache) {
-      fetch('/data/spells.json')
-        .then(res => res.json())
-        .then(data => {
-          const loadedSpells = data.spells || data;
+      dataService.getAllSpells()
+        .then(loadedSpells => {
           spellCache = loadedSpells;
           setSpells(loadedSpells);
         })

@@ -68,4 +68,44 @@ describe('DataService Integrity Test', () => {
     expect(filters.crs.length).toBeGreaterThan(0);
     expect(filters.sizes.length).toBeGreaterThan(0);
   });
+
+  it('should correctly parse spells with stubs and resolve them synchronously via getSpellByIdSync', async () => {
+    const mockSpellsData = {
+      spells: [
+        { id: 101, name: 'Fireball', level: 3, school: 'Evocation', source: 'PHB', description: 'Big boom' },
+        { id: 102, duplicate_of: 101 }
+      ]
+    };
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => mockSpellsData
+    });
+
+    (dataService as any).spells = [];
+    (dataService as any).spellPromise = null;
+
+    const spells = await dataService.getAllSpells();
+
+    // Verify stubs are filtered out from the main list
+    expect(spells.length).toBe(1);
+    expect(spells[0].id).toBe(101);
+
+    // Verify lookup resolves the stub (102) to the original (101)
+    const resolvedOriginal = dataService.getSpellByIdSync(102);
+    expect(resolvedOriginal).not.toBeNull();
+    expect(resolvedOriginal!.id).toBe(101);
+    expect(resolvedOriginal!.name).toBe('Fireball');
+
+    // Verify lookup for original still works
+    const resolvedDirect = dataService.getSpellByIdSync(101);
+    expect(resolvedDirect).not.toBeNull();
+    expect(resolvedDirect!.id).toBe(101);
+
+    // Verify lookup with string ID works
+    const resolvedString = dataService.getSpellByIdSync('102');
+    expect(resolvedString).not.toBeNull();
+    expect(resolvedString!.id).toBe(101);
+  });
 });

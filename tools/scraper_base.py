@@ -26,6 +26,10 @@ class ChromeConnectionError(Exception):
     """Raised when connecting to the running Chrome instance fails."""
     pass
 
+class PageNotFoundError(Exception):
+    """Raised when a request returns a 404 status code."""
+    pass
+
 class ScraperManager:
     def __init__(
         self,
@@ -102,8 +106,8 @@ class ScraperManager:
             except: pass
             self.page = None
         if self.browser:
-            try: self.browser.close()
-            except: pass
+            # We don't call self.browser.close() because it terminates the remote Chrome instance
+            # that the user manually started and logged into.
             self.browser = None
         if self.playwright_context:
             try: self.playwright_context.stop()
@@ -120,7 +124,7 @@ class ScraperManager:
             
         print(f"Fetching {url}...")
         p_page = self.get_page()
-        p_page.goto(url)
+        response = p_page.goto(url)
         p_page.wait_for_timeout(wait_time)
         html = p_page.content()
         self.requests_made += 1
@@ -128,6 +132,10 @@ class ScraperManager:
         delay = self.request_delay_min + random.uniform(0, self.request_delay_max - self.request_delay_min)
         print(f"Sleeping for {delay:.2f} seconds... (Requests made: {self.requests_made})")
         time.sleep(delay)
+        
+        if response and response.status == 404:
+            raise PageNotFoundError(f"Page resolved to 404 status code: {url}")
+            
         return html
 
     def get_list_page(self, url, page_number):
@@ -202,7 +210,7 @@ class ScraperManager:
             # Check for deterministic redirect/locked signatures
             soup = BeautifulSoup(html_content, 'html.parser')
             title_text = soup.find('title').get_text(strip=True) if soup.find('title') else ""
-            is_redirected = "Marketplace" in title_text or "Shop" in title_text or "What's inside" in title_text or "Choose Your Plan" in title_text
+            is_redirected = "Marketplace" in title_text or "Shop" in title_text or "What's inside" in title_text or "Choose Your Plan" in title_text or "Subscription" in title_text
             has_lock_text = soup.find(string=re.compile(r'unlock this content|purchase the', re.I)) is not None
             is_known_locked_state = is_redirected or has_lock_text or "marketplace" in url.lower() or "store" in url.lower()
 

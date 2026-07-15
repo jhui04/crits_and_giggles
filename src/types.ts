@@ -133,6 +133,7 @@ export interface Spell {
   description: string;
   higher_level_description: string | null;
   source: string;
+  duplicate_of?: number;
 }
 
 export interface Campaign {

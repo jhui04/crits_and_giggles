@@ -4,6 +4,7 @@ import { DiceService } from '../services/DiceService';
 import { QuickRoller } from './QuickRoller';
 import { wrapSpells } from '../utils/spellUtils';
 import { Markdown } from './Markdown';
+import { dataService } from '../services/DataService';
 
 interface MonsterDetailsProps {
   monster: Monster;
@@ -22,13 +23,13 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
 
   useEffect(() => {
     if (globalSpellNames.length === 0) {
-      fetch('/data/spells.json')
-        .then(res => res.json())
-        .then(data => {
-          const names = (data.spells || data).map((s: Spell) => s.name);
+      dataService.getAllSpells()
+        .then(spells => {
+          const names = spells.map((s: Spell) => s.name);
           globalSpellNames = names;
           setSpellNames(names);
-        });
+        })
+        .catch(err => console.error('Failed to load spells for monster details:', err));
     }
   }, []);
 

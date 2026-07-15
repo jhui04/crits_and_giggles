@@ -104,7 +104,7 @@ def parse_magic_item_detail_html(html_content, url=""):
     
     # Check if page redirected to a shop/marketplace page
     title_text = soup.find('title').get_text(strip=True) if soup.find('title') else ""
-    is_redirected = "Marketplace" in title_text or "Shop" in title_text or "What's inside" in title_text or "Choose Your Plan" in title_text
+    is_redirected = "Marketplace" in title_text or "Shop" in title_text or "What's inside" in title_text or "Choose Your Plan" in title_text or "Subscription" in title_text
     
     detail_content_div = soup.select_one('.detail-content')
     if not detail_content_div or is_redirected:

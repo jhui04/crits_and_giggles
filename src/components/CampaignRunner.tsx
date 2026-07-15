@@ -226,9 +226,9 @@ export function CampaignRunner() {
                   </div>
                 );
               } else {
-                let matchedSpell = spells.find(s => s.id.toString() === selectedAsset.id);
+                let matchedSpell = dataService.getSpellByIdSync(selectedAsset.id);
                 if (!matchedSpell) {
-                  matchedSpell = spells.find(s => s.name.toLowerCase() === selectedAsset.name.toLowerCase());
+                  matchedSpell = spells.find(s => s.name.toLowerCase() === selectedAsset.name.toLowerCase()) || null;
                 }
                 if (matchedSpell) {
                   detailContent = (
