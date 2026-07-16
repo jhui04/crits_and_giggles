@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useCampaigns } from '../context/CampaignContext';
 import { useWorlds } from '../context/WorldContext';
 import { Markdown } from './Markdown';
-import type { Asset, Monster, Spell, MagicItem } from '../types';
+import type { Asset, Monster, Spell, MagicItem, WorldAsset } from '../types';
 import { MonsterDetails } from './MonsterDetails';
 import { SpellDetail } from './SpellBrowser';
 import { MagicItemDetail } from './MagicItemBrowser';
@@ -197,7 +197,7 @@ export function CampaignRunner() {
                 : undefined;
 
               const getIncomingConnections = (assetId: string) => {
-                const incoming: { sourceAsset: any, relationship: string }[] = [];
+                const incoming: { sourceAsset: WorldAsset, relationship: string }[] = [];
                 if (activeWorld) {
                   activeWorld.assets.forEach(as => {
                     as.connections.forEach(conn => {
@@ -211,7 +211,7 @@ export function CampaignRunner() {
               };
               const incomingConns = worldAsset ? getIncomingConnections(worldAsset.id) : [];
 
-              let detailContent = null;
+              let detailContent: React.ReactNode;
               let matchedMonster = dataService.getMonsterByIdSync(selectedAsset.id);
               if (!matchedMonster) {
                 matchedMonster = monsters.find(m => m.name.toLowerCase() === selectedAsset.name.toLowerCase()) || null;

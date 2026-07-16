@@ -9,8 +9,15 @@ export function WorldBuilder() {
 
   // World Settings Edit State
   const [isEditingWorld, setIsEditingWorld] = useState(false);
-  const [worldName, setWorldName] = useState('');
-  const [worldDesc, setWorldDesc] = useState('');
+  const [worldName, setWorldName] = useState(activeWorld ? activeWorld.name : '');
+  const [worldDesc, setWorldDesc] = useState(activeWorld ? activeWorld.description : '');
+  const [prevWorldId, setPrevWorldId] = useState(activeWorld?.id);
+
+  if (activeWorld?.id !== prevWorldId) {
+    setPrevWorldId(activeWorld?.id);
+    setWorldName(activeWorld ? activeWorld.name : '');
+    setWorldDesc(activeWorld ? activeWorld.description : '');
+  }
 
   // Asset CRUD State
   const [showAssetForm, setShowAssetForm] = useState(false);
@@ -42,7 +49,7 @@ export function WorldBuilder() {
   
   // Keep track of which element opened the Asset Form
   const triggerElementRef = useRef<HTMLElement | null>(null);
-  const focusTimeoutRef = useRef<any>(null);
+  const focusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Refs for world asset details modal accessibility
   const worldAssetTriggerRef = useRef<HTMLElement | null>(null);
@@ -58,13 +65,7 @@ export function WorldBuilder() {
     };
   }, []);
 
-  // Initialize World Settings Form
-  useEffect(() => {
-    if (activeWorld) {
-      setWorldName(activeWorld.name);
-      setWorldDesc(activeWorld.description);
-    }
-  }, [activeWorld]);
+
 
   // Focus management when World Edit Form opens
   useEffect(() => {

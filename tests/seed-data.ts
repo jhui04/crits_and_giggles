@@ -1,7 +1,8 @@
 import fs from 'fs';
 import path from 'path';
+import type { Monster } from '../src/types';
 
-const monstersData = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'public/data/monsters.json'), 'utf-8'));
+const monstersData: Monster[] = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'public/data/monsters.json'), 'utf-8'));
 const mockMonster = monstersData[0];
 
 export const getSeedState = (id: string = 'test-campaign') => ({
@@ -64,7 +65,7 @@ export const getSeedState = (id: string = 'test-campaign') => ({
   ]
 });
 
-const aartukMonster = monstersData.find((m: any) => m.name === 'Aartuk Starhorror') || monstersData[0];
+const aartukMonster = monstersData.find((m) => m.name === 'Aartuk Starhorror') || monstersData[0];
 
 export const seedState = getSeedState('test-campaign');
 

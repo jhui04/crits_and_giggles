@@ -276,7 +276,7 @@ export function CampaignBuilder() {
       if (item) return item.name;
     }
     return asset.name;
-  }, [monsters, spells, magicItems]);
+  }, []);
 
   const handleAddPlayer = async () => {
     if (!activeCampaign || !playerName) return;

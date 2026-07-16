@@ -83,8 +83,8 @@ describe('DataService Integrity Test', () => {
       json: async () => mockSpellsData
     });
 
-    (dataService as any).spells = [];
-    (dataService as any).spellPromise = null;
+    (dataService as unknown as Record<string, unknown>).spells = [];
+    (dataService as unknown as Record<string, unknown>).spellPromise = null;
 
     const spells = await dataService.getAllSpells();
 
@@ -121,8 +121,8 @@ describe('DataService Integrity Test', () => {
       json: async () => mockMonstersData
     });
 
-    (dataService as any).monsters = [];
-    (dataService as any).monsterPromise = null;
+    (dataService as unknown as Record<string, unknown>).monsters = [];
+    (dataService as unknown as Record<string, unknown>).monsterPromise = null;
 
     const monsters = await dataService.getAllMonsters();
 
