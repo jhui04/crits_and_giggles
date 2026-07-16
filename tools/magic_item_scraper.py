@@ -179,6 +179,66 @@ def validate_magic_item(html_content, url):
     except ValueError:
         return False, 'Unknown'
 
+def deduplicate_magic_items(items_list):
+    existing_stubs = [i for i in items_list if 'duplicate_of' in i]
+    full_items = [i for i in items_list if 'duplicate_of' not in i]
+    
+    # Group full items by normalized name
+    from collections import defaultdict
+    groups = defaultdict(list)
+    for item in full_items:
+        name_key = item.get('name', '').lower().strip()
+        groups[name_key].append(item)
+        
+    final_output = list(existing_stubs)
+    
+    def get_id_sort_key(x):
+        val = x.get('id', '')
+        if str(val).isdigit():
+            return (0, int(val))
+        return (1, str(val))
+        
+    def items_are_duplicates(a, b):
+        ignored = {'id', 'url', 'source', 'scraped_at'}
+        keys_a = {k for k in a.keys() if k not in ignored}
+        keys_b = {k for k in b.keys() if k not in ignored}
+        if keys_a != keys_b:
+            return False
+        for k in keys_a:
+            if a[k] != b[k]:
+                return False
+        return True
+
+    for name_key, group_items in groups.items():
+        group_items.sort(key=get_id_sort_key)
+        group_originals = []
+        for item in group_items:
+            matched_original = None
+            for original in group_originals:
+                if items_are_duplicates(item, original):
+                    matched_original = original
+                    break
+            if matched_original is not None:
+                stub = {
+                    "id": item["id"],
+                    "duplicate_of": matched_original["id"]
+                }
+                final_output.append(stub)
+            else:
+                group_originals.append(item)
+                final_output.append(item)
+                
+    # Sort the combined list by id
+    final_output.sort(key=get_id_sort_key)
+    return final_output
+
+def save_magic_items(items_dict):
+    combined = list(items_dict.values())
+    combined = deduplicate_magic_items(combined)
+    os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
+    with open(DATA_FILE, 'w', encoding='utf-8') as f:
+        json.dump(combined, f, indent=2)
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--force', action='store_true', help='Reparse all assets starting from page 1, preserving persistent state lists')
@@ -205,17 +265,14 @@ def main():
         else:
             all_items = []
 
-        # Deduplicate existing items by ID, excluding locked items
+        # Deduplicate existing items by ID, excluding locked items (unless they are stubs)
         unique_items = {}
         for item in all_items:
-            if "id" in item and not item.get('is_locked'):
+            if "id" in item and (not item.get('is_locked') or 'duplicate_of' in item):
                 unique_items[item["id"]] = item
-        all_items = list(unique_items.values())
 
-        if len(all_items) > 0:
-            os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
-            with open(DATA_FILE, 'w', encoding='utf-8') as f:
-                json.dump(all_items, f, indent=2)
+        items_dict = {item['id']: item for item in unique_items.values()}
+        save_magic_items(items_dict)
 
         success_count = 0
         current_page = manager.state["last_page"]
@@ -297,21 +354,14 @@ def main():
                     item_notes = clean_text(notes_el.get_text()) if notes_el else ''
 
                     # Check if item is already in json
-                    already_in_json = False
-                    target_idx = -1
-                    for idx, item in enumerate(all_items):
-                        if item.get('id') == item_id:
-                            already_in_json = True
-                            target_idx = idx
-                            break
+                    already_in_json = item_id in items_dict
 
                     html_content = manager.get_asset_html(item_slug, item_url)
                     if html_content is None:
                         if already_in_json:
-                            all_items = [x for x in all_items if x.get('id') != item_id]
+                            del items_dict[item_id]
                             print(f"Removed '{item_name}' from JSON.")
-                            with open(DATA_FILE, 'w', encoding='utf-8') as f:
-                                json.dump(all_items, f, indent=2)
+                            save_magic_items(items_dict)
                         continue
 
                     # Prepare baseline item dictionary
@@ -344,25 +394,21 @@ def main():
                                 item_data[key] = val
 
                         # Save to JSON
+                        items_dict[item_id] = item_data
                         if already_in_json:
-                            all_items[target_idx] = item_data
                             print(f"Updated '{item_name}' ({item_data['source']}) in JSON.")
                         else:
-                            all_items.append(item_data)
                             print(f"Successfully scraped '{item_name}' ({item_data['source']}).")
                             success_count += 1
 
                         # Save to file after each item to prevent loss
-                        os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
-                        with open(DATA_FILE, 'w', encoding='utf-8') as f:
-                            json.dump(all_items, f, indent=2)
+                        save_magic_items(items_dict)
                     except Exception as e:
                         print(f"Failed to parse '{item_name}': {e}")
                         if already_in_json:
-                            all_items = [x for x in all_items if x.get('id') != item_id]
+                            del items_dict[item_id]
                             print(f"Removed '{item_name}' from JSON due to parsing failure.")
-                            with open(DATA_FILE, 'w', encoding='utf-8') as f:
-                                json.dump(all_items, f, indent=2)
+                            save_magic_items(items_dict)
 
                 current_page += 1
                 manager.state["last_page"] = current_page
@@ -373,7 +419,7 @@ def main():
 
         manager.state["last_page"] = current_page
         manager.save_state()
-        print(f"Scrape run complete. Scraped {success_count} items. Total items in dataset: {len(all_items)}")
+        print(f"Scrape run complete. Scraped {success_count} items. Total items in dataset: {len(items_dict)}")
 
     finally:
         manager.close_playwright()

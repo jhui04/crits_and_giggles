@@ -164,6 +164,7 @@ export interface MagicItem {
   description: LoreItem[];
   html_description: string;
   scraped_at: string;
+  duplicate_of?: string;
 }
 
 export interface MagicItemFilters {

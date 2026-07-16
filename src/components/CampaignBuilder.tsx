@@ -272,7 +272,7 @@ export function CampaignBuilder() {
       const spell = dataService.getSpellByIdSync(asset.id);
       if (spell) return spell.name;
     } else if (asset.type === 'Item') {
-      const item = magicItems.find(mi => mi.id === asset.id);
+      const item = dataService.getMagicItemByIdSync(asset.id);
       if (item) return item.name;
     }
     return asset.name;
@@ -1246,9 +1246,9 @@ export function CampaignBuilder() {
                 );
               }
 
-              let matchedMagicItem = magicItems.find(mi => mi.id === viewingAsset.id);
+              let matchedMagicItem = dataService.getMagicItemByIdSync(viewingAsset.id);
               if (!matchedMagicItem) {
-                matchedMagicItem = magicItems.find(mi => mi.name.toLowerCase() === viewingAsset.name.toLowerCase());
+                matchedMagicItem = magicItems.find(mi => mi.name.toLowerCase() === viewingAsset.name.toLowerCase()) || null;
               }
               if (matchedMagicItem) {
                 return (

@@ -14,6 +14,7 @@ describe('Magic Item Data Integrity', () => {
 
   describe('Structural integrity of all magic items', () => {
     items.forEach((item) => {
+      if (item.duplicate_of) return;
       it(`should have required fields present for ${item.name}`, () => {
         expect(typeof item.id).toBe('string');
         expect(typeof item.name).toBe('string');
@@ -104,6 +105,7 @@ describe('Magic Item Data Integrity', () => {
       // --- CHECK B: Detect extra/orphaned/unowned magic items ---
       const extraItems: { id: string; name: string; url: string; reason: string }[] = [];
       items.forEach(i => {
+        if (i.duplicate_of) return;
         // Reason 1: Magic item is marked as unowned/locked in the state file
         if (unownedUrlsSet.has(i.url)) {
           extraItems.push({ id: i.id, name: i.name, url: i.url, reason: 'Marked as unowned in state' });

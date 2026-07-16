@@ -237,9 +237,9 @@ export function CampaignRunner() {
                     </div>
                   );
                 } else {
-                  let matchedMagicItem = magicItems.find(mi => mi.id === selectedAsset.id);
+                  let matchedMagicItem = dataService.getMagicItemByIdSync(selectedAsset.id);
                   if (!matchedMagicItem) {
-                    matchedMagicItem = magicItems.find(mi => mi.name.toLowerCase() === selectedAsset.name.toLowerCase());
+                    matchedMagicItem = magicItems.find(mi => mi.name.toLowerCase() === selectedAsset.name.toLowerCase()) || null;
                   }
                   if (matchedMagicItem) {
                     detailContent = (

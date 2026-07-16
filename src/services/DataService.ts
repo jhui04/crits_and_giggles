@@ -22,8 +22,8 @@ class DataService {
   private spellPromise: Promise<Spell[]> | null = null;
   private magicItemPromise: Promise<MagicItem[]> | null = null;
   private spellDuplicateMap: Map<number, number> = new Map();
-
   private monsterDuplicateMap: Map<string, string> = new Map();
+  private magicItemDuplicateMap: Map<string, string> = new Map();
 
   async getAllMonsters(): Promise<Monster[]> {
     if (this.monsters.length > 0) return this.monsters;
@@ -179,7 +179,15 @@ class DataService {
       })
       .then(data => {
         const list = Array.isArray(data) ? data : (data.magicItems || []);
-        this.magicItems = list;
+        this.magicItems = [];
+        this.magicItemDuplicateMap.clear();
+        for (const i of list) {
+          if (i.duplicate_of) {
+            this.magicItemDuplicateMap.set(i.id, i.duplicate_of);
+          } else {
+            this.magicItems.push(i);
+          }
+        }
         return this.magicItems;
       })
       .catch(err => {
@@ -189,6 +197,11 @@ class DataService {
       });
 
     return this.magicItemPromise;
+  }
+
+  getMagicItemByIdSync(id: string): MagicItem | null {
+    const targetId = this.magicItemDuplicateMap.get(id) || id;
+    return this.magicItems.find(i => i.id === targetId) || null;
   }
 
   getMagicItemFilters(items: MagicItem[]) {
