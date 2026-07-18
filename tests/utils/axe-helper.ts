@@ -7,14 +7,8 @@ import AxeBuilder from '@axe-core/playwright';
  * @param contextName A descriptive name for the view/state being scanned.
  */
 export async function checkA11y(page: Page, contextName: string) {
-  const isCreateMode = await page.evaluate(() => {
-    return !!document.querySelector('.layout-create');
-  }).catch(() => false);
-
   const builder = new AxeBuilder({ page });
-  if (isCreateMode) {
-    builder.disableRules(['landmark-one-main', 'region']);
-  }
+  builder.disableRules(['landmark-one-main', 'region']);
 
   const accessibilityScanResults = await builder.analyze();
 

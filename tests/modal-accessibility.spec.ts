@@ -182,7 +182,7 @@ test.describe('Run Mode Accessibility', () => {
   });
 
   test('Story Tab Base', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: 'Story Chapters' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Run Mode' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Chapter 1' })).toBeVisible();
     await checkA11y(page, 'Story Tab');
   });

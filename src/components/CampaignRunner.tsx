@@ -121,7 +121,7 @@ export function CampaignRunner() {
 
   return (
     <div >
-      <h2 ref={runnerHeadingRef} tabIndex={-1} style={{ outline: 'none' }} className="sr-only">Story Chapters</h2>
+      <h2 ref={runnerHeadingRef} tabIndex={-1} style={{ outline: 'none' }} className="sr-only">Run Mode</h2>
       <div style={{ display: 'flex', gap: '2rem' }}>
         {/* Navigation Sidebar */}
         <div style={{ flex: '0 0 200px', borderRight: '1px solid #ccc', paddingRight: '1rem' }}>

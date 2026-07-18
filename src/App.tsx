@@ -253,10 +253,7 @@ function App() {
             </div>
           </div>
         ) : (
-          <main>
-            <div className="sr-only" aria-live="polite">
-              Current Mode: Run Mode
-            </div>
+          <div role="presentation">
             <div className="layout-run">
               {!activeCampaign ? (
                 <div style={{ padding: '2rem' }}>No active campaign.</div>
@@ -266,7 +263,7 @@ function App() {
                 </div>
               )}
             </div>
-          </main>
+          </div>
         )}
       </div>
 

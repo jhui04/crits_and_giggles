@@ -48,7 +48,7 @@ test.describe('Core User Journeys', () => {
      
     // Verify Run Mode UI
     await expect(page.locator('text=Run Mode')).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Story Chapters' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Run Mode' })).toBeVisible();
  
     // Switch back
     await page.keyboard.press('Alt+m');
