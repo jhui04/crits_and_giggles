@@ -760,7 +760,7 @@ export function CampaignBuilder() {
       )}
 
       <nav className="sub-nav" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-        <h2 id="campaign-builder-heading" tabIndex={-1} style={{ margin: 0, outline: 'none' }}>Campaign Builder</h2>
+        <h2 id="campaign-builder-heading" tabIndex={-1} style={{ margin: 0, outline: 'none' }}>Create Mode</h2>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
           <div className="tab-group" style={{ marginRight: '1rem' }}>
             <button

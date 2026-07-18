@@ -41,19 +41,18 @@ test.describe('Core User Journeys', () => {
 
   test('User can toggle between Create and Run mode', async ({ page }) => {
     // By default, should be in Create Mode
-    await expect(page.locator('text=Create Mode')).toBeVisible();
-    await expect(page.locator('text=Campaign Builder')).toBeVisible();
-
+    await expect(page.getByRole('heading', { name: 'Create Mode' })).toBeVisible();
+ 
     // Switch to Run Mode
     await page.click('text=Switch to Run Mode');
-    
+     
     // Verify Run Mode UI
     await expect(page.locator('text=Run Mode')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Story Chapters' })).toBeVisible();
-
+ 
     // Switch back
     await page.click('text=Switch to Create Mode');
-    await expect(page.locator('text=Create Mode')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Create Mode' })).toBeVisible();
   });
 
   test('User can create an encounter for a chapter and view it in Run Mode', async ({ page }) => {

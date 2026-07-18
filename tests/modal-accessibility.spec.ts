@@ -101,11 +101,11 @@ test.describe('Create Mode Accessibility', () => {
     await setupApp(page);
   });
 
-  test('Campaign Builder (Default/Expanded)', async ({ page }) => {
+  test('Create Mode (Default/Expanded)', async ({ page }) => {
     // Current UI has "Chapters" view active by default.
     // "Chapter 1" is selected by default in the dropdown.
     await page.getByRole('button', { name: 'Test Asset (Location)', exact: false }).click();
-    await checkA11y(page, 'Campaign Builder Expanded');
+    await checkA11y(page, 'Create Mode Expanded');
   });
 
   test('Campaign Settings Modal', async ({ page }) => {

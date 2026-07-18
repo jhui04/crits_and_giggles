@@ -27,7 +27,7 @@ test.describe('Accessibility Baseline Scans', () => {
   });
 
   test('Create Mode Baseline', async ({ page }) => {
-    await checkA11y(page, 'Create Mode - Campaign Builder');
+    await checkA11y(page, 'Create Mode');
   });
 
   test('Run Mode - Story Tab Baseline', async ({ page }) => {

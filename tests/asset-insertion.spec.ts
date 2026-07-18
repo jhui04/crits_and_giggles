@@ -22,8 +22,8 @@ test.describe('Asset Insertion Modal', () => {
     }, SUITE_ID);
 
     await page.goto('/');
-    // Verify we are in Campaign Builder
-    await expect(page.getByRole('heading', { name: 'Campaign Builder' })).toBeVisible();
+    // Verify we are in Create Mode
+    await expect(page.getByRole('heading', { name: 'Create Mode' })).toBeVisible();
   });
 
   test('should trigger modal when typing @, manage focus, and set aria-hidden', async ({ page }) => {

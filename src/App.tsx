@@ -257,9 +257,11 @@ function App() {
           </div>
         </header>
         <main>
-          <div className="sr-only" aria-live="polite">
-            Current Mode: {mode === 'create' ? 'Create Mode' : 'Run Mode'}
-          </div>
+          {mode === 'run' && (
+            <div className="sr-only" aria-live="polite">
+              Current Mode: Run Mode
+            </div>
+          )}
           {mode === 'create' ? (
             <div className="layout-create">
               {!activeCampaign ? (

@@ -53,11 +53,11 @@ test.describe('Campaign Creation Flow', () => {
     // 6. Verify Campaign is created and active
     await expect(page.locator('header')).toContainText(`Campaign: ${campaignName}`);
     
-    // Should be in Create Mode by default, showing Campaign Builder
-    await expect(page.getByRole('heading', { name: 'Campaign Builder' })).toBeVisible();
+    // Should be in Create Mode by default, showing Create Mode heading
+    await expect(page.getByRole('heading', { name: 'Create Mode' })).toBeVisible();
     
     // Verify accessibility of the main view after creation
-    await checkA11y(page, 'Campaign Builder View after Creation');
+    await checkA11y(page, 'Create Mode View after Creation');
   });
 
   test('should create a new campaign from a template', async ({ page }) => {
