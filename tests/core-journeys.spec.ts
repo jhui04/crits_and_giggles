@@ -13,7 +13,7 @@ test.describe('Core User Journeys', () => {
       localStorage.clear();
     });
     await page.goto('/');
-    await page.waitForSelector('main');
+    await page.waitForSelector('header');
   });
 
   test('User can create a new campaign and switch to it', async ({ page }) => {
@@ -44,14 +44,14 @@ test.describe('Core User Journeys', () => {
     await expect(page.getByRole('heading', { name: 'Create Mode' })).toBeVisible();
  
     // Switch to Run Mode
-    await page.click('text=Switch to Run Mode');
+    await page.keyboard.press('Alt+m');
      
     // Verify Run Mode UI
     await expect(page.locator('text=Run Mode')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Story Chapters' })).toBeVisible();
  
     // Switch back
-    await page.click('text=Switch to Create Mode');
+    await page.keyboard.press('Alt+m');
     await expect(page.getByRole('heading', { name: 'Create Mode' })).toBeVisible();
   });
 
@@ -89,7 +89,7 @@ test.describe('Core User Journeys', () => {
     await page.click('button:has-text("Save Encounter")');
 
     // 6. Switch to Run Mode
-    await page.click('text=Switch to Run Mode');
+    await page.keyboard.press('Alt+m');
     await expect(page.locator('text=Run Mode')).toBeVisible();
 
     // 7. Verify link is visible in Run Mode for the chapter

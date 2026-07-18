@@ -121,9 +121,11 @@ export function WorldProvider({ children }: { children: ReactNode }) {
       const created = await WorldApiService.create(newWorld);
       setWorlds(prev => [...prev, created]);
       setActiveWorldId(created.id);
+      return created;
     } catch (err) {
       console.error('Failed to create world:', err);
       setError('Failed to create world');
+      return undefined;
     }
   };
 

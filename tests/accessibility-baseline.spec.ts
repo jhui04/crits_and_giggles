@@ -20,7 +20,7 @@ test.describe('Accessibility Baseline Scans', () => {
       localStorage.setItem('crits_active_campaign', id);
     }, SUITE_ID);
     await page.goto('/');
-    await page.waitForSelector('main');
+    await page.waitForSelector('header');
     
     // Verify correct campaign loaded
     await expect(page.locator('header')).toContainText(`Campaign: ${suiteSeed.name}`);
@@ -31,12 +31,12 @@ test.describe('Accessibility Baseline Scans', () => {
   });
 
   test('Run Mode - Story Tab Baseline', async ({ page }) => {
-    await page.click('text=Switch to Run Mode');
+    await page.keyboard.press('Alt+m');
     await checkA11y(page, 'Run Mode - Story Tab');
   });
 
   test('Run Mode - Encounter Runner Baseline', async ({ page, context }) => {
-    await page.click('text=Switch to Run Mode');
+    await page.keyboard.press('Alt+m');
     
     const [encounterPage] = await Promise.all([
       context.waitForEvent('page'),

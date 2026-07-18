@@ -16,7 +16,7 @@ const setupApp = async (page: Page) => {
     window.localStorage.setItem('crits_active_campaign', id);
   }, SUITE_ID);
   await page.goto('/');
-  await page.waitForSelector('main');
+  await page.waitForSelector('header');
   
   // Verify correct campaign loaded
   await expect(page.locator('header')).toContainText(`Campaign: ${suiteSeed.name}`);
@@ -109,14 +109,17 @@ test.describe('Create Mode Accessibility', () => {
   });
 
   test('Campaign Settings Modal', async ({ page }) => {
-    const trigger = page.getByRole('button', { name: 'Campaign Settings' });
-    await trigger.click();
+    const mainMenuTrigger = page.getByRole('button', { name: 'Open Main Menu' });
+    await mainMenuTrigger.click();
+    await page.getByRole('button', { name: 'Campaign Settings' }).click();
     await verifyModalOpen(page, 'Campaign Settings');
     await checkA11y(page, 'Campaign Settings');
-    await verifyModalClosed(page, trigger);
+    await verifyModalClosed(page, mainMenuTrigger);
   });
 
   test('Player Form Modal', async ({ page }) => {
+    const mainMenuTrigger = page.getByRole('button', { name: 'Open Main Menu' });
+    await mainMenuTrigger.click();
     await page.getByRole('button', { name: 'Campaign Settings' }).click();
     const trigger = page.getByRole('button', { name: '+ Add Player' });
     await trigger.click();
@@ -175,7 +178,7 @@ test.describe('Create Mode Accessibility', () => {
 test.describe('Run Mode Accessibility', () => {
   test.beforeEach(async ({ page }) => {
     await setupApp(page);
-    await page.getByRole('button', { name: 'Switch to Run Mode' }).click();
+    await page.keyboard.press('Alt+m');
   });
 
   test('Story Tab Base', async ({ page }) => {

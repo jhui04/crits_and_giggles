@@ -1,5 +1,5 @@
 import { test, expect, Page } from '@playwright/test';
-import { checkA11y } from './utils/axe-helper';
+import { checkA11y, navigateToChangeWorld, closeCampaignSettingsAfterWorldSelect } from './utils/axe-helper';
 import { getSeedState } from './seed-data';
 
 const SUITE_ID = 'world-connections-suite';
@@ -11,7 +11,7 @@ const setupApp = async (page: Page) => {
     window.localStorage.setItem('crits_active_campaign', id);
   }, SUITE_ID);
   await page.goto('/');
-  await page.waitForSelector('main');
+  await page.waitForSelector('header');
 };
 
 test.describe('World Asset Connections E2E and A11y', () => {
@@ -50,9 +50,10 @@ test.describe('World Asset Connections E2E and A11y', () => {
 
   test.beforeEach(async ({ page }) => {
     await setupApp(page);
-    // Select the seeded world
-    await page.keyboard.press('Alt+w');
+    // Select the seeded world via the shared helper
+    await navigateToChangeWorld(page);
     await page.getByRole('button', { name: 'Connections Test World' }).first().click();
+    await closeCampaignSettingsAfterWorldSelect(page);
     // Switch to World Tab
     await page.getByRole('button', { name: 'World', exact: true }).click();
   });

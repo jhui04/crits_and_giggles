@@ -11,10 +11,10 @@ const setupApp = async (page: Page) => {
     window.localStorage.setItem('crits_active_campaign', id);
   }, SUITE_ID);
   await page.goto('/');
-  await page.waitForSelector('main');
+  await page.waitForSelector('header');
 };
 
-test.describe('World Switcher Modal E2E and A11y', () => {
+test.describe('World Link and Management E2E and A11y', () => {
   test.beforeAll(async ({ request }) => {
     const apiBase = 'http://localhost:3005/api';
     await request.delete(`${apiBase}/danger/reset`);
@@ -26,22 +26,32 @@ test.describe('World Switcher Modal E2E and A11y', () => {
     await setupApp(page);
   });
 
-  test('should open, create world, select it, delete it, and handle focus correctly', async ({ page }) => {
-    // 1. Open switcher with Alt+W and verify focus
+  test('should open main menu, open campaign settings, link/create/delete world, and handle focus correctly', async ({ page }) => {
+    // 1. Open Main Menu and Campaign Settings
     const mainMenuTrigger = page.getByRole('button', { name: 'Open Main Menu' });
-    await mainMenuTrigger.focus();
-    await page.keyboard.press('Alt+w');
+    await mainMenuTrigger.click();
     
-    const switcherHeading = page.locator('#world-switcher-title');
-    await expect(switcherHeading).toBeVisible();
-    await expect(switcherHeading).toBeFocused();
+    const settingsBtn = page.getByRole('button', { name: 'Campaign Settings' });
+    await settingsBtn.click();
+    
+    const campaignHeading = page.locator('#campaign-modal-title');
+    await expect(campaignHeading).toBeVisible();
+    await expect(campaignHeading).toBeFocused();
 
-    // Run axe check
-    await checkA11y(page, 'World Switcher Modal');
+    // 2. Open Change World modal
+    const changeWorldBtn = page.getByRole('button', { name: 'Change World' });
+    await changeWorldBtn.click();
+    
+    const worldPickerHeading = page.locator('#world-picker-title');
+    await expect(worldPickerHeading).toBeVisible();
+    await expect(worldPickerHeading).toBeFocused();
 
-    // 2. Click Create New World
+    // Run axe check on the world link modal
+    await checkA11y(page, 'Link Campaign to World Modal');
+
+    // 3. Click Create New World
     await page.getByRole('button', { name: '+ Create New World' }).click();
-    const newWorldHeading = page.locator('#world-switcher-title');
+    const newWorldHeading = page.locator('#world-picker-title');
     await expect(newWorldHeading).toBeVisible();
     await expect(newWorldHeading).toBeFocused();
 
@@ -50,41 +60,41 @@ test.describe('World Switcher Modal E2E and A11y', () => {
     await page.getByLabel('Description:').fill('Classic D&D world setting.');
     
     // Submit
-    await page.getByRole('button', { name: 'Create & Select' }).click();
+    await page.getByRole('button', { name: 'Create & Link' }).click();
     
-    // Switcher should close, focus should go back to main menu trigger
-    await expect(switcherHeading).not.toBeVisible();
-    await expect(mainMenuTrigger).toBeFocused();
+    // World Picker should close, focus should go back to "Change World" button
+    await expect(worldPickerHeading).not.toBeVisible();
+    await expect(changeWorldBtn).toBeFocused();
 
     // Check header for updated world name
     await expect(page.locator('header')).toContainText('World: Forgotten Realms');
 
-    // 3. Open Switcher again, select Forgotten Realms, close, and verify focus restoration
-    await page.keyboard.press('Alt+w');
-    await expect(switcherHeading).toBeVisible();
-    await expect(switcherHeading).toBeFocused();
+    // 4. Open Change World again, verify active linking, and delete the world
+    await changeWorldBtn.click();
+    await expect(worldPickerHeading).toBeVisible();
+    await expect(worldPickerHeading).toBeFocused();
 
-    // Click Forgotten Realms button (with Active badge)
-    const selectBtn = page.getByRole('button', { name: 'Forgotten Realms (Active)' });
-    await expect(selectBtn).toBeVisible();
-    await selectBtn.click();
+    // Verify linked world is listed
+    const linkBtn = page.getByRole('button', { name: 'Forgotten Realms (Linked)' });
+    await expect(linkBtn).toBeVisible();
 
-    // Should close and restore focus
-    await expect(switcherHeading).not.toBeVisible();
-    await expect(mainMenuTrigger).toBeFocused();
-
-    // 4. Delete world
-    await page.keyboard.press('Alt+w');
+    // Setup dialog handler for delete confirmation
     page.once('dialog', async dialog => {
       expect(dialog.message()).toContain('Are you sure you want to delete');
       await dialog.accept();
     });
     
     await page.getByRole('button', { name: 'Delete Forgotten Realms' }).click();
-    await expect(page.getByRole('button', { name: 'Forgotten Realms (Active)' })).not.toBeVisible();
+    await expect(page.getByRole('button', { name: 'Forgotten Realms (Linked)' })).not.toBeVisible();
 
-    // Close switcher using Escape
+    // Close world picker modal using Escape, verify focus returns to Change World button
     await page.keyboard.press('Escape');
-    await expect(switcherHeading).not.toBeVisible();
+    await expect(worldPickerHeading).not.toBeVisible();
+    await expect(changeWorldBtn).toBeFocused();
+
+    // Close Campaign Settings modal using Escape, verify focus returns to Main Menu trigger
+    await page.keyboard.press('Escape');
+    await expect(campaignHeading).not.toBeVisible();
+    await expect(mainMenuTrigger).toBeFocused();
   });
 });

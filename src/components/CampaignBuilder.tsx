@@ -11,15 +11,20 @@ import { dataService } from '../services/DataService';
 import { AssetInsertionModal } from './AssetInsertionModal';
 import { WorldBuilder } from './WorldBuilder';
 
-export function CampaignBuilder() {
-  const { activeCampaign, updateCampaign } = useCampaigns();
-  const { worlds, activeWorld, updateWorld } = useWorlds();
+interface CampaignBuilderProps {
+  isCampaignSettingsOpen: boolean;
+  onCloseCampaignSettings: () => void;
+}
 
-  // Campaign Settings State
-  const [showCampaignForm, setShowCampaignForm] = useState(false);
+export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSettings }: CampaignBuilderProps) {
+  const { activeCampaign, updateCampaign } = useCampaigns();
+  const { worlds, activeWorld, updateWorld, createWorld, deleteWorld } = useWorlds();
 
   // World Association State
   const [showWorldLinkModal, setShowWorldLinkModal] = useState(false);
+  const [isCreatingNewWorld, setIsCreatingNewWorld] = useState(false);
+  const [newWorldName, setNewWorldName] = useState('');
+  const [newWorldDesc, setNewWorldDesc] = useState('');
   const [showLinkAssetModal, setShowLinkAssetModal] = useState(false);
   const [linkAssetSearch, setLinkAssetSearch] = useState('');
   const [linkAssetTypeFilter, setLinkAssetTypeFilter] = useState('All');
@@ -61,7 +66,8 @@ export function CampaignBuilder() {
 
   // Refs for focus management
   const campaignHeadingRef = useRef<HTMLHeadingElement>(null);
-  const editCampaignBtnRef = useRef<HTMLButtonElement>(null);
+  const worldLinkHeadingRef = useRef<HTMLHeadingElement>(null);
+  const newWorldHeadingRef = useRef<HTMLHeadingElement>(null);
 
   const playerHeadingRef = useRef<HTMLHeadingElement>(null);
   const addPlayerBtnRef = useRef<HTMLButtonElement>(null);
@@ -77,18 +83,6 @@ export function CampaignBuilder() {
   const createEncounterBtnRef = useRef<HTMLButtonElement>(null);
   const assetViewerHeadingRef = useRef<HTMLHeadingElement>(null);
   const lastFocusedElement = useRef<HTMLElement | null>(null);
-
-  const closeCampaignForm = useCallback(() => {
-    setShowCampaignForm(false);
-    setTimeout(() => {
-      if (lastFocusedElement.current) {
-        lastFocusedElement.current.focus();
-        lastFocusedElement.current = null;
-      } else {
-        editCampaignBtnRef.current?.focus();
-      }
-    }, 0);
-  }, []);
 
   const closePlayerForm = useCallback(() => {
     setShowPlayerForm(false);
@@ -154,6 +148,17 @@ export function CampaignBuilder() {
     setTimeout(() => lastFocusedElement.current?.focus(), 0);
   }, []);
 
+  const closeWorldLinkModal = useCallback(() => {
+    setShowWorldLinkModal(false);
+    setIsCreatingNewWorld(false);
+    setTimeout(() => {
+      if (lastFocusedElement.current) {
+        lastFocusedElement.current.focus();
+        lastFocusedElement.current = null;
+      }
+    }, 0);
+  }, []);
+
   const getSortedAssets = useCallback(() => {
     if (!activeCampaign) return [];
     const sorted: Asset[] = [];
@@ -190,8 +195,20 @@ export function CampaignBuilder() {
   }, [activeCampaign]);
 
   useEffect(() => {
-    if (showCampaignForm) campaignHeadingRef.current?.focus();
-  }, [showCampaignForm]);
+    if (isCampaignSettingsOpen) campaignHeadingRef.current?.focus();
+  }, [isCampaignSettingsOpen]);
+
+  useEffect(() => {
+    if (showWorldLinkModal) {
+      setTimeout(() => {
+        if (isCreatingNewWorld) {
+          newWorldHeadingRef.current?.focus();
+        } else {
+          worldLinkHeadingRef.current?.focus();
+        }
+      }, 50);
+    }
+  }, [showWorldLinkModal, isCreatingNewWorld]);
 
   useEffect(() => {
     if (showPlayerForm) playerHeadingRef.current?.focus();
@@ -237,12 +254,34 @@ export function CampaignBuilder() {
             document.getElementById('chap-content')?.focus();
           }, 0);
         }
-        else if (showPlayerForm) closePlayerForm();
-        else if (showCampaignForm) closeCampaignForm();
-        else if (showChapterForm) closeChapterForm();
-        else if (showChapterOptionsModal) closeChapterOptionsModal();
-        else if (showAssetForm) closeAssetForm();
-        else if (viewingAsset) closeAssetViewer();
+        else if (showWorldLinkModal) {
+          closeWorldLinkModal();
+          e.preventDefault();
+        }
+        else if (showPlayerForm) {
+          closePlayerForm();
+          e.preventDefault();
+        }
+        else if (showChapterForm) {
+          closeChapterForm();
+          e.preventDefault();
+        }
+        else if (showChapterOptionsModal) {
+          closeChapterOptionsModal();
+          e.preventDefault();
+        }
+        else if (showAssetForm) {
+          closeAssetForm();
+          e.preventDefault();
+        }
+        else if (viewingAsset) {
+          closeAssetViewer();
+          e.preventDefault();
+        }
+        else if (isCampaignSettingsOpen) {
+          onCloseCampaignSettings();
+          e.preventDefault();
+        }
       }
 
       // Prevent default behavior for Enter and Space on non-interactive elements
@@ -257,7 +296,7 @@ export function CampaignBuilder() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showCampaignForm, showPlayerForm, showChapterForm, showChapterOptionsModal, showAssetForm, showAssetInsertionModal, viewingAsset, closeCampaignForm, closePlayerForm, closeChapterForm, closeChapterOptionsModal, closeAssetForm, closeAssetViewer]);
+  }, [isCampaignSettingsOpen, showPlayerForm, showChapterForm, showChapterOptionsModal, showAssetForm, showAssetInsertionModal, viewingAsset, showWorldLinkModal, onCloseCampaignSettings, closePlayerForm, closeChapterForm, closeChapterOptionsModal, closeAssetForm, closeAssetViewer, closeWorldLinkModal]);
 
   const closeEncounterForm = () => {
     setIsCreatingEncounter(false);
@@ -508,9 +547,39 @@ export function CampaignBuilder() {
     }, 0);
   };
 
-  const handleOpenSettings = () => {
-    lastFocusedElement.current = document.activeElement as HTMLElement;
-    setShowCampaignForm(true);
+  const handleAddWorld = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newWorldName.trim() && activeCampaign) {
+      const created = await createWorld(newWorldName.trim(), newWorldDesc.trim());
+      if (created) {
+        await updateCampaign({
+          ...activeCampaign,
+          worldId: created.id
+        });
+      }
+      setNewWorldName('');
+      setNewWorldDesc('');
+      setIsCreatingNewWorld(false);
+      setShowWorldLinkModal(false);
+      setTimeout(() => {
+        if (lastFocusedElement.current) {
+          lastFocusedElement.current.focus();
+          lastFocusedElement.current = null;
+        }
+      }, 0);
+    }
+  };
+
+  const handleDeleteWorld = async (id: string, name: string) => {
+    if (confirm(`Are you sure you want to delete the world "${name}"? All assets and connections will be lost.`)) {
+      await deleteWorld(id);
+      if (activeCampaign && activeCampaign.worldId === id) {
+        await updateCampaign({
+          ...activeCampaign,
+          worldId: undefined
+        });
+      }
+    }
   };
 
   const handleEditPlayer = useCallback((player: PlayerCharacter) => {
@@ -597,7 +666,7 @@ export function CampaignBuilder() {
   }
 
   // Calculate global aria-hidden for the main content when modals are open
-  const isAnyModalOpen = showCampaignForm || showPlayerForm || showChapterForm || showAssetForm || viewingAsset || showAssetInsertionModal;
+  const isAnyModalOpen = isCampaignSettingsOpen || showPlayerForm || showChapterForm || showAssetForm || viewingAsset || showAssetInsertionModal || showWorldLinkModal;
 
   const handleUnlinkWorld = async () => {
     if (confirm('Are you sure you want to unlink this campaign from its world? Existing assets with links to the world will retain their data but will no longer be linked.')) {
@@ -623,39 +692,84 @@ export function CampaignBuilder() {
         }}>
           <div className="modal-content" style={{
             backgroundColor: 'white', padding: '2rem', borderRadius: '8px',
-            maxWidth: '400px', width: '90%', maxHeight: '80vh', overflowY: 'auto'
+            maxWidth: '500px', width: '90%', maxHeight: '80vh', overflowY: 'auto'
           }}>
-            <h2 id="world-picker-title" style={{ marginTop: 0 }}>Link Campaign to World</h2>
-            {worlds.length === 0 ? (
-              <p>No worlds found. Please create a world first (Alt+W).</p>
+            {!isCreatingNewWorld ? (
+              <>
+                <h2 id="world-picker-title" ref={worldLinkHeadingRef} tabIndex={-1} style={{ outline: 'none', marginTop: 0 }}>Link Campaign to World</h2>
+                {worlds.length === 0 ? (
+                  <p>No worlds found.</p>
+                ) : (
+                  <ul style={{ listStyle: 'none', padding: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {worlds.map(w => (
+                      <li key={w.id} style={{ display: 'flex', gap: '0.5rem' }}>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await updateCampaign({
+                              ...activeCampaign,
+                              worldId: w.id
+                            });
+                            closeWorldLinkModal();
+                          }}
+                          style={{ flexGrow: 1, textAlign: 'left', padding: '0.75rem', fontWeight: activeCampaign?.worldId === w.id ? 'bold' : 'normal' }}
+                        >
+                          {w.name} {activeCampaign?.worldId === w.id && '(Linked)'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteWorld(w.id, w.name)}
+                          style={{ background: '#d32f2f', color: 'white', border: 'none', padding: '0 1rem' }}
+                          aria-label={`Delete ${w.name}`}
+                        >
+                          Delete
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div style={{ marginTop: '2rem', display: 'flex', gap: '1rem' }}>
+                  <button type="button" onClick={() => setIsCreatingNewWorld(true)} style={{ flex: 1, padding: '1rem', fontWeight: 'bold' }}>+ Create New World</button>
+                  <button
+                    type="button"
+                    onClick={closeWorldLinkModal}
+                    style={{ flex: 1, padding: '1rem', background: '#eee' }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </>
             ) : (
-              <ul style={{ listStyle: 'none', padding: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                {worlds.map(w => (
-                  <li key={w.id}>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        await updateCampaign({
-                          ...activeCampaign,
-                          worldId: w.id
-                        });
-                        setShowWorldLinkModal(false);
-                      }}
-                      style={{ width: '100%', textAlign: 'left', padding: '0.75rem' }}
-                    >
-                      {w.name}
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              <form onSubmit={handleAddWorld}>
+                <h2 id="world-picker-title" ref={newWorldHeadingRef} tabIndex={-1} style={{ outline: 'none', marginTop: 0 }}>New World</h2>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div>
+                    <label htmlFor="new-world-name">World Name:</label>
+                    <input
+                      id="new-world-name"
+                      type="text"
+                      required
+                      value={newWorldName}
+                      onChange={e => setNewWorldName(e.target.value)}
+                      style={{ width: '100%', padding: '0.75rem' }}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="new-world-desc">Description:</label>
+                    <textarea
+                      id="new-world-desc"
+                      value={newWorldDesc}
+                      onChange={e => setNewWorldDesc(e.target.value)}
+                      style={{ width: '100%', padding: '0.75rem', minHeight: '100px' }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
+                    <button type="submit" style={{ flex: 1, padding: '1rem', background: '#1976d2', color: 'white', fontWeight: 'bold' }}>Create & Link</button>
+                    <button type="button" onClick={() => setIsCreatingNewWorld(false)} style={{ flex: 1, padding: '1rem', background: '#eee' }}>Back</button>
+                  </div>
+                </div>
+              </form>
             )}
-            <button
-              type="button"
-              onClick={() => setShowWorldLinkModal(false)}
-              style={{ marginTop: '1.5rem', width: '100%', padding: '0.75rem', backgroundColor: '#eee' }}
-            >
-              Cancel
-            </button>
           </div>
         </div>
       )}
@@ -759,7 +873,7 @@ export function CampaignBuilder() {
         </div>
       )}
 
-      <nav className="sub-nav" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+      <div className="sub-nav" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
         <h2 id="campaign-builder-heading" tabIndex={-1} style={{ margin: 0, outline: 'none' }}>Create Mode</h2>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
           <div className="tab-group" style={{ marginRight: '1rem' }}>
@@ -788,21 +902,21 @@ export function CampaignBuilder() {
               World
             </button>
           </div>
-          <button type="button" ref={editCampaignBtnRef} onClick={handleOpenSettings}>Campaign Settings</button>
         </div>
-      </nav>
+      </div>
 
       {viewMode === 'chapters' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }} aria-hidden={!!isAnyModalOpen}>
           {/* Chapter Selector */}
           <section style={{ borderBottom: '2px solid #eee', paddingBottom: '1rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-              <label htmlFor="chapter-select" style={{ fontWeight: 'bold' }}>Current Chapter:</label>
+              <span aria-hidden="true" style={{ fontWeight: 'bold' }}>Current Chapter:</span>
               <select
                 id="chapter-select"
+                aria-label="Current Chapter:"
                 value={selectedChapterId || ''}
-                onChange={(e) => setSelectedChapterId(e.target.value)}
-                style={{ padding: '0.5rem', flexGrow: 1, maxWidth: '400px' }}
+                onChange={(e) => setSelectedChapterId(e.target.value || null)}
+                style={{ padding: '0.5rem', minWidth: '200px' }}
               >
                 {activeCampaign.chapters.map(c => (
                   <option key={c.id} value={c.id}>{c.title}</option>
@@ -1127,7 +1241,7 @@ export function CampaignBuilder() {
       )}
 
       {/* Campaign Form Modal */}
-      {showCampaignForm && (
+      {isCampaignSettingsOpen && (
         <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="campaign-modal-title" style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, 
           backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', 
@@ -1135,7 +1249,7 @@ export function CampaignBuilder() {
         }}>
           <div className="modal-content" style={{
             backgroundColor: 'white', padding: '2rem', borderRadius: '8px', 
-            maxWidth: '600px', width: '90%', maxHeight: '90vh', overflowY: 'auto'
+            maxWidth: '600px', width: '90%', maxHeight: '95vh', overflowY: 'auto'
           }}>
             <h2 id="campaign-modal-title" ref={campaignHeadingRef} tabIndex={-1} style={{ outline: 'none', marginTop: 0 }}>
               Campaign Settings
@@ -1170,7 +1284,7 @@ export function CampaignBuilder() {
                   </p>
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <button type="button" onClick={() => setShowWorldLinkModal(true)}>Change World</button>
+                  <button type="button" onClick={(e) => { lastFocusedElement.current = e.currentTarget; setShowWorldLinkModal(true); }}>Change World</button>
                   {activeCampaign.worldId && (
                     <>
                       <button type="button" onClick={handleUnlinkWorld}>Unlink World</button>
@@ -1202,7 +1316,7 @@ export function CampaignBuilder() {
               </section>
 
               <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
-                <button type="button" onClick={closeCampaignForm} style={{ flex: 1 }}>Close</button>
+                <button type="button" onClick={onCloseCampaignSettings} style={{ flex: 1 }}>Close</button>
               </div>
             </div>
           </div>

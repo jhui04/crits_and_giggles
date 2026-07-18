@@ -6,7 +6,7 @@ export interface WorldContextType {
   activeWorldId: string | null;
   activeWorld: World | undefined;
   setActiveWorldId: (id: string | null) => void;
-  createWorld: (name: string, description: string) => Promise<void>;
+  createWorld: (name: string, description: string) => Promise<World | undefined>;
   updateWorld: (world: World) => Promise<void>;
   deleteWorld: (id: string) => Promise<void>;
 }

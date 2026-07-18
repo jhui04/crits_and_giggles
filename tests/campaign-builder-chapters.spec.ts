@@ -38,9 +38,9 @@ test.describe('Campaign Builder Chapters', () => {
 
     await page.goto('/');
     // Switch to Create Mode if not already there
-    const modeBtn = page.getByRole('button', { name: /Switch to Create Mode/i });
-    if (await modeBtn.isVisible()) {
-      await modeBtn.click();
+    const isRunMode = await page.locator('.layout-run').isVisible();
+    if (isRunMode) {
+      await page.keyboard.press('Alt+m');
     }
   });
 

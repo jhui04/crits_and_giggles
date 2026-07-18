@@ -19,7 +19,7 @@ test.describe('Oracle Accessibility', () => {
       window.localStorage.setItem('crits_active_campaign', id);
     }, SUITE_ID);
     await page.goto('/');
-    await page.waitForSelector('main');
+    await page.waitForSelector('header');
   });
 
   test('Oracle opens, search works, and focus management is correct', async ({ page }) => {

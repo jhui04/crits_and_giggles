@@ -35,7 +35,7 @@ test.describe('Asset Management and Viewer', () => {
     }, SUITE_ID);
 
     await page.goto('/');
-    await page.waitForSelector('main');
+    await page.waitForSelector('header');
     // Ensure app is hydrated and correct campaign is loaded
     await expect(page.getByRole('heading', { name: 'Create Mode' })).toBeVisible();
     await expect(page.locator('header')).toContainText('Campaign: Asset Management Campaign');

@@ -21,7 +21,7 @@ test.describe('Oracle Magic Item Accessibility', () => {
       window.localStorage.setItem('crits_active_campaign', id);
     }, SUITE_ID);
     await page.goto('/');
-    await page.waitForSelector('main');
+    await page.waitForSelector('header');
   });
 
   test('should search and view details of a magic item with correct focus', async ({ page }) => {

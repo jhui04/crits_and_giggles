@@ -1,5 +1,5 @@
 import { test, expect, Page } from '@playwright/test';
-import { checkA11y } from './utils/axe-helper';
+import { checkA11y, navigateToChangeWorld, closeCampaignSettingsAfterWorldSelect } from './utils/axe-helper';
 import { getSeedState } from './seed-data';
 
 const SUITE_ID = 'world-builder-suite';
@@ -11,7 +11,7 @@ const setupApp = async (page: Page) => {
     window.localStorage.setItem('crits_active_campaign', id);
   }, SUITE_ID);
   await page.goto('/');
-  await page.waitForSelector('main');
+  await page.waitForSelector('header');
 };
 
 test.describe('World Builder Panel CRUD E2E and A11y', () => {
@@ -33,9 +33,10 @@ test.describe('World Builder Panel CRUD E2E and A11y', () => {
 
   test.beforeEach(async ({ page }) => {
     await setupApp(page);
-    // Select the seeded world first
-    await page.keyboard.press('Alt+w');
+    // Select the seeded world via the shared helper
+    await navigateToChangeWorld(page);
     await page.getByRole('button', { name: 'Builder Test World' }).first().click();
+    await closeCampaignSettingsAfterWorldSelect(page);
   });
 
   test('should support tabs, adding, editing, deleting assets and filtering/searching', async ({ page }) => {

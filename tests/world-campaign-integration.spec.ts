@@ -11,7 +11,7 @@ const setupApp = async (page: Page) => {
     window.localStorage.setItem('crits_active_campaign', id);
   }, SUITE_ID);
   await page.goto('/');
-  await page.waitForSelector('main');
+  await page.waitForSelector('header');
 };
 
 test.describe('Campaign and World Integration E2E and A11y', () => {
@@ -61,6 +61,7 @@ test.describe('Campaign and World Integration E2E and A11y', () => {
   test('should link campaign to world, link asset, and display world context in Run Mode', async ({ page }) => {
     // 1. Link Campaign to World
     // Click Campaign Settings to open modal
+    await page.getByRole('button', { name: 'Open Main Menu' }).click();
     await page.getByRole('button', { name: 'Campaign Settings' }).click();
 
     // Locate the World Association area inside Campaign Settings modal
@@ -73,7 +74,7 @@ test.describe('Campaign and World Integration E2E and A11y', () => {
     await expect(page.locator('#world-picker-title')).toBeVisible();
 
     // Select Integration Test World
-    await page.getByRole('button', { name: 'Integration Test World' }).click();
+    await page.getByRole('button', { name: 'Integration Test World' }).first().click();
     await expect(page.locator('#world-picker-title')).not.toBeVisible();
     await expect(worldSection).toContainText('Linked to: Integration Test World');
 
@@ -96,8 +97,10 @@ test.describe('Campaign and World Integration E2E and A11y', () => {
     await expect(page.getByRole('button', { name: 'Open asset: Elminster' })).toBeVisible();
 
     // 3. Switch to Run Mode and view Elminster's details
-    // Press Alt+M to switch to Run Mode
-    await page.keyboard.press('Alt+m');
+    // Open Main Menu and switch to Run Mode
+    await page.getByRole('button', { name: 'Open Main Menu' }).click();
+    await page.getByRole('button', { name: 'Switch to Run Mode (Alt+M)' }).click();
+    await expect(page.locator('.layout-run')).toBeVisible();
     await expect(page.locator('header')).toContainText('World: Integration Test World');
 
     // View details of Elminster in Run Mode

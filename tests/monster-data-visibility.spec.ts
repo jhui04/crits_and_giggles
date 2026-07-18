@@ -19,7 +19,7 @@ test.describe('Monster Data Visibility', () => {
       window.localStorage.setItem('crits_active_campaign', id);
     }, SUITE_ID);
     await page.goto('/');
-    await page.waitForSelector('main');
+    await page.waitForSelector('header');
   });
 
   test('should display monsters in the Oracle', async ({ page }) => {

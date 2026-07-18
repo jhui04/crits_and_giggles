@@ -37,7 +37,7 @@ const setupApp = async (page: Page) => {
   }, SUITE_ID);
 
   await page.goto('/');
-  await page.waitForSelector('main');
+  await page.waitForSelector('header');
 };
 
 test.describe('Campaign Builder Enhancements', () => {

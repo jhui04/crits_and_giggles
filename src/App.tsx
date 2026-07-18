@@ -1,10 +1,9 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { CampaignBuilder } from './components/CampaignBuilder';
 import { CampaignRunner } from './components/CampaignRunner';
 import { EncounterRunner } from './components/EncounterRunner';
 import { Oracle } from './components/Oracle';
 import { ShortcutsHelp } from './components/ShortcutsHelp';
-import { WorldSwitcher } from './components/WorldSwitcher';
 import { useCampaigns } from './context/CampaignContext';
 import { useWorlds } from './context/WorldContext';
 import type { Campaign } from './types';
@@ -17,7 +16,7 @@ function App() {
   const { activeWorld } = useWorlds();
   
   const [isCampaignModalOpen, setIsCampaignModalOpen] = useState(false);
-  const [isWorldSwitcherOpen, setIsWorldSwitcherOpen] = useState(false);
+  const [isCampaignSettingsOpen, setIsCampaignSettingsOpen] = useState(false);
   const [isOracleOpen, setIsOracleOpen] = useState(false);
   const [isShortcutsHelpOpen, setIsShortcutsHelpOpen] = useState(false);
   const [isMainMenuOpen, setIsMainMenuOpen] = useState(false);
@@ -45,9 +44,8 @@ function App() {
       .catch(err => console.log('No scraped campaign available.', err));
   }, []);
 
-   const switchCampBtnRef = useRef<HTMLButtonElement>(null);
+  const switchCampBtnRef = useRef<HTMLButtonElement>(null);
   const switchCampHeadingRef = useRef<HTMLHeadingElement>(null);
-  const switchWorldBtnRef = useRef<HTMLButtonElement>(null);
   const mainMenuBtnRef = useRef<HTMLButtonElement>(null);
   const mainMenuHeadingRef = useRef<HTMLHeadingElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
@@ -69,6 +67,11 @@ function App() {
     }
   };
 
+  const handleCloseCampaignSettings = useCallback(() => {
+    setIsCampaignSettingsOpen(false);
+    setTimeout(() => mainMenuBtnRef.current?.focus(), 0);
+  }, []);
+
   const openCampaignModal = () => {
     switchCampBtnRef.current = document.activeElement as HTMLButtonElement;
     setIsCampaignModalOpen(true);
@@ -80,22 +83,6 @@ function App() {
     setTimeout(() => {
       if (switchCampBtnRef.current && switchCampBtnRef.current !== document.body && document.body.contains(switchCampBtnRef.current)) {
         switchCampBtnRef.current.focus();
-      } else {
-        mainMenuBtnRef.current?.focus();
-      }
-    }, 0);
-  };
-
-  const openWorldSwitcher = () => {
-    switchWorldBtnRef.current = document.activeElement as HTMLButtonElement;
-    setIsWorldSwitcherOpen(true);
-  };
-
-  const closeWorldSwitcher = () => {
-    setIsWorldSwitcherOpen(false);
-    setTimeout(() => {
-      if (switchWorldBtnRef.current && switchWorldBtnRef.current !== document.body && document.body.contains(switchWorldBtnRef.current)) {
-        switchWorldBtnRef.current.focus();
       } else {
         mainMenuBtnRef.current?.focus();
       }
@@ -196,12 +183,6 @@ function App() {
           else openCampaignModal();
           return;
         }
-        if (key === 'w') {
-          e.preventDefault();
-          if (isWorldSwitcherOpen) closeWorldSwitcher();
-          else openWorldSwitcher();
-          return;
-        }
       }
 
       // Prevent default behavior for Enter and Space on non-interactive elements
@@ -212,8 +193,6 @@ function App() {
       if (e.key === 'Escape' && !e.defaultPrevented) {
         if (isCampaignModalOpen) {
           closeCampaignModal();
-        } else if (isWorldSwitcherOpen) {
-          closeWorldSwitcher();
         } else if (isMainMenuOpen) {
           closeMainMenu();
         }
@@ -221,7 +200,7 @@ function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isCampaignModalOpen, isOracleOpen, isShortcutsHelpOpen, isMainMenuOpen, isWorldSwitcherOpen, mode]);
+  }, [isCampaignModalOpen, isOracleOpen, isShortcutsHelpOpen, isMainMenuOpen, isCampaignSettingsOpen, mode]);
 
   if (targetEncounterId) {
     return (
@@ -234,7 +213,7 @@ function App() {
 
   return (
     <React.Fragment>
-      <div className="app-container" aria-hidden={isMainMenuOpen || isCampaignModalOpen || isWorldSwitcherOpen || isOracleOpen || isShortcutsHelpOpen}>  
+      <div className="app-container" aria-hidden={isMainMenuOpen || isCampaignModalOpen || isOracleOpen || isShortcutsHelpOpen}>  
         <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h1 style={{ margin: 0 }}>
             <button
@@ -244,7 +223,7 @@ function App() {
               aria-label="Open Main Menu"
               style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit', font: 'inherit' }}
             >
-              Crits & Giggles
+              <span aria-hidden="true">☰</span> Crits & Giggles
             </button>
           </h1>
           <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
@@ -256,13 +235,9 @@ function App() {
             </span>
           </div>
         </header>
-        <main>
-          {mode === 'run' && (
-            <div className="sr-only" aria-live="polite">
-              Current Mode: Run Mode
-            </div>
-          )}
-          {mode === 'create' ? (
+
+        {mode === 'create' ? (
+          <div role="presentation">
             <div className="layout-create">
               {!activeCampaign ? (
                 <div style={{ padding: '2rem', textAlign: 'center' }}>
@@ -270,10 +245,18 @@ function App() {
                   <p>Please select or create a campaign to get started.</p>
                 </div>
               ) : (
-                <CampaignBuilder />
+                <CampaignBuilder 
+                  isCampaignSettingsOpen={isCampaignSettingsOpen}
+                  onCloseCampaignSettings={handleCloseCampaignSettings}
+                />
               )}
             </div>
-          ) : (
+          </div>
+        ) : (
+          <main>
+            <div className="sr-only" aria-live="polite">
+              Current Mode: Run Mode
+            </div>
             <div className="layout-run">
               {!activeCampaign ? (
                 <div style={{ padding: '2rem' }}>No active campaign.</div>
@@ -283,24 +266,12 @@ function App() {
                 </div>
               )}
             </div>
-          )}
-        </main>
-
-        <footer className="mode-toggle-footer">
-          <button 
-            type="button"
-            onClick={toggleMode} 
-            aria-live="polite"
-            className="mode-toggle-btn"
-          >
-            Switch to {mode === 'create' ? 'Run Mode' : 'Create Mode'}
-          </button>
-        </footer>
+          </main>
+        )}
       </div>
 
       <Oracle isOpen={isOracleOpen} onClose={closeOracle} />
       <ShortcutsHelp isOpen={isShortcutsHelpOpen} onClose={closeShortcutsHelp} />
-      <WorldSwitcher isOpen={isWorldSwitcherOpen} onClose={closeWorldSwitcher} />
 
       {/* Main Menu Modal */}
       {isMainMenuOpen && (
@@ -329,12 +300,21 @@ function App() {
               >
                 Switch Campaign (Alt+C)
               </button>
+              {mode === 'create' && activeCampaign && (
+                <button
+                  type="button"
+                  onClick={() => { closeMainMenu(false); setIsCampaignSettingsOpen(true); }}
+                  style={{ padding: '0.75rem', fontSize: '1.1rem' }}
+                >
+                  Campaign Settings
+                </button>
+              )}
               <button
                 type="button"
-                onClick={() => { closeMainMenu(false); openWorldSwitcher(); }}
+                onClick={() => { closeMainMenu(false); toggleMode(); }}
                 style={{ padding: '0.75rem', fontSize: '1.1rem' }}
               >
-                Switch World (Alt+W)
+                Switch to {mode === 'create' ? 'Run Mode' : 'Create Mode'} (Alt+M)
               </button>
               <button
                 type="button"

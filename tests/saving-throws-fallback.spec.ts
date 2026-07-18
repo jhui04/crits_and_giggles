@@ -16,13 +16,13 @@ test('Monster Saving Throws Fallback in Operations Modal', async ({ page, reques
   }, seedStateSaves.id);
   
   await page.goto('/');
-  await page.waitForSelector('main');
+  await page.waitForSelector('header');
   
   // Verify correct campaign
   await expect(page.locator('header')).toContainText(`Campaign: ${seedStateSaves.name}`);
 
   // 3. Go to combat and load encounter
-  await page.getByRole('button', { name: 'Switch to Run Mode' }).click();
+  await page.keyboard.press('Alt+m');
   
   const [encounterPage] = await Promise.all([
     context.waitForEvent('page'),
