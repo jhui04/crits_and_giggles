@@ -20,8 +20,8 @@ def clean_text(text):
     return text.strip()
 
 def replace_world_references(text, wildemount_asset_ids, world_assets_by_id, campaign, current_chapter):
-    # Split text by existing @Asset tags to avoid nested links
-    pattern = r'(@Asset\[[^\]]+\]\{[^}]+\})'
+    # Split text by existing @Spell/Monster/Item/World/Campaign/Asset tags to avoid nested links
+    pattern = r'(@(?:Spell|Monster|Item|World|Campaign|Asset|Encounter)\[[^\]]+\]\{[^}]+\})'
     parts = re.split(pattern, text)
     
     for i in range(len(parts)):
@@ -34,35 +34,9 @@ def replace_world_references(text, wildemount_asset_ids, world_assets_by_id, cam
                 
                 def replacer(match):
                     matched_name = match.group(1)
-                    # Find or create campaign asset
-                    campaign_asset_id = None
-                    for ex_asset in campaign['assets']:
-                        if ex_asset.get('worldAssetId') == world_id:
-                            campaign_asset_id = ex_asset['id']
-                            if current_chapter:
-                                if "chapterIds" not in ex_asset:
-                                    ex_asset["chapterIds"] = []
-                                if current_chapter["id"] not in ex_asset["chapterIds"]:
-                                    ex_asset["chapterIds"].append(current_chapter["id"])
-                            break
-                    
-                    if not campaign_asset_id:
-                        campaign_asset_id = str(uuid.uuid4())
-                        world_asset = world_assets_by_id.get(world_id, {})
-                        item_type = world_asset.get('type', 'Location')
-                        new_asset = {
-                            "id": campaign_asset_id,
-                            "name": world_asset.get('name', matched_name),
-                            "type": item_type,
-                            "description": f"World reference to {matched_name}",
-                            "worldAssetId": world_id
-                        }
-                        if current_chapter:
-                            new_asset["chapterIds"] = [current_chapter["id"]]
-                        campaign['assets'].append(new_asset)
-                    
-                    return f"@Asset[{campaign_asset_id}]{{{matched_name}}}"
+                    return f"@World[{world_id}]{{{matched_name}}}"
                 
+                # Check case-insensitively but preserve matched name
                 parts[i] = re.sub(word_pattern, replacer, parts[i], flags=re.IGNORECASE)
                 
     return "".join(parts)
@@ -250,33 +224,14 @@ def main():
                         if id_match:
                             asset_id = id_match.group(1)
 
-                        if asset_id not in known_assets:
-                            if '/monsters/' in href:
-                                item_type = 'NPC'
-                            elif '/spells/' in href:
-                                item_type = 'Spell'
-                            else:
-                                item_type = 'Item'
-                            known_assets[asset_id] = item_name
-                            new_asset = {
-                                "id": asset_id,
-                                "name": item_name,
-                                "type": item_type,
-                                "description": f"Scraped link to: {item_name} ({href})"
-                            }
-                            if current_chapter:
-                                new_asset["chapterIds"] = [current_chapter["id"]]
-                            campaign['assets'].append(new_asset)
-                        elif current_chapter:
-                            # Add chapterId to existing asset
-                            asset = next((a for a in campaign['assets'] if a['id'] == asset_id), None)
-                            if asset:
-                                if "chapterIds" not in asset:
-                                    asset["chapterIds"] = []
-                                if current_chapter["id"] not in asset["chapterIds"]:
-                                    asset["chapterIds"].append(current_chapter["id"])
+                        if '/monsters/' in href:
+                            tag_type = 'Monster'
+                        elif '/spells/' in href:
+                            tag_type = 'Spell'
+                        else:
+                            tag_type = 'Item'
 
-                        text = text.replace(item_name, f"@Asset[{asset_id}]{{{item_name}}}")
+                        text = text.replace(item_name, f"@{tag_type}[{asset_id}]{{{item_name}}}")
                     
                     # Replace references to Wildemount World Assets
                     if wildemount_asset_ids and world_assets_by_id:

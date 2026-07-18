@@ -113,8 +113,24 @@ export function EncounterBuilder({ initialEncounter, chapterId, onClose }: Encou
       return unitCopy;
     });
 
+    let encounterId = '';
+    if (initialEncounter) {
+      encounterId = initialEncounter.id;
+    } else {
+      let nextId = 1;
+      if (activeCampaign.encounters && activeCampaign.encounters.length > 0) {
+        const ids = activeCampaign.encounters
+          .map(e => parseInt(e.id, 10))
+          .filter(id => !isNaN(id));
+        if (ids.length > 0) {
+          nextId = Math.max(...ids) + 1;
+        }
+      }
+      encounterId = nextId.toString();
+    }
+
     const encounter: Encounter = {
-      id: initialEncounter ? initialEncounter.id : crypto.randomUUID(),
+      id: encounterId,
       name: encounterName,
       units: strippedUnits,
       chapterIds: initialEncounter ? initialEncounter.chapterIds : (chapterId ? [chapterId] : [])

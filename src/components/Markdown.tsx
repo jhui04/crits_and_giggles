@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 
 interface MarkdownProps {
   content: string;
-  onAssetClick: (id: string) => void;
+  onAssetClick: (id: string, tagType: string) => void;
   baseHeadingLevel?: number;
 }
 
@@ -34,7 +34,7 @@ export function Markdown({
 
         // Otherwise, parse as a paragraph containing potential inline asset links
         const inlineElements: ReactNode[] = [];
-        const linkRegex = /@(Asset|Encounter)\[([^\]]+)\](?:\{([^}]+)\})?/g;
+        const linkRegex = /@(Spell|Monster|Item|World|Campaign|Encounter)\[([^\]]+)\](?:\{([^}]+)\})?/g;
         
         let lastIndex = 0;
         let match;
@@ -48,12 +48,12 @@ export function Markdown({
           const entityId = match[2];
           const displayName = match[3] || entityId;
 
-          if (type === 'Asset') {
+          if (type !== 'Encounter') {
             inlineElements.push(
               <button 
                 type="button"
                 key={`${blockIndex}-${type}-${entityId}-${match.index}`}
-                onClick={() => onAssetClick(entityId)}
+                onClick={() => onAssetClick(entityId, type)}
                 className="asset-link-btn"
                 style={{
                   background: 'none',

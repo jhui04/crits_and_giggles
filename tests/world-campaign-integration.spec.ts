@@ -85,10 +85,8 @@ test.describe('Campaign and World Integration E2E and A11y', () => {
     await page.locator('li', { hasText: 'Elminster' }).getByRole('button', { name: 'Link Asset' }).click();
     await expect(page.locator('#link-asset-title')).not.toBeVisible();
 
-    // Verify Elminster added as Campaign Asset
-    // Select chapter list or look at all assets
-    await page.getByRole('button', { name: 'All Assets' }).click();
-    await expect(page.locator('li', { hasText: 'Elminster' })).toBeVisible();
+    // Verify Elminster is added to the chapter content
+    await expect(page.getByRole('button', { name: 'Open asset: Elminster' })).toBeVisible();
 
     // 3. Switch to Run Mode and view Elminster's details
     // Press Alt+M to switch to Run Mode

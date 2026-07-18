@@ -3,7 +3,7 @@ import { useCampaigns } from '../context/CampaignContext';
 import { useWorlds } from '../context/WorldContext';
 import { EncounterBuilder } from './EncounterBuilder';
 import { Markdown } from './Markdown';
-import type { AssetType, Asset, Chapter, Encounter, Monster, Spell, PlayerCharacter, MagicItem } from '../types';
+import type { AssetType, Asset, Chapter, Encounter, PlayerCharacter } from '../types';
 import { MonsterDetails } from './MonsterDetails';
 import { SpellDetail } from './SpellBrowser';
 import { MagicItemDetail } from './MagicItemBrowser';
@@ -13,17 +13,6 @@ import { AssetInsertionModal } from './AssetInsertionModal';
 export function CampaignBuilder() {
   const { activeCampaign, updateCampaign } = useCampaigns();
   const { worlds, activeWorld, updateWorld } = useWorlds();
-  
-  // Global Data
-  const [monsters, setMonsters] = useState<Monster[]>([]);
-  const [spells, setSpells] = useState<Spell[]>([]);
-  const [magicItems, setMagicItems] = useState<MagicItem[]>([]);
-
-  useEffect(() => {
-    dataService.getAllMonsters().then(setMonsters);
-    dataService.getAllSpells().then(setSpells);
-    dataService.getAllMagicItems().then(setMagicItems);
-  }, []);
 
   // Campaign Settings State
   const [showCampaignForm, setShowCampaignForm] = useState(false);
@@ -47,7 +36,7 @@ export function CampaignBuilder() {
   const [assetType, setAssetType] = useState<AssetType>('NPC');
   const [assetDesc, setAssetDesc] = useState('');
   const [selectedAssetChapterIds, setSelectedAssetChapterIds] = useState<string[]>([]);
-  const [viewingAsset, setViewingAsset] = useState<Asset | null>(null);
+  const [viewingAsset, setViewingAsset] = useState<{ id: string; tagType: string; name?: string; type?: string; description?: string } | null>(null);
 
   // Asset Insertion Modal State
   const [showAssetInsertionModal, setShowAssetInsertionModal] = useState(false);
@@ -325,8 +314,17 @@ export function CampaignBuilder() {
       }
       newAssets = activeCampaign.assets.map(a => a.id === editingAssetId ? { ...a, name: assetName, type: assetType, description: assetDesc, chapterIds: selectedAssetChapterIds } : a);
     } else {
+      let nextId = 1;
+      if (activeCampaign.assets && activeCampaign.assets.length > 0) {
+        const ids = activeCampaign.assets
+          .map(a => parseInt(a.id, 10))
+          .filter(id => !isNaN(id));
+        if (ids.length > 0) {
+          nextId = Math.max(...ids) + 1;
+        }
+      }
       const newAsset: Asset = {
-        id: crypto.randomUUID(),
+        id: nextId.toString(),
         name: assetName,
         type: assetType,
         description: assetDesc,
@@ -360,10 +358,12 @@ export function CampaignBuilder() {
       newChapters = [...activeCampaign.chapters, newChapter];
     }
 
+    console.log("CampaignBuilder.handleAddChapter: calling updateCampaign with chapters:", JSON.stringify(newChapters));
     await updateCampaign({
       ...activeCampaign,
       chapters: newChapters
     });
+    console.log("CampaignBuilder.handleAddChapter: updateCampaign finished!");
     if (!editingChapterId && newChapterId) {
       setSelectedChapterId(newChapterId);
     }
@@ -379,15 +379,15 @@ export function CampaignBuilder() {
     });
   };
 
-  const handleInsertAsset = async (assetId: string, assetName: string) => {
+  const handleInsertAsset = async (assetId: string, assetName: string, tagType: string) => {
     const before = chapterContent.substring(0, insertionCursorPos - 1); // Remove the @
     const after = chapterContent.substring(insertionCursorPos);
-    const insertion = `@Asset[${assetId}]{${assetName}}`;
+    const insertion = `@${tagType}[${assetId}]{${assetName}}`;
     setChapterContent(before + insertion + after);
     setShowAssetInsertionModal(false);
 
     // Ensure association with current chapter
-    if (activeCampaign) {
+    if (activeCampaign && tagType === 'Campaign') {
       const currentChapterId = editingChapterId || selectedChapterId;
       if (currentChapterId) {
         const asset = activeCampaign.assets.find(a => a.id === assetId);
@@ -512,13 +512,10 @@ export function CampaignBuilder() {
     }
   }, [activeCampaign, updateCampaign]);
 
-  const handleAssetLinkClick = useCallback((id: string) => {
-    const asset = activeCampaign?.assets.find(a => a.id === id);
-    if (asset) {
-      lastFocusedElement.current = document.activeElement as HTMLElement;
-      setViewingAsset(asset);
-    }
-  }, [activeCampaign]);
+  const handleAssetLinkClick = useCallback((id: string, tagType: string) => {
+    lastFocusedElement.current = document.activeElement as HTMLElement;
+    setViewingAsset({ id, tagType });
+  }, []);
 
   const handleAddAssetClick = () => {
     lastFocusedElement.current = document.activeElement as HTMLElement;
@@ -678,18 +675,19 @@ export function CampaignBuilder() {
                       <button
                         type="button"
                         onClick={async () => {
-                          const newAsset: Asset = {
-                            id: crypto.randomUUID(),
-                            name: wa.name,
-                            type: wa.type,
-                            description: wa.description,
-                            worldAssetId: wa.id,
-                            chapterIds: viewMode === 'chapters' && selectedChapterId ? [selectedChapterId] : []
-                          };
-                          await updateCampaign({
-                            ...activeCampaign,
-                            assets: [...activeCampaign.assets, newAsset]
-                          });
+                          if (showChapterForm) {
+                            setChapterContent(prev => prev + ` @World[${wa.id}]{${wa.name}}`);
+                          } else if (selectedChapterId) {
+                            const updatedChapters = activeCampaign.chapters.map(c => 
+                              c.id === selectedChapterId 
+                                ? { ...c, content: c.content + ` @World[${wa.id}]{${wa.name}}` }
+                                : c
+                            );
+                            await updateCampaign({
+                              ...activeCampaign,
+                              chapters: updatedChapters
+                            });
+                          }
                           setShowLinkAssetModal(false);
                         }}
                         style={{ padding: '0.3rem 0.6rem' }}
@@ -813,22 +811,57 @@ export function CampaignBuilder() {
             <section style={{ flex: '1 1 300px' }}>
               <h3>Chapter Assets</h3>
               <ul style={{ listStyle: 'none', padding: 0, marginBottom: '1rem' }}>
-                {activeCampaign.assets.filter(a => a.chapterIds?.includes(selectedChapterId || '')).map(a => {
-                  const displayName = getAssetDisplayName(a);
-                  return (
-                    <li key={a.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0' }}>
+                {(() => {
+                  const currentChapter = activeCampaign.chapters.find(c => c.id === selectedChapterId);
+                  const dynamicAssetsMap = new Map<string, { id: string; tagType: string; name: string }>();
+                  if (currentChapter) {
+                    const regex = /@(Spell|Monster|Item|World|Campaign)\[([^\]]+)\](?:\{([^}]+)\})?/g;
+                    let match;
+                    while ((match = regex.exec(currentChapter.content)) !== null) {
+                      const tagType = match[1];
+                      const id = match[2];
+                      const key = `${tagType}-${id}`;
+                      if (!dynamicAssetsMap.has(key)) {
+                        let name = match[3] || '';
+                        if (!name) {
+                          if (tagType === 'Monster') name = dataService.getMonsterByIdSync(id)?.name || id;
+                          else if (tagType === 'Spell') name = dataService.getSpellByIdSync(id)?.name || id;
+                          else if (tagType === 'Item') name = dataService.getMagicItemByIdSync(id)?.name || id;
+                          else if (tagType === 'Campaign') name = activeCampaign.assets.find(a => a.id === id)?.name || id;
+                          else if (tagType === 'World') name = activeWorld?.assets.find(a => a.id === id)?.name || id;
+                          else name = id;
+                        }
+                        dynamicAssetsMap.set(key, { id, tagType, name });
+                      }
+                    }
+                  }
+                  
+                  activeCampaign.assets.filter(a => a.chapterIds?.includes(selectedChapterId || '')).forEach(a => {
+                    const key = `Campaign-${a.id}`;
+                    if (!dynamicAssetsMap.has(key)) {
+                      dynamicAssetsMap.set(key, { id: a.id, tagType: 'Campaign', name: getAssetDisplayName(a) });
+                    }
+                  });
+
+                  const allChapterAssets = Array.from(dynamicAssetsMap.values());
+                  
+                  if (allChapterAssets.length === 0) {
+                    return <li>No assets assigned to this chapter.</li>;
+                  }
+                  
+                  return allChapterAssets.map(asset => (
+                    <li key={`${asset.tagType}-${asset.id}`} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0' }}>
                       <div style={{ display: 'flex', alignItems: 'center' }}>
                         <button type="button"
-                          onClick={() => handleAssetLinkClick(a.id)}
+                          onClick={() => handleAssetLinkClick(asset.id, asset.tagType)}
                           style={{ width: '100%', textAlign: 'left', fontWeight: 'bold', background: 'none', border: 'none', padding: '0.5rem', cursor: 'pointer' }}
                         >
-                          {displayName} ({a.type})
+                          {asset.name} ({asset.tagType === 'Campaign' ? (activeCampaign.assets.find(a => a.id === asset.id)?.type || 'Campaign') : asset.tagType})
                         </button>
                       </div>
                     </li>
-                  );
-                })}
-                {activeCampaign.assets.filter(a => a.chapterIds?.includes(selectedChapterId || '')).length === 0 && <li>No assets assigned to this chapter.</li>}
+                  ));
+                })()}
               </ul>
               <button type="button" ref={addAssetBtnRef} onClick={handleAddAssetClick}>+ Add Asset</button>
             </section>
@@ -862,7 +895,7 @@ export function CampaignBuilder() {
                   <li key={a.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0' }}>
                     <div style={{ display: 'flex', alignItems: 'center' }}>
                       <button type="button"
-                        onClick={() => handleAssetLinkClick(a.id)}
+                        onClick={() => handleAssetLinkClick(a.id, 'Campaign')}
                         style={{ width: '100%', textAlign: 'left', fontWeight: 'bold', background: 'none', border: 'none', padding: '0.5rem', cursor: 'pointer' }}
                       >
                         {displayName} ({a.type})
@@ -956,7 +989,7 @@ export function CampaignBuilder() {
               </div>
               <div style={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
                 <label htmlFor="chap-content" style={{ display: 'block', fontWeight: 'bold' }}>Story Text</label>
-                <p style={{ margin: '0 0 0.5rem 0', fontSize: '0.85rem', color: '#666' }}>Use # for headings and @Asset[id]{`{Name}`} to link assets. Type @ to search.</p>
+                <p style={{ margin: '0 0 0.5rem 0', fontSize: '0.85rem', color: '#666' }}>Use # for headings and @Campaign[id]{`{Name}`} or @Monster[id]{`{Name}`} to link assets. Type @ to search.</p>
                 <textarea 
                   id="chap-content"
                   value={chapterContent}
@@ -1198,94 +1231,98 @@ export function CampaignBuilder() {
             maxWidth: '500px', width: '90%', maxHeight: '80vh', overflowY: 'auto'
           }}>
             {(() => {
-              let matchedMonster = dataService.getMonsterByIdSync(viewingAsset.id);
-              if (!matchedMonster) {
-                matchedMonster = monsters.find(m => m.name.toLowerCase() === viewingAsset.name.toLowerCase()) || null;
-              }
-              if (matchedMonster) {
-                return (
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                      <h2 id="asset-viewer-title" ref={assetViewerHeadingRef} tabIndex={-1} style={{ outline: 'none', margin: 0 }}>
-                        Monster Details: {matchedMonster.name}
-                      </h2>
-                      <button type="button" onClick={() => { closeAssetViewer(); handleEditAsset(viewingAsset); }}>Edit Asset</button>
-                    </div>
-                    {viewingAsset.description && !viewingAsset.description.startsWith('Scraped') && (
-                      <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#f0f7ff', borderRadius: '4px', borderLeft: '4px solid #0066cc' }}>
-                        <h3 style={{ marginTop: 0, fontSize: '1rem' }}>Notes</h3>
-                        <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{viewingAsset.description}</p>
+              if (viewingAsset.tagType === 'Monster') {
+                const matchedMonster = dataService.getMonsterByIdSync(viewingAsset.id);
+                if (matchedMonster) {
+                  return (
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                        <h2 id="asset-viewer-title" ref={assetViewerHeadingRef} tabIndex={-1} style={{ outline: 'none', margin: 0 }}>
+                          Monster Details: {matchedMonster.name}
+                        </h2>
                       </div>
-                    )}
-                    <MonsterDetails monster={matchedMonster} />
-                  </div>
-                );
+                      <MonsterDetails monster={matchedMonster} />
+                    </div>
+                  );
+                }
               }
 
-              let matchedSpell = dataService.getSpellByIdSync(viewingAsset.id);
-              if (!matchedSpell) {
-                matchedSpell = spells.find(s => s.name.toLowerCase() === viewingAsset.name.toLowerCase()) || null;
-              }
-              if (matchedSpell) {
-                return (
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                      <h2 id="asset-viewer-title" ref={assetViewerHeadingRef} tabIndex={-1} style={{ outline: 'none', margin: 0 }}>
-                        Spell Details: {matchedSpell.name}
-                      </h2>
-                      <button type="button" onClick={() => { closeAssetViewer(); handleEditAsset(viewingAsset); }}>Edit Asset</button>
-                    </div>
-                    {viewingAsset.description && !viewingAsset.description.startsWith('Scraped') && (
-                      <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#f0f7ff', borderRadius: '4px', borderLeft: '4px solid #0066cc' }}>
-                        <h3 style={{ marginTop: 0, fontSize: '1rem' }}>Notes</h3>
-                        <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{viewingAsset.description}</p>
+              if (viewingAsset.tagType === 'Spell') {
+                const matchedSpell = dataService.getSpellByIdSync(viewingAsset.id);
+                if (matchedSpell) {
+                  return (
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                        <h2 id="asset-viewer-title" ref={assetViewerHeadingRef} tabIndex={-1} style={{ outline: 'none', margin: 0 }}>
+                          Spell Details: {matchedSpell.name}
+                        </h2>
                       </div>
-                    )}
-                    <SpellDetail spell={matchedSpell} />
-                  </div>
-                );
+                      <SpellDetail spell={matchedSpell} />
+                    </div>
+                  );
+                }
               }
 
-              let matchedMagicItem = dataService.getMagicItemByIdSync(viewingAsset.id);
-              if (!matchedMagicItem) {
-                matchedMagicItem = magicItems.find(mi => mi.name.toLowerCase() === viewingAsset.name.toLowerCase()) || null;
-              }
-              if (matchedMagicItem) {
-                return (
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                      <h2 id="asset-viewer-title" ref={assetViewerHeadingRef} tabIndex={-1} style={{ outline: 'none', margin: 0 }}>
-                        Magic Item Details: {matchedMagicItem.name}
-                      </h2>
-                      <button type="button" onClick={() => { closeAssetViewer(); handleEditAsset(viewingAsset); }}>Edit Asset</button>
-                    </div>
-                    {viewingAsset.description && !viewingAsset.description.startsWith('Scraped') && (
-                      <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#f0f7ff', borderRadius: '4px', borderLeft: '4px solid #0066cc' }}>
-                        <h3 style={{ marginTop: 0, fontSize: '1rem' }}>Notes</h3>
-                        <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{viewingAsset.description}</p>
+              if (viewingAsset.tagType === 'Item') {
+                const matchedMagicItem = dataService.getMagicItemByIdSync(viewingAsset.id);
+                if (matchedMagicItem) {
+                  return (
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                        <h2 id="asset-viewer-title" ref={assetViewerHeadingRef} tabIndex={-1} style={{ outline: 'none', margin: 0 }}>
+                          Magic Item Details: {matchedMagicItem.name}
+                        </h2>
                       </div>
-                    )}
-                    <MagicItemDetail magicItem={matchedMagicItem} onAssetClick={handleAssetLinkClick} />
-                  </div>
-                );
+                      <MagicItemDetail magicItem={matchedMagicItem} onAssetClick={handleAssetLinkClick} />
+                    </div>
+                  );
+                }
               }
 
-              return (
-                <>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                    <h2 id="asset-viewer-title" ref={assetViewerHeadingRef} tabIndex={-1} style={{ outline: 'none', margin: 0 }}>
-                      {viewingAsset.name} ({viewingAsset.type})
-                    </h2>
-                    <button type="button" onClick={() => { closeAssetViewer(); handleEditAsset(viewingAsset); }}>Edit Asset</button>
-                  </div>
-                  {viewingAsset.description && !viewingAsset.description.startsWith('Scraped') && (
-                    <div style={{ marginTop: '1rem', padding: '1rem', backgroundColor: '#f0f7ff', borderRadius: '4px', borderLeft: '4px solid #0066cc' }}>
-                      <h3 style={{ marginTop: 0, fontSize: '1rem' }}>Notes</h3>
-                      <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{viewingAsset.description}</p>
-                    </div>
-                  )}
-                </>
-              );
+              if (viewingAsset.tagType === 'Campaign') {
+                const asset = activeCampaign?.assets.find(a => a.id === viewingAsset.id);
+                if (asset) {
+                  return (
+                    <>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                        <h2 id="asset-viewer-title" ref={assetViewerHeadingRef} tabIndex={-1} style={{ outline: 'none', margin: 0 }}>
+                          {asset.name} ({asset.type})
+                        </h2>
+                        <button type="button" onClick={() => { closeAssetViewer(); handleEditAsset(asset); }}>Edit Asset</button>
+                      </div>
+                      {asset.description && !asset.description.startsWith('Scraped') && (
+                        <div style={{ marginTop: '1rem', padding: '1rem', backgroundColor: '#f0f7ff', borderRadius: '4px', borderLeft: '4px solid #0066cc' }}>
+                          <h3 style={{ marginTop: 0, fontSize: '1rem' }}>Notes</h3>
+                          <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{asset.description}</p>
+                        </div>
+                      )}
+                    </>
+                  );
+                }
+              }
+
+              if (viewingAsset.tagType === 'World') {
+                const asset = activeWorld?.assets.find(a => a.id === viewingAsset.id);
+                if (asset) {
+                  return (
+                    <>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                        <h2 id="asset-viewer-title" ref={assetViewerHeadingRef} tabIndex={-1} style={{ outline: 'none', margin: 0 }}>
+                          {asset.name} ({asset.type})
+                        </h2>
+                      </div>
+                      {asset.description && (
+                        <div style={{ marginTop: '1rem', padding: '1rem', backgroundColor: '#f0f7ff', borderRadius: '4px', borderLeft: '4px solid #0066cc' }}>
+                          <h3 style={{ marginTop: 0, fontSize: '1rem' }}>Description</h3>
+                          <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{asset.description}</p>
+                        </div>
+                      )}
+                    </>
+                  );
+                }
+              }
+
+              return <p>Asset details not found.</p>;
             })()}
 
             <button type="button" onClick={closeAssetViewer} style={{ marginTop: '2rem', width: '100%', padding: '0.5rem' }}>

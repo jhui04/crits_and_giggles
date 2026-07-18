@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useCampaigns } from '../context/CampaignContext';
 import { useWorlds } from '../context/WorldContext';
 import { Markdown } from './Markdown';
-import type { Asset, Monster, Spell, MagicItem, WorldAsset } from '../types';
+import type { WorldAsset } from '../types';
 import { MonsterDetails } from './MonsterDetails';
 import { SpellDetail } from './SpellBrowser';
 import { MagicItemDetail } from './MagicItemBrowser';
@@ -12,20 +12,11 @@ export function CampaignRunner() {
   const { activeCampaign } = useCampaigns();
   const { activeWorld } = useWorlds();
   const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
-  const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
+  const [selectedAsset, setSelectedAsset] = useState<{ id: string; tagType: string; name?: string } | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [monsters, setMonsters] = useState<Monster[]>([]);
-  const [spells, setSpells] = useState<Spell[]>([]);
-  const [magicItems, setMagicItems] = useState<MagicItem[]>([]);
 
   const modalHeadingRef = useRef<HTMLHeadingElement>(null);
   const lastFocusedElement = useRef<HTMLElement | null>(null);
-
-  useEffect(() => {
-    dataService.getAllMonsters().then(setMonsters);
-    dataService.getAllSpells().then(setSpells);
-    dataService.getAllMagicItems().then(setMagicItems);
-  }, []);
 
   const closeModal = useCallback(() => {
     setIsModalOpen(false);
@@ -35,16 +26,11 @@ export function CampaignRunner() {
     }, 0);
   }, []);
 
-  const handleAssetClick = useCallback((assetId: string) => {
-    const asset = activeCampaign?.assets.find(a => a.id === assetId);
-    if (asset) {
-      lastFocusedElement.current = document.activeElement as HTMLElement;
-      setSelectedAsset(asset);
-      setIsModalOpen(true);
-    } else {
-      alert(`Asset not found: ${assetId}`);
-    }
-  }, [activeCampaign]);
+  const handleAssetClick = useCallback((assetId: string, tagType: string) => {
+    lastFocusedElement.current = document.activeElement as HTMLElement;
+    setSelectedAsset({ id: assetId, tagType });
+    setIsModalOpen(true);
+  }, []);
 
   const runnerHeadingRef = useRef<HTMLHeadingElement>(null);
 
@@ -87,6 +73,52 @@ export function CampaignRunner() {
   const currentChapterId = activeChapterId || (activeCampaign.chapters.length > 0 ? activeCampaign.chapters[0].id : null);
   const activeChapter = activeCampaign.chapters.find(c => c.id === currentChapterId);
 
+  const getChapterAssets = (content: string, chapterId: string) => {
+    const regex = /@(Spell|Monster|Item|World|Campaign)\[([^\]]+)\](?:\{([^}]+)\})?/g;
+    const assetsMap = new Map<string, { id: string; tagType: string; name: string }>();
+    let match;
+    while ((match = regex.exec(content)) !== null) {
+      const tagType = match[1];
+      const id = match[2];
+      const key = `${tagType}-${id}`;
+      if (!assetsMap.has(key)) {
+        let name = match[3] || '';
+        if (!name) {
+          if (tagType === 'Monster') {
+            name = dataService.getMonsterByIdSync(id)?.name || id;
+          } else if (tagType === 'Spell') {
+            name = dataService.getSpellByIdSync(id)?.name || id;
+          } else if (tagType === 'Item') {
+            name = dataService.getMagicItemByIdSync(id)?.name || id;
+          } else if (tagType === 'Campaign') {
+            name = activeCampaign.assets.find(a => a.id === id)?.name || id;
+          } else if (tagType === 'World') {
+            name = activeWorld?.assets.find(a => a.id === id)?.name || id;
+          } else {
+            name = id;
+          }
+        }
+        assetsMap.set(key, { id, tagType, name });
+      }
+    }
+
+    if (chapterId) {
+      activeCampaign.assets.filter(a => a.chapterIds?.includes(chapterId)).forEach(a => {
+        const key = `Campaign-${a.id}`;
+        if (!assetsMap.has(key)) {
+          let name = a.name;
+          if (a.worldAssetId && activeWorld) {
+            const worldAsset = activeWorld.assets.find(wa => wa.id === a.worldAssetId);
+            if (worldAsset) name = worldAsset.name;
+          }
+          assetsMap.set(key, { id: a.id, tagType: 'Campaign', name });
+        }
+      });
+    }
+
+    return Array.from(assetsMap.values());
+  };
+
   return (
     <div >
       <h2 ref={runnerHeadingRef} tabIndex={-1} style={{ outline: 'none' }} className="sr-only">Story Chapters</h2>
@@ -128,14 +160,14 @@ export function CampaignRunner() {
               <div style={{ marginTop: '2rem', paddingTop: '2rem', borderTop: '1px solid #eee', display: 'flex', gap: '2rem' }}>
                 <div style={{ flex: 1 }}>
                   <h4>Chapter Assets</h4>
-                  {activeCampaign.assets.filter(a => a.chapterIds?.includes(activeChapter.id)).length === 0 ? (
+                  {getChapterAssets(activeChapter.content, activeChapter.id).length === 0 ? (
                     <p>No assets linked to this chapter.</p>
                   ) : (
                     <ul style={{ listStyle: 'none', padding: 0 }}>
-                      {activeCampaign.assets.filter(a => a.chapterIds?.includes(activeChapter.id)).map(asset => (
-                        <li key={asset.id} style={{ marginBottom: '0.5rem' }}>
-                          <button type="button" onClick={() => handleAssetClick(asset.id)}>
-                            {asset.name} ({asset.type})
+                      {getChapterAssets(activeChapter.content, activeChapter.id).map(asset => (
+                        <li key={`${asset.tagType}-${asset.id}`} style={{ marginBottom: '0.5rem' }}>
+                          <button type="button" onClick={() => handleAssetClick(asset.id, asset.tagType)}>
+                            {asset.name} ({asset.tagType})
                           </button>
                         </li>
                       ))}
@@ -192,8 +224,8 @@ export function CampaignRunner() {
             maxWidth: '500px', width: '90%', maxHeight: '80vh', overflowY: 'auto'
           }}>
             {(() => {
-              const worldAsset = selectedAsset.worldAssetId && activeWorld 
-                ? activeWorld.assets.find(wa => wa.id === selectedAsset.worldAssetId)
+              const worldAsset = selectedAsset.tagType === 'World' && activeWorld 
+                ? activeWorld.assets.find(wa => wa.id === selectedAsset.id)
                 : undefined;
 
               const getIncomingConnections = (assetId: string) => {
@@ -212,54 +244,66 @@ export function CampaignRunner() {
               const incomingConns = worldAsset ? getIncomingConnections(worldAsset.id) : [];
 
               let detailContent: React.ReactNode;
-              let matchedMonster = dataService.getMonsterByIdSync(selectedAsset.id);
-              if (!matchedMonster) {
-                matchedMonster = monsters.find(m => m.name.toLowerCase() === selectedAsset.name.toLowerCase()) || null;
-              }
-              if (matchedMonster) {
-                detailContent = (
-                  <div>
-                    <h3 id="asset-modal-title" ref={modalHeadingRef} tabIndex={-1} className="sr-only">
-                      Monster Details: {matchedMonster.name}
-                    </h3>
-                    <MonsterDetails monster={matchedMonster} />
-                  </div>
-                );
-              } else {
-                let matchedSpell = dataService.getSpellByIdSync(selectedAsset.id);
-                if (!matchedSpell) {
-                  matchedSpell = spells.find(s => s.name.toLowerCase() === selectedAsset.name.toLowerCase()) || null;
+              
+              if (selectedAsset.tagType === 'Monster') {
+                const matchedMonster = dataService.getMonsterByIdSync(selectedAsset.id);
+                if (matchedMonster) {
+                  detailContent = (
+                    <div>
+                      <h3 id="asset-modal-title" ref={modalHeadingRef} tabIndex={-1} className="sr-only">
+                        Monster Details: {matchedMonster.name}
+                      </h3>
+                      <MonsterDetails monster={matchedMonster} />
+                    </div>
+                  );
                 }
+              } else if (selectedAsset.tagType === 'Spell') {
+                const matchedSpell = dataService.getSpellByIdSync(selectedAsset.id);
                 if (matchedSpell) {
                   detailContent = (
                     <div>
                       <SpellDetail spell={matchedSpell} id="asset-modal-title" />
                     </div>
                   );
-                } else {
-                  let matchedMagicItem = dataService.getMagicItemByIdSync(selectedAsset.id);
-                  if (!matchedMagicItem) {
-                    matchedMagicItem = magicItems.find(mi => mi.name.toLowerCase() === selectedAsset.name.toLowerCase()) || null;
-                  }
-                  if (matchedMagicItem) {
-                    detailContent = (
-                      <div>
-                        <MagicItemDetail magicItem={matchedMagicItem} id="asset-modal-title" onAssetClick={handleAssetClick} />
-                      </div>
-                    );
-                  } else {
-                    detailContent = (
-                      <>
-                        <h3 id="asset-modal-title" ref={modalHeadingRef} tabIndex={-1} style={{ outline: 'none', marginBottom: '0.5rem' }}>
-                          {selectedAsset.name} ({selectedAsset.type})
-                        </h3>
-                        <div style={{ marginTop: '1rem' }}>
-                          <p style={{ whiteSpace: 'pre-wrap' }}>{selectedAsset.description}</p>
-                        </div>
-                      </>
-                    );
-                  }
                 }
+              } else if (selectedAsset.tagType === 'Item') {
+                const matchedMagicItem = dataService.getMagicItemByIdSync(selectedAsset.id);
+                if (matchedMagicItem) {
+                  detailContent = (
+                    <div>
+                      <MagicItemDetail magicItem={matchedMagicItem} id="asset-modal-title" onAssetClick={handleAssetClick} />
+                    </div>
+                  );
+                }
+              } else if (selectedAsset.tagType === 'Campaign') {
+                const asset = activeCampaign.assets.find(a => a.id === selectedAsset.id);
+                if (asset) {
+                  detailContent = (
+                    <>
+                      <h3 id="asset-modal-title" ref={modalHeadingRef} tabIndex={-1} style={{ outline: 'none', marginBottom: '0.5rem' }}>
+                        {asset.name} ({asset.type})
+                      </h3>
+                      <div style={{ marginTop: '1rem' }}>
+                        <p style={{ whiteSpace: 'pre-wrap' }}>{asset.description}</p>
+                      </div>
+                    </>
+                  );
+                }
+              } else if (selectedAsset.tagType === 'World' && worldAsset) {
+                detailContent = (
+                  <>
+                    <h3 id="asset-modal-title" ref={modalHeadingRef} tabIndex={-1} style={{ outline: 'none', marginBottom: '0.5rem' }}>
+                      {worldAsset.name} ({worldAsset.type})
+                    </h3>
+                    <div style={{ marginTop: '1rem' }}>
+                      <p style={{ whiteSpace: 'pre-wrap' }}>{worldAsset.description}</p>
+                    </div>
+                  </>
+                );
+              }
+
+              if (!detailContent) {
+                detailContent = <p>Asset details not found.</p>;
               }
 
               return (

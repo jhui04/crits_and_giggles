@@ -342,7 +342,7 @@ interface MagicItemDetailProps {
   magicItem: MagicItem;
   id?: string;
   onClose?: () => void;
-  onAssetClick?: (id: string) => void;
+  onAssetClick?: (id: string, tagType: string) => void;
 }
 
 export function MagicItemDetail({ magicItem, id, onClose, onAssetClick = () => {} }: MagicItemDetailProps) {

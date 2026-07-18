@@ -118,6 +118,8 @@ def main():
         name_to_id = {}
         connections = []
         seen_ids = set()
+        asset_counter = 0
+        conn_counter = 0
 
         # List of location descriptors for tagging
         loc_indicators = [
@@ -242,13 +244,9 @@ def main():
                         else:
                             asset_type = "Lore"
 
-                    # Generate deterministic UUID based on slug, type, name and avoid duplicate IDs
-                    base_key = f"egtw:{slug}:{asset_type}:{text.lower()}"
-                    asset_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, base_key))
-                    suffix = 1
-                    while asset_id in seen_ids:
-                        asset_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{base_key}:{suffix}"))
-                        suffix += 1
+                    # Generate auto-incrementing integer IDs
+                    asset_counter += 1
+                    asset_id = str(asset_counter)
                     seen_ids.add(asset_id)
                     
                     current_asset = {
@@ -278,7 +276,8 @@ def main():
                                 break
                         if parent_id:
                             # Create connection: child is located in parent
-                            conn_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"conn:{asset_id}:{parent_id}"))
+                            conn_counter += 1
+                            conn_id = str(conn_counter)
                             current_asset["connections"].append({
                                 "id": conn_id,
                                 "targetId": parent_id,
@@ -347,7 +346,8 @@ def main():
                     # Check if connection already exists
                     already_connected = any(c["targetId"] == id_b for c in asset_a["connections"])
                     if not already_connected:
-                        conn_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"conn:{asset_a['id']}:{id_b}"))
+                        conn_counter += 1
+                        conn_id = str(conn_counter)
                         asset_a["connections"].append({
                             "id": conn_id,
                             "targetId": id_b,

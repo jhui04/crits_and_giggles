@@ -15,6 +15,7 @@ test.describe('Asset Insertion Modal', () => {
   });
 
   test.beforeEach(async ({ page }) => {
+    page.on('console', msg => console.log('BROWSER CONSOLE:', msg.text()));
     await page.addInitScript((id) => {
       window.localStorage.clear();
       window.localStorage.setItem('crits_active_campaign', id);
@@ -161,7 +162,7 @@ test.describe('Asset Insertion Modal', () => {
 
     // Content should be updated
     const content = await textarea.inputValue();
-    expect(content).toContain(`@Asset[${SUITE_ID}-asset-1]{Test Asset}`);
+    expect(content).toContain(`@Campaign[${SUITE_ID}-asset-1]{Test Asset}`);
 
     // Focus should be in textarea
     await expect(textarea).toBeFocused();
@@ -197,7 +198,7 @@ test.describe('Asset Insertion Modal', () => {
     // Content should be updated
     const content = await textarea.inputValue();
     expect(content).toContain('New NPC');
-    expect(content).toMatch(/@Asset\[[a-z0-9-]+\]{New NPC}/);
+    expect(content).toMatch(/@Campaign\[\d+\]{New NPC}/);
 
     // Verify it was added to campaign assets
     await page.getByRole('button', { name: 'Save' }).click();
@@ -230,10 +231,10 @@ test.describe('Asset Insertion Modal', () => {
     const content = await textarea.inputValue();
     expect(content).toContain('Aartuk Starhorror');
 
-    // Verify it was added to campaign assets
+    // Verify it was added to chapter content
     await page.getByRole('button', { name: 'Save' }).click();
-    // Use specific name pattern for campaign assets (which are now buttons)
-    await expect(page.getByRole('button', { name: /Aartuk Starhorror \(NPC\)/ })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Edit Chapter' })).not.toBeVisible();
+    await expect(page.getByRole('button', { name: 'Open asset: Aartuk Starhorror' })).toBeVisible();
   });
 
   test('should search and insert a global magic item', async ({ page }) => {
@@ -263,8 +264,9 @@ test.describe('Asset Insertion Modal', () => {
 
     // Save chapter
     await page.getByRole('button', { name: 'Save' }).click();
+    await expect(page.getByRole('dialog', { name: 'Edit Chapter' })).not.toBeVisible();
 
-    // Item should now display as a campaign asset button
-    await expect(page.getByRole('button', { name: /Acheron Blade \(Item\)/ })).toBeVisible();
+    // Item should now display in the chapter preview
+    await expect(page.getByRole('button', { name: 'Open asset: Acheron Blade' })).toBeVisible();
   });
 });

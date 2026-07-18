@@ -12,7 +12,7 @@ interface MonsterDetailsProps {
   maxHp?: number;
   initiative?: number;
   onAnnounce?: (msg: string) => void;
-  onAssetClick?: (id: string) => void;
+  onAssetClick?: (id: string, tagType: string) => void;
 }
 
 // Cache for spell names to avoid repeated regex generation

@@ -186,8 +186,17 @@ export function WorldBuilder() {
       setAnnouncement(`World asset ${assetName} updated.`);
     } else {
       // Create new
+      let nextId = 1;
+      if (activeWorld.assets && activeWorld.assets.length > 0) {
+        const ids = activeWorld.assets
+          .map(as => parseInt(as.id, 10))
+          .filter(id => !isNaN(id));
+        if (ids.length > 0) {
+          nextId = Math.max(...ids) + 1;
+        }
+      }
       const newAsset: WorldAsset = {
-        id: crypto.randomUUID(),
+        id: nextId.toString(),
         type: assetType,
         name: assetName.trim(),
         description: assetDesc.trim(),
@@ -363,8 +372,19 @@ export function WorldBuilder() {
     const targetAsset = activeWorld.assets.find(a => a.id === connTargetId);
     if (!targetAsset) return;
 
+    const currentAsset = activeWorld.assets.find(as => as.id === sourceId);
+    let nextConnId = 1;
+    if (currentAsset && currentAsset.connections && currentAsset.connections.length > 0) {
+      const ids = currentAsset.connections
+        .map(c => parseInt(c.id, 10))
+        .filter(id => !isNaN(id));
+      if (ids.length > 0) {
+        nextConnId = Math.max(...ids) + 1;
+      }
+    }
+
     const newConnection: WorldAssetConnection = {
-      id: crypto.randomUUID(),
+      id: nextConnId.toString(),
       targetId: connTargetId,
       relationship: connRelationship.trim()
     };

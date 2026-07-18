@@ -5,17 +5,19 @@ import { dataService } from '../services/DataService';
 interface AssetInsertionModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onInsert: (assetId: string, assetName: string, fullAsset?: Asset) => void;
+  onInsert: (assetId: string, assetName: string, tagType: string) => void;
   campaignAssets: Asset[];
   chapterId: string | null;
   onCreateAsset: (asset: Asset) => void;
 }
 
-type GlobalAsset = {
+type ModalAsset = {
   id: string;
   name: string;
   type: AssetType;
   description: string;
+  tagType: 'Campaign' | 'Monster' | 'Spell' | 'Item';
+  isCampaignAsset?: boolean;
 };
 
 export function AssetInsertionModal({
@@ -97,27 +99,39 @@ export function AssetInsertionModal({
   }, [isCreateMode]);
 
   const filteredAssets = useMemo(() => {
-    let results: (Asset | GlobalAsset)[] = [...campaignAssets];
+    const campaignResults: ModalAsset[] = campaignAssets.map(a => ({
+      id: a.id,
+      name: a.name,
+      type: a.type,
+      description: a.description,
+      tagType: 'Campaign' as const,
+      isCampaignAsset: true
+    }));
+
+    let results: ModalAsset[] = campaignResults;
 
     if (!onlyCampaign) {
-      const globalResults: GlobalAsset[] = [
+      const globalResults: ModalAsset[] = [
         ...globalMonsters.map(m => ({
           id: m.id,
           name: m.name,
           type: 'NPC' as AssetType,
-          description: `CR ${m.cr} ${m.meta.size} ${m.meta.type}`
+          description: `CR ${m.cr} ${m.meta.size} ${m.meta.type}`,
+          tagType: 'Monster' as const
         })),
         ...globalSpells.map(s => ({
           id: s.id.toString(),
           name: s.name,
           type: 'Spell' as AssetType,
-          description: `Level ${s.level} ${s.school}`
+          description: `Level ${s.level} ${s.school}`,
+          tagType: 'Spell' as const
         })),
         ...globalMagicItems.map(item => ({
           id: item.id,
           name: item.name,
           type: 'Item' as AssetType,
-          description: `${item.rarity} ${item.type}${item.requires_attunement ? ' (Attunement)' : ''}`
+          description: `${item.rarity} ${item.type}${item.requires_attunement ? ' (Attunement)' : ''}`,
+          tagType: 'Item' as const
         }))
       ];
       
@@ -138,33 +152,32 @@ export function AssetInsertionModal({
 
   const handleSaveAndInsert = () => {
     if (!newName) return;
+    
+    // Auto-increment integer ID logic for new custom campaign asset
+    let nextId = 1;
+    if (campaignAssets && campaignAssets.length > 0) {
+      const ids = campaignAssets
+        .map(a => parseInt(a.id, 10))
+        .filter(id => !isNaN(id));
+      if (ids.length > 0) {
+        nextId = Math.max(...ids) + 1;
+      }
+    }
+    const assetIdStr = nextId.toString();
+
     const newAsset: Asset = {
-      id: crypto.randomUUID(),
+      id: assetIdStr,
       name: newName,
       type: newType,
       description: newDesc,
       chapterIds: chapterId ? [chapterId] : []
     };
     onCreateAsset(newAsset);
-    onInsert(newAsset.id, newAsset.name, newAsset);
+    onInsert(newAsset.id, newAsset.name, 'Campaign');
   };
 
-  const handleSelectAsset = (asset: Asset | GlobalAsset) => {
-    // If it's a global asset not in the campaign, we need to "create" it in the campaign first
-    const existing = campaignAssets.find(a => a.id === asset.id);
-    if (!existing) {
-      const newAsset: Asset = {
-        id: asset.id,
-        name: asset.name,
-        type: asset.type,
-        description: asset.description,
-        chapterIds: chapterId ? [chapterId] : []
-      };
-      onCreateAsset(newAsset);
-      onInsert(newAsset.id, newAsset.name, newAsset);
-    } else {
-      onInsert(asset.id, asset.name);
-    }
+  const handleSelectAsset = (asset: ModalAsset) => {
+    onInsert(asset.id, asset.name, asset.tagType);
   };
 
   const handleBack = () => {
