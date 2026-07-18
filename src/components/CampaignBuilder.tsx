@@ -10,6 +10,7 @@ import { MagicItemDetail } from './MagicItemBrowser';
 import { dataService } from '../services/DataService';
 import { AssetInsertionModal } from './AssetInsertionModal';
 import { WorldBuilder } from './WorldBuilder';
+import { parseMentionedAssets } from '../utils/assetUtils';
 
 interface CampaignBuilderProps {
   isCampaignSettingsOpen: boolean;
@@ -61,6 +62,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
 
   // View & Chapter Context State
   const [viewMode, setViewMode] = useState<'chapters' | 'all' | 'world'>('chapters');
+  const [dataLoaded, setDataLoaded] = useState(false);
   const [selectedChapterIdOverride, setSelectedChapterId] = useState<string | null>(null);
   const selectedChapterId = selectedChapterIdOverride || (activeCampaign?.chapters?.[0]?.id ?? null);
 
@@ -148,6 +150,18 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
     setTimeout(() => lastFocusedElement.current?.focus(), 0);
   }, []);
 
+  useEffect(() => {
+    Promise.all([
+      dataService.getAllMonsters(),
+      dataService.getAllSpells(),
+      dataService.getAllMagicItems()
+    ]).then(() => {
+      setDataLoaded(true);
+    }).catch((err) => {
+      console.error(err);
+    });
+  }, []);
+
   const closeWorldLinkModal = useCallback(() => {
     setShowWorldLinkModal(false);
     setIsCreatingNewWorld(false);
@@ -160,39 +174,71 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
   }, []);
 
   const getSortedAssets = useCallback(() => {
+    // Reference dataLoaded so react-hooks/exhaustive-deps knows it is a dependency
+    if (dataLoaded) { /* data is ready */ }
     if (!activeCampaign) return [];
     const sorted: Asset[] = [];
     const addedIds = new Set<string>();
 
-    const addAsset = (id: string) => {
-      if (!addedIds.has(id)) {
-        const asset = activeCampaign.assets.find(a => a.id === id);
+    const addCampaignAsset = (id: string, tagType: string = 'Campaign') => {
+      const key = `${tagType}:${id}`;
+      if (!addedIds.has(key)) {
+        let asset: Asset | undefined;
+        
+        if (tagType === 'Campaign') {
+          asset = activeCampaign.assets.find(a => a.id === id);
+        } else if (tagType === 'World') {
+          const wAsset = activeWorld?.assets.find(a => a.id === id);
+          if (wAsset) asset = { ...wAsset, tagType: 'World' };
+        } else if (tagType === 'Monster') {
+          const m = dataService.getMonsterByIdSync(id);
+          if (m) asset = { id: m.id, name: m.name, type: 'NPC', description: 'Global Monster', tagType: 'Monster' };
+        } else if (tagType === 'Spell') {
+          const s = dataService.getSpellByIdSync(id);
+          if (s) asset = { id: s.id.toString(), name: s.name, type: 'Spell', description: 'Global Spell', tagType: 'Spell' };
+        } else if (tagType === 'Item') {
+          const mi = dataService.getMagicItemByIdSync(id);
+          if (mi) asset = { id: mi.id, name: mi.name, type: 'Item', description: 'Global Magic Item', tagType: 'Item' };
+        }
+
         if (asset) {
           sorted.push(asset);
-          addedIds.add(id);
+          addedIds.add(key);
         }
       }
     };
 
     const sortedChapters = [...activeCampaign.chapters].sort((a, b) => a.order - b.order);
     for (const chapter of sortedChapters) {
-      const regex = /@Asset\[([^\]]+)\]/g;
-      let match;
-      while ((match = regex.exec(chapter.content)) !== null) {
-        addAsset(match[1]);
+      if (chapter.mentionedAssets) {
+        // Fast path: use the pre-computed index stored on the chapter (new chapters)
+        for (const ref of chapter.mentionedAssets) {
+          addCampaignAsset(ref.id, ref.tagType);
+        }
+      } else {
+        // Migration path: scan content for chapters saved before this index existed.
+        const regex = /@(Campaign|Asset|World|Monster|Spell|Item)\[([^\]]+)\]/g;
+        let match: RegExpExecArray | null;
+        while ((match = regex.exec(chapter.content)) !== null) {
+          const type = match[1] === 'Asset' ? 'Campaign' : match[1];
+          addCampaignAsset(match[2], type);
+        }
       }
-      const associatedAssets = activeCampaign.assets.filter(a => a.chapterIds?.includes(chapter.id));
-      for (const asset of associatedAssets) {
-        addAsset(asset.id);
+
+      // Also include assets that were manually associated via the chapter-picker in the asset form
+      const associated = activeCampaign.assets.filter(a => a.chapterIds?.includes(chapter.id));
+      for (const asset of associated) {
+        addCampaignAsset(asset.id, 'Campaign');
       }
     }
 
+    // Phase 3: any remaining campaign assets with no chapter association come last
     for (const asset of activeCampaign.assets) {
-      addAsset(asset.id);
+      addCampaignAsset(asset.id, 'Campaign');
     }
 
     return sorted;
-  }, [activeCampaign]);
+  }, [activeCampaign, activeWorld, dataLoaded]);
 
   useEffect(() => {
     if (isCampaignSettingsOpen) campaignHeadingRef.current?.focus();
@@ -430,18 +476,26 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
 
   const handleAddChapter = async () => {
     if (!activeCampaign || !chapterTitle) return;
-    
+
+    // Compute the mention index from the final content before persisting
+    const mentionedAssets = parseMentionedAssets(chapterContent);
+
     let newChapters;
     let newChapterId = editingChapterId;
     if (editingChapterId) {
-      newChapters = activeCampaign.chapters.map(c => c.id === editingChapterId ? { ...c, title: chapterTitle, content: chapterContent } : c);
+      newChapters = activeCampaign.chapters.map(c =>
+        c.id === editingChapterId
+          ? { ...c, title: chapterTitle, content: chapterContent, mentionedAssets }
+          : c
+      );
     } else {
       newChapterId = crypto.randomUUID();
       const newChapter: Chapter = {
         id: newChapterId!,
         title: chapterTitle,
         content: chapterContent,
-        order: activeCampaign.chapters.length
+        order: activeCampaign.chapters.length,
+        mentionedAssets
       };
       newChapters = [...activeCampaign.chapters, newChapter];
     }
@@ -458,38 +512,58 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
     closeChapterForm();
   };
 
-  const handleCreateAssetFromModal = async (asset: Asset) => {
-    if (!activeCampaign) return;
-    const newAssets = [...activeCampaign.assets, asset];
-    await updateCampaign({
-      ...activeCampaign,
-      assets: newAssets
-    });
-  };
 
-  const handleInsertAsset = async (assetId: string, assetName: string, tagType: string) => {
+
+  const handleInsertAsset = async (assetId: string, assetName: string, tagType: string, newAsset?: Asset) => {
     const before = chapterContent.substring(0, insertionCursorPos - 1); // Remove the @
     const after = chapterContent.substring(insertionCursorPos);
     const insertion = `@${tagType}[${assetId}]{${assetName}}`;
-    setChapterContent(before + insertion + after);
+    const newContent = before + insertion + after;
+    setChapterContent(newContent);
     setShowAssetInsertionModal(false);
 
-    // Ensure association with current chapter
-    if (activeCampaign && tagType === 'Campaign') {
-      const currentChapterId = editingChapterId || selectedChapterId;
-      if (currentChapterId) {
-        const asset = activeCampaign.assets.find(a => a.id === assetId);
-        if (asset && (!asset.chapterIds || !asset.chapterIds.includes(currentChapterId))) {
-          const updatedAssets = activeCampaign.assets.map(a => 
-            a.id === assetId 
-              ? { ...a, chapterIds: [...(a.chapterIds || []), currentChapterId] }
-              : a
-          );
-          await updateCampaign({ ...activeCampaign, assets: updatedAssets });
+    const currentChapterId = editingChapterId || selectedChapterId;
+
+    if (activeCampaign && currentChapterId) {
+      // Recompute the full mention index from the post-insertion content
+      const newMentionedAssets = parseMentionedAssets(newContent);
+
+      // Prepopulate with newAsset if present to prevent race condition overrides
+      let nextAssets = activeCampaign.assets;
+      if (newAsset) {
+        if (!nextAssets.some(a => a.id === newAsset.id)) {
+          nextAssets = [...nextAssets, newAsset];
         }
       }
+
+      // Start building the updated campaign from the current state
+      let updatedCampaign = {
+        ...activeCampaign,
+        assets: nextAssets,
+        chapters: activeCampaign.chapters.map(c =>
+          c.id === currentChapterId ? { ...c, mentionedAssets: newMentionedAssets } : c
+        )
+      };
+
+      // For Campaign-type assets also keep chapterIds in sync (existing behaviour)
+      if (tagType === 'Campaign') {
+        const asset = updatedCampaign.assets.find(a => a.id === assetId);
+        if (asset && (!asset.chapterIds || !asset.chapterIds.includes(currentChapterId))) {
+          updatedCampaign = {
+            ...updatedCampaign,
+            assets: updatedCampaign.assets.map(a =>
+              a.id === assetId
+                ? { ...a, chapterIds: [...(a.chapterIds || []), currentChapterId] }
+                : a
+            )
+          };
+        }
+      }
+
+      // Single round-trip: mentionedAssets + chapterIds update together
+      await updateCampaign(updatedCampaign);
     }
-    
+
     // Restore focus to textarea
     setTimeout(() => {
       const textarea = document.getElementById('chap-content') as HTMLTextAreaElement;
@@ -953,7 +1027,10 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
               })()}
             </section>
           ) : (
-            <p>Write your first chapter to get started!</p>
+            <div style={{ textAlign: 'center', padding: '2rem' }}>
+              <p>Write your first chapter to get started!</p>
+              <button type="button" onClick={() => setShowChapterForm(true)}>+ Add Chapter</button>
+            </div>
           )}
 
           {/* Chapter-Specific Assets & Encounters */}
@@ -1154,9 +1231,9 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
         key={showAssetInsertionModal ? 'open' : 'closed'}
         onClose={closeAssetInsertionModal}
         onInsert={handleInsertAsset}
-        campaignAssets={activeCampaign.assets}
+        campaignAssets={getSortedAssets()}
+        worldAssets={activeWorld?.assets}
         chapterId={editingChapterId || selectedChapterId}
-        onCreateAsset={handleCreateAssetFromModal}
       />
 
       {/* Asset Form Modal */}

@@ -5,10 +5,10 @@ import { dataService } from '../services/DataService';
 interface AssetInsertionModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onInsert: (assetId: string, assetName: string, tagType: string) => void;
+  onInsert: (assetId: string, assetName: string, tagType: string, newAsset?: Asset) => void;
   campaignAssets: Asset[];
+  worldAssets?: Asset[];
   chapterId: string | null;
-  onCreateAsset: (asset: Asset) => void;
 }
 
 type ModalAsset = {
@@ -16,7 +16,7 @@ type ModalAsset = {
   name: string;
   type: AssetType;
   description: string;
-  tagType: 'Campaign' | 'Monster' | 'Spell' | 'Item';
+  tagType: 'Campaign' | 'Monster' | 'Spell' | 'Item' | 'World';
   isCampaignAsset?: boolean;
 };
 
@@ -25,8 +25,8 @@ export function AssetInsertionModal({
   onClose,
   onInsert,
   campaignAssets,
-  chapterId,
-  onCreateAsset
+  worldAssets,
+  chapterId
 }: AssetInsertionModalProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<AssetType | 'All'>('All');
@@ -104,7 +104,7 @@ export function AssetInsertionModal({
       name: a.name,
       type: a.type,
       description: a.description,
-      tagType: 'Campaign' as const,
+      tagType: (a.tagType || 'Campaign') as 'Campaign' | 'Monster' | 'Spell' | 'Item' | 'World',
       isCampaignAsset: true
     }));
 
@@ -132,14 +132,21 @@ export function AssetInsertionModal({
           type: 'Item' as AssetType,
           description: `${item.rarity} ${item.type}${item.requires_attunement ? ' (Attunement)' : ''}`,
           tagType: 'Item' as const
+        })),
+        ...(worldAssets || []).map(a => ({
+          id: a.id,
+          name: a.name,
+          type: a.type,
+          description: a.description || '',
+          tagType: 'World' as const
         }))
       ];
       
-      // Merge and remove duplicates by ID
-      const campaignIds = new Set(campaignAssets.map(a => a.id));
+      // Merge and remove duplicates by ID + tagType
+      const campaignKeys = new Set(campaignAssets.map(a => `${a.tagType || 'Campaign'}:${a.id}`));
       results = [
         ...results,
-        ...globalResults.filter(ga => !campaignIds.has(ga.id))
+        ...globalResults.filter(ga => !campaignKeys.has(`${ga.tagType}:${ga.id}`))
       ];
     }
 
@@ -148,7 +155,7 @@ export function AssetInsertionModal({
       const matchesType = typeFilter === 'All' || asset.type === typeFilter;
       return matchesSearch && matchesType;
     }).sort((a, b) => a.name.localeCompare(b.name));
-  }, [campaignAssets, globalMonsters, globalSpells, globalMagicItems, onlyCampaign, searchTerm, typeFilter]);
+  }, [campaignAssets, worldAssets, globalMonsters, globalSpells, globalMagicItems, onlyCampaign, searchTerm, typeFilter]);
 
   const handleSaveAndInsert = () => {
     if (!newName) return;
@@ -172,8 +179,7 @@ export function AssetInsertionModal({
       description: newDesc,
       chapterIds: chapterId ? [chapterId] : []
     };
-    onCreateAsset(newAsset);
-    onInsert(newAsset.id, newAsset.name, 'Campaign');
+    onInsert(newAsset.id, newAsset.name, 'Campaign', newAsset);
   };
 
   const handleSelectAsset = (asset: ModalAsset) => {

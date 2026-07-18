@@ -70,11 +70,23 @@ export interface Encounter {
   chapterIds?: string[];
 }
 
+/**
+ * Minimal reference to a single asset mentioned in chapter text via @TagType[id]{Name} syntax.
+ * Stored as an ordered, deduplicated index on each Chapter so that campaign-wide
+ * asset lists can be built without re-scanning chapter content at render time.
+ */
+export interface ChapterAssetRef {
+  id: string;
+  tagType: 'Campaign' | 'Monster' | 'Spell' | 'Item' | 'World';
+}
+
 export interface Chapter {
   id: string;
   title: string;
   content: string; // Custom Markdown string
   order: number;
+  /** Ordered, deduplicated list of assets mentioned in this chapter's content. Computed on save. */
+  mentionedAssets?: ChapterAssetRef[];
 }
 
 export type WorldAssetType = 'NPC' | 'Location' | 'Item' | 'Spell' | 'Organization' | 'Religion' | 'Lore' | 'Faction' | 'Race' | 'Class' | 'Background';
@@ -110,6 +122,7 @@ export interface Asset {
   description: string;
   chapterIds?: string[];
   worldAssetId?: string;
+  tagType?: 'Campaign' | 'Monster' | 'Spell' | 'Item' | 'World';
 }
 
 export interface Spell {
