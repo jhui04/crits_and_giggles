@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useCampaigns } from '../context/CampaignContext';
 import { useWorlds } from '../context/WorldContext';
 import { EncounterBuilder } from './EncounterBuilder';
@@ -9,6 +9,7 @@ import { SpellDetail } from './SpellBrowser';
 import { MagicItemDetail } from './MagicItemBrowser';
 import { dataService } from '../services/DataService';
 import { AssetInsertionModal } from './AssetInsertionModal';
+import { WorldBuilder } from './WorldBuilder';
 
 export function CampaignBuilder() {
   const { activeCampaign, updateCampaign } = useCampaigns();
@@ -54,7 +55,7 @@ export function CampaignBuilder() {
   const [editingEncounter, setEditingEncounter] = useState<Encounter | null>(null);
 
   // View & Chapter Context State
-  const [viewMode, setViewMode] = useState<'chapters' | 'all'>('chapters');
+  const [viewMode, setViewMode] = useState<'chapters' | 'all' | 'world'>('chapters');
   const [selectedChapterIdOverride, setSelectedChapterId] = useState<string | null>(null);
   const selectedChapterId = selectedChapterIdOverride || (activeCampaign?.chapters?.[0]?.id ?? null);
 
@@ -210,9 +211,20 @@ export function CampaignBuilder() {
 
   useEffect(() => {
     if (viewingAsset) {
+      lastFocusedElement.current = document.activeElement as HTMLElement;
       assetViewerHeadingRef.current?.focus();
     }
   }, [viewingAsset]);
+
+  // Focus world heading when viewMode changes to world
+  useEffect(() => {
+    if (viewMode === 'world') {
+      setTimeout(() => {
+        const heading = document.getElementById('world-info-title') || document.getElementById('world-no-select-heading');
+        heading?.focus();
+      }, 50);
+    }
+  }, [viewMode]);
 
   // Escape key handler for all modals
   useEffect(() => {
@@ -266,6 +278,43 @@ export function CampaignBuilder() {
     }
     return asset.name;
   }, []);
+
+  const allChapterAssets = useMemo(() => {
+    if (!activeCampaign || !selectedChapterId) return [];
+
+    const currentChapter = activeCampaign.chapters.find(c => c.id === selectedChapterId);
+    const dynamicAssetsMap = new Map<string, { id: string; tagType: string; name: string }>();
+    if (currentChapter) {
+      const regex = /@(Spell|Monster|Item|World|Campaign)\[([^\]]+)\](?:\{([^}]+)\})?/g;
+      let match;
+      while ((match = regex.exec(currentChapter.content)) !== null) {
+        const tagType = match[1];
+        const id = match[2];
+        const key = `${tagType}-${id}`;
+        if (!dynamicAssetsMap.has(key)) {
+          let name = match[3] || '';
+          if (!name) {
+            if (tagType === 'Monster') name = dataService.getMonsterByIdSync(id)?.name || id;
+            else if (tagType === 'Spell') name = dataService.getSpellByIdSync(id)?.name || id;
+            else if (tagType === 'Item') name = dataService.getMagicItemByIdSync(id)?.name || id;
+            else if (tagType === 'Campaign') name = activeCampaign.assets.find(a => a.id === id)?.name || id;
+            else if (tagType === 'World') name = activeWorld?.assets.find(a => a.id === id)?.name || id;
+            else name = id;
+          }
+          dynamicAssetsMap.set(key, { id, tagType, name });
+        }
+      }
+    }
+
+    activeCampaign.assets.filter(a => a.chapterIds?.includes(selectedChapterId)).forEach(a => {
+      const key = `Campaign-${a.id}`;
+      if (!dynamicAssetsMap.has(key)) {
+        dynamicAssetsMap.set(key, { id: a.id, tagType: 'Campaign', name: getAssetDisplayName(a) });
+      }
+    });
+
+    return Array.from(dynamicAssetsMap.values());
+  }, [activeCampaign, selectedChapterId, activeWorld, getAssetDisplayName]);
 
   const handleAddPlayer = async () => {
     if (!activeCampaign || !playerName) return;
@@ -513,7 +562,6 @@ export function CampaignBuilder() {
   }, [activeCampaign, updateCampaign]);
 
   const handleAssetLinkClick = useCallback((id: string, tagType: string) => {
-    lastFocusedElement.current = document.activeElement as HTMLElement;
     setViewingAsset({ id, tagType });
   }, []);
 
@@ -571,7 +619,7 @@ export function CampaignBuilder() {
         <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="world-picker-title" style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
           backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex',
-          alignItems: 'center', justifyContent: 'center', zIndex: 1600
+          alignItems: 'center', justifyContent: 'center', zIndex: 2100
         }}>
           <div className="modal-content" style={{
             backgroundColor: 'white', padding: '2rem', borderRadius: '8px',
@@ -617,7 +665,7 @@ export function CampaignBuilder() {
         <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="link-asset-title" style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
           backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex',
-          alignItems: 'center', justifyContent: 'center', zIndex: 1600
+          alignItems: 'center', justifyContent: 'center', zIndex: 2100
         }}>
           <div className="modal-content" style={{
             backgroundColor: 'white', padding: '2rem', borderRadius: '8px',
@@ -731,31 +779,20 @@ export function CampaignBuilder() {
             >
               All Assets
             </button>
+            <button
+              aria-current={viewMode === 'world' ? 'page' : undefined}
+              onClick={() => setViewMode('world')}
+              className={viewMode === 'world' ? 'active' : ''}
+              style={{ fontWeight: viewMode === 'world' ? 'bold' : 'normal', borderBottom: viewMode === 'world' ? '2px solid #000' : 'none' }}
+            >
+              World
+            </button>
           </div>
           <button type="button" ref={editCampaignBtnRef} onClick={handleOpenSettings}>Campaign Settings</button>
         </div>
       </nav>
 
-      {/* World Connection Section */}
-      <section aria-labelledby="world-link-heading" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem', backgroundColor: '#fcfcfc', border: '1px solid #ddd', borderRadius: '4px', marginBottom: '1.5rem' }}>
-        <div>
-          <h3 id="world-link-heading" style={{ margin: 0, fontSize: '1.1rem' }}>World Association</h3>
-          <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.95rem' }}>
-            Linked to: <strong>{linkedWorldName || 'None'}</strong>
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <button type="button" onClick={() => setShowWorldLinkModal(true)}>Change World</button>
-          {activeCampaign.worldId && (
-            <>
-              <button type="button" onClick={handleUnlinkWorld}>Unlink World</button>
-              <button type="button" onClick={() => setShowLinkAssetModal(true)}>Link World Asset</button>
-            </>
-          )}
-        </div>
-      </section>
-
-      {viewMode === 'chapters' ? (
+      {viewMode === 'chapters' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }} aria-hidden={!!isAnyModalOpen}>
           {/* Chapter Selector */}
           <section style={{ borderBottom: '2px solid #eee', paddingBottom: '1rem' }}>
@@ -811,45 +848,10 @@ export function CampaignBuilder() {
             <section style={{ flex: '1 1 300px' }}>
               <h3>Chapter Assets</h3>
               <ul style={{ listStyle: 'none', padding: 0, marginBottom: '1rem' }}>
-                {(() => {
-                  const currentChapter = activeCampaign.chapters.find(c => c.id === selectedChapterId);
-                  const dynamicAssetsMap = new Map<string, { id: string; tagType: string; name: string }>();
-                  if (currentChapter) {
-                    const regex = /@(Spell|Monster|Item|World|Campaign)\[([^\]]+)\](?:\{([^}]+)\})?/g;
-                    let match;
-                    while ((match = regex.exec(currentChapter.content)) !== null) {
-                      const tagType = match[1];
-                      const id = match[2];
-                      const key = `${tagType}-${id}`;
-                      if (!dynamicAssetsMap.has(key)) {
-                        let name = match[3] || '';
-                        if (!name) {
-                          if (tagType === 'Monster') name = dataService.getMonsterByIdSync(id)?.name || id;
-                          else if (tagType === 'Spell') name = dataService.getSpellByIdSync(id)?.name || id;
-                          else if (tagType === 'Item') name = dataService.getMagicItemByIdSync(id)?.name || id;
-                          else if (tagType === 'Campaign') name = activeCampaign.assets.find(a => a.id === id)?.name || id;
-                          else if (tagType === 'World') name = activeWorld?.assets.find(a => a.id === id)?.name || id;
-                          else name = id;
-                        }
-                        dynamicAssetsMap.set(key, { id, tagType, name });
-                      }
-                    }
-                  }
-                  
-                  activeCampaign.assets.filter(a => a.chapterIds?.includes(selectedChapterId || '')).forEach(a => {
-                    const key = `Campaign-${a.id}`;
-                    if (!dynamicAssetsMap.has(key)) {
-                      dynamicAssetsMap.set(key, { id: a.id, tagType: 'Campaign', name: getAssetDisplayName(a) });
-                    }
-                  });
-
-                  const allChapterAssets = Array.from(dynamicAssetsMap.values());
-                  
-                  if (allChapterAssets.length === 0) {
-                    return <li>No assets assigned to this chapter.</li>;
-                  }
-                  
-                  return allChapterAssets.map(asset => (
+                {allChapterAssets.length === 0 ? (
+                  <li>No assets assigned to this chapter.</li>
+                ) : (
+                  allChapterAssets.map(asset => (
                     <li key={`${asset.tagType}-${asset.id}`} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0' }}>
                       <div style={{ display: 'flex', alignItems: 'center' }}>
                         <button type="button"
@@ -860,8 +862,8 @@ export function CampaignBuilder() {
                         </button>
                       </div>
                     </li>
-                  ));
-                })()}
+                  ))
+                )}
               </ul>
               <button type="button" ref={addAssetBtnRef} onClick={handleAddAssetClick}>+ Add Asset</button>
             </section>
@@ -882,7 +884,9 @@ export function CampaignBuilder() {
             </section>
           </div>
         </div>
-      ) : (
+      )}
+
+      {viewMode === 'all' && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2rem' }} aria-hidden={!!isAnyModalOpen}>
 
           {/* Asset Management */}
@@ -925,6 +929,17 @@ export function CampaignBuilder() {
             <button type="button" ref={createEncounterBtnRef} onClick={() => setIsCreatingEncounter(true)}>+ Create Encounter</button>
           </section>
         </div>
+      )}
+
+      {viewMode === 'world' && (
+        !activeWorld ? (
+          <div style={{ padding: '2rem', textAlign: 'center' }}>
+            <h2 id="world-no-select-heading" tabIndex={-1} style={{ outline: 'none' }}>No World Selected</h2>
+            <p>Please select or create a world using Switch World (Alt+W) to get started.</p>
+          </div>
+        ) : (
+          <WorldBuilder />
+        )
       )}
 
       {/* Chapter Options Modal */}
@@ -1144,6 +1159,25 @@ export function CampaignBuilder() {
                   rows={3}
                   style={{ width: '100%', padding: '0.5rem' }}
                 />
+              </div>
+
+              {/* World Association */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem', backgroundColor: '#fcfcfc', border: '1px solid #ddd', borderRadius: '4px', marginTop: '0.5rem' }}>
+                <div>
+                  <h3 id="world-link-heading" style={{ margin: 0, fontSize: '1.1rem' }}>World Association</h3>
+                  <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.95rem' }}>
+                    Linked to: <strong>{linkedWorldName || 'None'}</strong>
+                  </p>
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button type="button" onClick={() => setShowWorldLinkModal(true)}>Change World</button>
+                  {activeCampaign.worldId && (
+                    <>
+                      <button type="button" onClick={handleUnlinkWorld}>Unlink World</button>
+                      <button type="button" onClick={() => setShowLinkAssetModal(true)}>Link World Asset</button>
+                    </>
+                  )}
+                </div>
               </div>
 
               {/* Player Management */}

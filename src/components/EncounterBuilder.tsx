@@ -113,7 +113,7 @@ export function EncounterBuilder({ initialEncounter, chapterId, onClose }: Encou
       return unitCopy;
     });
 
-    let encounterId = '';
+    let encounterId: string;
     if (initialEncounter) {
       encounterId = initialEncounter.id;
     } else {

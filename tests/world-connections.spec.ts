@@ -54,7 +54,7 @@ test.describe('World Asset Connections E2E and A11y', () => {
     await page.keyboard.press('Alt+w');
     await page.getByRole('button', { name: 'Connections Test World' }).first().click();
     // Switch to World Tab
-    await page.keyboard.press('Alt+2');
+    await page.getByRole('button', { name: 'World', exact: true }).click();
   });
 
   test('should create bidirectional connections and remove them correctly', async ({ page }) => {

@@ -37,4 +37,5 @@ tools/state
 test-results
 playwright-report
 blob-report
-
+pro.cmd
+flash.cmd

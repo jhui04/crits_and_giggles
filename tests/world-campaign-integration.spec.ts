@@ -60,8 +60,11 @@ test.describe('Campaign and World Integration E2E and A11y', () => {
 
   test('should link campaign to world, link asset, and display world context in Run Mode', async ({ page }) => {
     // 1. Link Campaign to World
-    // Locate the World Association section
-    const worldSection = page.locator('section', { hasText: 'World Association' });
+    // Click Campaign Settings to open modal
+    await page.getByRole('button', { name: 'Campaign Settings' }).click();
+
+    // Locate the World Association area inside Campaign Settings modal
+    const worldSection = page.locator('div').filter({ has: page.getByRole('heading', { name: 'World Association', exact: true }) }).first();
     await expect(worldSection).toBeVisible();
     await expect(worldSection).toContainText('Linked to: None');
 
@@ -84,6 +87,10 @@ test.describe('Campaign and World Integration E2E and A11y', () => {
     // Link Elminster
     await page.locator('li', { hasText: 'Elminster' }).getByRole('button', { name: 'Link Asset' }).click();
     await expect(page.locator('#link-asset-title')).not.toBeVisible();
+
+    // Close Campaign Settings Modal
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(page.locator('#campaign-modal-title')).not.toBeVisible();
 
     // Verify Elminster is added to the chapter content
     await expect(page.getByRole('button', { name: 'Open asset: Elminster' })).toBeVisible();

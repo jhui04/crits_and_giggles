@@ -39,11 +39,11 @@ test.describe('World Builder Panel CRUD E2E and A11y', () => {
   });
 
   test('should support tabs, adding, editing, deleting assets and filtering/searching', async ({ page }) => {
-    // 1. Navigate to World tab with Alt+2 and verify focus
-    await page.keyboard.press('Alt+2');
-    const tabWorld = page.getByRole('tab', { name: 'World (Alt+2)' });
+    // 1. Navigate to World tab and verify focus
+    const tabWorld = page.getByRole('button', { name: 'World', exact: true });
     await expect(tabWorld).toBeVisible();
-    await expect(tabWorld).toHaveAttribute('aria-selected', 'true');
+    await tabWorld.click();
+    await expect(tabWorld).toHaveAttribute('aria-current', 'page');
 
     const panelWorldHeading = page.locator('#world-info-title');
     await expect(panelWorldHeading).toBeFocused();
@@ -133,8 +133,8 @@ test.describe('World Builder Panel CRUD E2E and A11y', () => {
   });
 
   test('should support new asset types Faction, Race, Class, Background', async ({ page }) => {
-    // Navigate to World tab with Alt+2
-    await page.keyboard.press('Alt+2');
+    // Navigate to World tab
+    await page.getByRole('button', { name: 'World', exact: true }).click();
     await page.getByRole('button', { name: '+ Add World Asset' }).click();
 
     const assetFormName = page.getByLabel('Asset Name:');
