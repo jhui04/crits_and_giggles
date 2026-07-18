@@ -464,7 +464,7 @@ export function WorldBuilder() {
       </div>
 
       {/* World General Information & Inline Editing */}
-      <section aria-labelledby="world-info-title" style={{ padding: '1rem', border: '1px solid #ccc', borderRadius: '4px' }}>
+      <div style={{ padding: '1rem', border: '1px solid #ccc', borderRadius: '4px' }}>
         {!isEditingWorld ? (
           <>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -514,7 +514,7 @@ export function WorldBuilder() {
             </div>
           </form>
         )}
-      </section>
+      </div>
 
       {/* World Asset CRUD Form (Modal style or Inline overlay style) */}
       {showAssetForm && (
@@ -592,7 +592,7 @@ export function WorldBuilder() {
       )}
 
       {/* Assets Management Section */}
-      <section aria-labelledby="assets-heading">
+      <div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
           <h3 id="assets-heading" ref={listHeadingRef} tabIndex={-1} style={{ margin: 0, outline: 'none' }}>
             World Assets
@@ -693,7 +693,7 @@ export function WorldBuilder() {
             ))}
           </ul>
         )}
-      </section>
+      </div>
 
       {/* World Asset Details Modal */}
       {selectedWorldAsset && (
@@ -775,7 +775,7 @@ export function WorldBuilder() {
             )}
 
             {/* Connections Section */}
-            <section aria-labelledby="modal-connections-heading" style={{ marginTop: '1.5rem', backgroundColor: '#fcfcfc', padding: '0.75rem', borderRadius: '4px', border: '1px solid #eaeaea' }}>
+            <div style={{ marginTop: '1.5rem', backgroundColor: '#fcfcfc', padding: '0.75rem', borderRadius: '4px', border: '1px solid #eaeaea' }}>
               <h3 id="modal-connections-heading" style={{ margin: '0 0 0.5rem 0', fontSize: '1.1rem' }}>Connections</h3>
               
               {selectedWorldAsset.connections.length === 0 && getIncomingConnections(selectedWorldAsset.id).length === 0 ? (
@@ -874,7 +874,7 @@ export function WorldBuilder() {
                   Add Connection
                 </button>
               </form>
-            </section>
+            </div>
 
             {/* Edit / Delete Buttons */}
             <div style={{ display: 'flex', gap: '1rem', marginTop: '2rem', borderTop: '1px solid #eee', paddingTop: '1.5rem' }}>

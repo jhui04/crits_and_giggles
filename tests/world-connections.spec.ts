@@ -62,7 +62,7 @@ test.describe('World Asset Connections E2E and A11y', () => {
     // 1. Click Elminster to open details modal
     await page.getByRole('button', { name: 'Elminster', exact: false }).click();
     
-    const connSection = page.getByRole('dialog').locator('section', { hasText: 'Connections' });
+    const connSection = page.getByRole('dialog').locator('div').filter({ has: page.getByRole('heading', { name: 'Connections' }) }).first();
     await expect(connSection).toBeVisible();
 
     // Check accessibility of details modal
@@ -82,7 +82,7 @@ test.describe('World Asset Connections E2E and A11y', () => {
     // 3. Open Waterdeep details modal and verify reverse connection is displayed
     await page.getByRole('button', { name: 'Waterdeep', exact: false }).click();
     
-    const waterdeepConnSection = page.getByRole('dialog').locator('section', { hasText: 'Connections' });
+    const waterdeepConnSection = page.getByRole('dialog').locator('div').filter({ has: page.getByRole('heading', { name: 'Connections' }) }).first();
     await expect(waterdeepConnSection).toBeVisible();
     await expect(waterdeepConnSection.locator('li', { hasText: 'Elminster (NPC) "is located in" → this' })).toBeVisible();
 
@@ -97,6 +97,7 @@ test.describe('World Asset Connections E2E and A11y', () => {
 
     // Verify connection disappeared from Elminster side as well
     await page.getByRole('button', { name: 'Elminster', exact: false }).click();
-    await expect(page.getByRole('dialog').locator('section', { hasText: 'Connections' }).locator('li', { hasText: '"is located in" → Waterdeep (Location)' })).not.toBeVisible();
+    const finalElminsterConnSection = page.getByRole('dialog').locator('div').filter({ has: page.getByRole('heading', { name: 'Connections' }) }).first();
+    await expect(finalElminsterConnSection.locator('li', { hasText: '"is located in" → Waterdeep (Location)' })).not.toBeVisible();
   });
 });
