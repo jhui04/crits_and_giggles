@@ -41,6 +41,20 @@ describe('DiceService', () => {
     expect(() => DiceService.roll('d20')).toThrow();
   });
 
+  it('should handle chained dice notation (e.g. 1d10+2+2d4)', () => {
+    const result = DiceService.roll('1d10+2+2d4');
+    expect(result.rolls.length).toBe(3); // 1 for d10, 2 for d4
+    expect(result.modifier).toBe(2);
+    expect(result.total).toBe(result.rolls[0] + result.rolls[1] + result.rolls[2] + 2);
+  });
+
+  it('should handle negative modifiers and chaining (e.g. 1d8-3+1d4)', () => {
+    const result = DiceService.roll('1d8-3+1d4');
+    expect(result.rolls.length).toBe(2);
+    expect(result.modifier).toBe(-3);
+    expect(result.total).toBe(result.rolls[0] + result.rolls[1] - 3);
+  });
+
   it('should roll within reasonable bounds over many attempts', () => {
     for (let i = 0; i < 100; i++) {
       const result = DiceService.roll('1d6');

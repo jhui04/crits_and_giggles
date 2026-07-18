@@ -4,6 +4,7 @@ import { CampaignRunner } from './components/CampaignRunner';
 import { EncounterRunner } from './components/EncounterRunner';
 import { Oracle } from './components/Oracle';
 import { ShortcutsHelp } from './components/ShortcutsHelp';
+import { DiceRollerModal } from './components/DiceRollerModal';
 import { useCampaigns } from './context/CampaignContext';
 import { useWorlds } from './context/WorldContext';
 import type { Campaign } from './types';
@@ -19,6 +20,7 @@ function App() {
   const [isCampaignSettingsOpen, setIsCampaignSettingsOpen] = useState(false);
   const [isOracleOpen, setIsOracleOpen] = useState(false);
   const [isShortcutsHelpOpen, setIsShortcutsHelpOpen] = useState(false);
+  const [isDiceRollerOpen, setIsDiceRollerOpen] = useState(false);
   const [isMainMenuOpen, setIsMainMenuOpen] = useState(false);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [newCampName, setNewCampName] = useState('');
@@ -51,6 +53,7 @@ function App() {
   const modalRef = useRef<HTMLDivElement>(null);
   const lastFocusedBeforeOracle = useRef<HTMLElement | null>(null);
   const lastFocusedBeforeHelp = useRef<HTMLElement | null>(null);
+  const lastFocusedBeforeDiceRoller = useRef<HTMLElement | null>(null);
 
   const toggleMode = () => {
     setMode((prevMode) => (prevMode === 'create' ? 'run' : 'create'));
@@ -121,6 +124,22 @@ function App() {
     }, 0);
   };
 
+  const openDiceRoller = () => {
+    lastFocusedBeforeDiceRoller.current = document.activeElement as HTMLElement;
+    setIsDiceRollerOpen(true);
+  };
+
+  const closeDiceRoller = () => {
+    setIsDiceRollerOpen(false);
+    setTimeout(() => {
+      if (lastFocusedBeforeDiceRoller.current && lastFocusedBeforeDiceRoller.current !== document.body && document.body.contains(lastFocusedBeforeDiceRoller.current)) {
+        lastFocusedBeforeDiceRoller.current.focus();
+      } else {
+        mainMenuBtnRef.current?.focus();
+      }
+    }, 0);
+  };
+
   const handleCreate = () => {
     if (newCampName) {
       const selectedCamp = scrapedCampaigns.find(c => c.id === selectedTemplate);
@@ -172,6 +191,12 @@ function App() {
           else openShortcutsHelp();
           return;
         }
+        if (key === 'r') {
+          e.preventDefault();
+          if (isDiceRollerOpen) closeDiceRoller();
+          else openDiceRoller();
+          return;
+        }
         if (key === 'm') {
           e.preventDefault();
           toggleMode();
@@ -195,12 +220,14 @@ function App() {
           closeCampaignModal();
         } else if (isMainMenuOpen) {
           closeMainMenu();
+        } else if (isDiceRollerOpen) {
+          closeDiceRoller();
         }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isCampaignModalOpen, isOracleOpen, isShortcutsHelpOpen, isMainMenuOpen, isCampaignSettingsOpen, mode]);
+  }, [isCampaignModalOpen, isOracleOpen, isShortcutsHelpOpen, isDiceRollerOpen, isMainMenuOpen, isCampaignSettingsOpen, mode]);
 
   if (targetEncounterId) {
     return (
@@ -213,7 +240,7 @@ function App() {
 
   return (
     <React.Fragment>
-      <div className="app-container" aria-hidden={isMainMenuOpen || isCampaignModalOpen || isOracleOpen || isShortcutsHelpOpen}>  
+      <div className="app-container" aria-hidden={isMainMenuOpen || isCampaignModalOpen || isOracleOpen || isShortcutsHelpOpen || isDiceRollerOpen}>  
         <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h1 style={{ margin: 0 }}>
             <button
@@ -269,6 +296,7 @@ function App() {
 
       <Oracle isOpen={isOracleOpen} onClose={closeOracle} />
       <ShortcutsHelp isOpen={isShortcutsHelpOpen} onClose={closeShortcutsHelp} />
+      <DiceRollerModal isOpen={isDiceRollerOpen} onClose={closeDiceRoller} />
 
       {/* Main Menu Modal */}
       {isMainMenuOpen && (
@@ -289,6 +317,13 @@ function App() {
                 style={{ padding: '0.75rem', fontSize: '1.1rem' }}
               >
                 The Oracle (Alt+O)
+              </button>
+              <button
+                type="button"
+                onClick={() => { closeMainMenu(false); openDiceRoller(); }}
+                style={{ padding: '0.75rem', fontSize: '1.1rem' }}
+              >
+                Quick Dice Roller (Alt+R)
               </button>
               <button
                 type="button"

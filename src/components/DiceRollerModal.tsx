@@ -1,0 +1,272 @@
+import { useState, useRef, useEffect } from 'react';
+import { DiceService } from '../services/DiceService';
+import type { DiceResult } from '../services/DiceService';
+
+interface DiceRollerModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+interface RollHistoryItem {
+  id: string;
+  notation: string;
+  result: DiceResult;
+  timestamp: string;
+}
+
+export function DiceRollerModal({ isOpen, onClose }: DiceRollerModalProps) {
+  const [notation, setNotation] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [currentResult, setCurrentResult] = useState<DiceResult | null>(null);
+  const [history, setHistory] = useState<RollHistoryItem[]>([]);
+  const [announcement, setAnnouncement] = useState('');
+
+  const modalHeadingRef = useRef<HTMLHeadingElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const modalContentRef = useRef<HTMLDivElement>(null);
+
+  // Focus management: Focus the heading when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setTimeout(() => {
+        modalHeadingRef.current?.focus();
+      }, 50);
+    }
+  }, [isOpen]);
+
+  // Focus trapping
+  useEffect(() => {
+    const handleFocusTrap = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab' || !modalContentRef.current) return;
+
+      const focusableElements = modalContentRef.current.querySelectorAll(
+        'h2[tabIndex="-1"], a[href], button:not([disabled]), textarea, input[type="text"], input[type="radio"], input[type="checkbox"], select'
+      );
+      if (focusableElements.length === 0) return;
+
+      const firstElement = focusableElements[0] as HTMLElement;
+      const lastElement = focusableElements[focusableElements.length - 1] as HTMLElement;
+
+      if (e.shiftKey) { // Shift + Tab
+        if (document.activeElement === firstElement) {
+          lastElement.focus();
+          e.preventDefault();
+        }
+      } else { // Tab
+        if (document.activeElement === lastElement) {
+          firstElement.focus();
+          e.preventDefault();
+        }
+      }
+    };
+
+    if (isOpen) {
+      window.addEventListener('keydown', handleFocusTrap);
+    }
+    return () => window.removeEventListener('keydown', handleFocusTrap);
+  }, [isOpen]);
+
+  const handleRoll = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!notation.trim()) return;
+
+    try {
+      setError(null);
+      const res = DiceService.roll(notation);
+      setCurrentResult(res);
+
+      // Create history item
+      const newItem: RollHistoryItem = {
+        id: Math.random().toString(36).substring(2, 9),
+        notation,
+        result: res,
+        timestamp: new Date().toLocaleTimeString(),
+      };
+      setHistory(prev => [newItem, ...prev].slice(0, 20)); // Limit to 20 items
+
+      // Formulate screen reader announcement
+      const rollsStr = res.rolls.length > 0 ? `Rolls: ${res.rolls.join(', ')}.` : '';
+      const modStr = res.modifier !== 0 ? `Modifier: ${res.modifier > 0 ? '+' : ''}${res.modifier}.` : '';
+      const textAnnouncement = `Result: ${res.total}. Rolled: ${notation}. ${rollsStr} ${modStr}`;
+      
+      setAnnouncement('');
+      setTimeout(() => {
+        setAnnouncement(textAnnouncement);
+      }, 50);
+
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : 'Invalid notation';
+      setError(errMsg);
+      setAnnouncement(`Error rolling dice: ${errMsg}`);
+    }
+  };
+
+  const handleClear = () => {
+    setNotation('');
+    setError(null);
+    setCurrentResult(null);
+    setAnnouncement('Input and current result cleared.');
+    inputRef.current?.focus();
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      onClose();
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div
+      className="modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="dice-roller-title"
+      onKeyDown={handleKeyDown}
+      style={{
+        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+        backgroundColor: 'rgba(0,0,0,0.85)', zIndex: 3100,
+        display: 'flex', justifyContent: 'center', alignItems: 'flex-start',
+        paddingTop: '5vh'
+      }}
+    >
+      {/* Screen Reader Live Region for Announcements */}
+      <div aria-live="assertive" className="sr-only" style={{
+        position: 'absolute', width: '1px', height: '1px', padding: 0, margin: '-1px',
+        overflow: 'hidden', clip: 'rect(0, 0, 0, 0)', border: 0
+      }}>
+        {announcement}
+      </div>
+
+      <div
+        ref={modalContentRef}
+        className="modal-content dark-theme"
+        style={{
+          backgroundColor: '#1a1a1a', color: 'white', padding: '2rem', borderRadius: '8px',
+          maxWidth: '600px', width: '95%', maxHeight: '90vh', overflowY: 'auto',
+          border: '2px solid #444', boxShadow: '0 0 20px rgba(0,0,0,0.5)'
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+          <h2 id="dice-roller-title" ref={modalHeadingRef} tabIndex={-1} style={{ margin: 0, outline: 'none' }}>
+            Quick Dice Roller
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              padding: '0.5rem 1rem', background: '#444', color: 'white',
+              border: 'none', cursor: 'pointer', borderRadius: '4px'
+            }}
+          >
+            Close (Esc)
+          </button>
+        </div>
+
+        <form onSubmit={handleRoll} style={{ marginBottom: '1.5rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <label htmlFor="dice-notation-input" style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>
+              Dice Notation (e.g. 1d20+5, 1d10+2+2d4):
+            </label>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <input
+                id="dice-notation-input"
+                ref={inputRef}
+                type="text"
+                value={notation}
+                onChange={e => setNotation(e.target.value)}
+                placeholder="1d20+5"
+                style={{
+                  flexGrow: 1, padding: '0.75rem', fontSize: '1.1rem',
+                  background: '#333', color: 'white', border: '1px solid #444',
+                  borderRadius: '4px'
+                }}
+                autoComplete="off"
+              />
+              <button
+                type="submit"
+                style={{
+                  padding: '0.75rem 1.5rem', background: '#1976d2', color: 'white',
+                  border: 'none', cursor: 'pointer', borderRadius: '4px', fontWeight: 'bold'
+                }}
+              >
+                Roll
+              </button>
+              <button
+                type="button"
+                onClick={handleClear}
+                style={{
+                  padding: '0.75rem 1rem', background: '#555', color: 'white',
+                  border: 'none', cursor: 'pointer', borderRadius: '4px'
+                }}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+        </form>
+
+        {error && (
+          <div
+            role="alert"
+            style={{
+              background: 'rgba(211, 47, 47, 0.2)', border: '1px solid #d32f2f',
+              color: '#ff8a80', padding: '1rem', borderRadius: '4px', marginBottom: '1.5rem'
+            }}
+          >
+            <strong>Error:</strong> {error}
+          </div>
+        )}
+
+        {currentResult && !error && (
+          <div
+            style={{
+              background: '#222', border: '1px solid #444', padding: '1.5rem',
+              borderRadius: '4px', marginBottom: '1.5rem', textAlign: 'center'
+            }}
+          >
+            <div style={{ fontSize: '1rem', color: '#aaa', marginBottom: '0.5rem' }}>
+              Rolled: <strong>{currentResult.notation}</strong>
+            </div>
+            <div data-testid="grand-total" style={{ fontSize: '3rem', fontWeight: 'bold', color: '#4caf50', margin: '0.5rem 0' }}>
+              {currentResult.total}
+            </div>
+            <div style={{ fontSize: '1.1rem' }}>
+              Rolls: [{currentResult.rolls.join(', ')}]
+              {currentResult.modifier !== 0 && ` | Modifier: ${currentResult.modifier > 0 ? '+' : ''}${currentResult.modifier}`}
+            </div>
+          </div>
+        )}
+
+        {history.length > 0 && (
+          <div>
+            <h3 style={{ borderBottom: '1px solid #444', paddingBottom: '0.5rem', margin: '1.5rem 0 0.5rem 0' }}>
+              Roll History
+            </h3>
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0, maxHeight: '200px', overflowY: 'auto' }}>
+              {history.map(item => (
+                <li
+                  key={item.id}
+                  style={{
+                    display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0',
+                    borderBottom: '1px solid #333', fontSize: '0.95rem'
+                  }}
+                >
+                  <span>
+                    <span style={{ color: '#aaa' }}>[{item.timestamp}]</span>{' '}
+                    <strong>{item.notation}</strong>
+                  </span>
+                  <span>
+                    Total: <strong style={{ color: '#4caf50' }}>{item.result.total}</strong>{' '}
+                    <span style={{ color: '#aaa' }}>({item.result.rolls.join(', ')})</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

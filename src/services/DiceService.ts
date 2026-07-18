@@ -20,41 +20,66 @@ export const DiceService = {
   roll(notation: string): DiceResult {
     const cleanNotation = notation.replace(/\s+/g, '').replace(/[−–]/g, '-');
     
-    // Check if it's a flat number
-    if (/^\d+$/.test(cleanNotation)) {
-      const val = parseInt(cleanNotation, 10);
-      return {
-        total: val,
-        rolls: [],
-        modifier: val,
-        notation
-      };
-    }
-
-    const regex = /^(\d+)d(\d+)([+-]\d+)?$/i;
-    const match = cleanNotation.match(regex);
-
-    if (!match) {
+    if (!cleanNotation) {
       throw new Error(`Invalid dice notation: ${notation}`);
     }
 
-    const count = parseInt(match[1], 10);
-    const sides = parseInt(match[2], 10);
-    const modifier = match[3] ? parseInt(match[3], 10) : 0;
+    // Match terms: either something like +2d6 or -3 or 1d10
+    const termRegex = /([+-]?(?:\d+d\d+|\d+))/gi;
+    const matches = cleanNotation.match(termRegex);
+
+    if (!matches) {
+      throw new Error(`Invalid dice notation: ${notation}`);
+    }
+
+    // Validate that the matched terms reconstruct the entire cleanNotation string
+    const reconstructed = matches.join('');
+    if (reconstructed !== cleanNotation) {
+      throw new Error(`Invalid dice notation: ${notation}`);
+    }
 
     const rolls: number[] = [];
-    let sum = 0;
+    let totalModifier = 0;
+    let totalSum = 0;
 
-    for (let i = 0; i < count; i++) {
-      const roll = Math.floor(Math.random() * sides) + 1;
-      rolls.push(roll);
-      sum += roll;
+    for (const term of matches) {
+      if (term.toLowerCase().includes('d')) {
+        // Die term: optionally starts with + or -, then count, then d, then sides
+        const dieRegex = /^([+-]?)(\d+)d(\d+)$/i;
+        const dieMatch = term.match(dieRegex);
+        if (!dieMatch) {
+          throw new Error(`Invalid dice notation: ${notation}`);
+        }
+        const sign = dieMatch[1] === '-' ? -1 : 1;
+        const count = parseInt(dieMatch[2], 10);
+        const sides = parseInt(dieMatch[3], 10);
+
+        if (count === 0 || sides === 0) {
+          throw new Error(`Invalid dice notation: ${notation}`);
+        }
+
+        for (let i = 0; i < count; i++) {
+          const roll = Math.floor(Math.random() * sides) + 1;
+          rolls.push(roll);
+          totalSum += roll * sign;
+        }
+      } else {
+        // Modifier term: optionally starts with + or -, then a number
+        const modRegex = /^([+-]?)(\d+)$/;
+        const modMatch = term.match(modRegex);
+        if (!modMatch) {
+          throw new Error(`Invalid dice notation: ${notation}`);
+        }
+        const sign = modMatch[1] === '-' ? -1 : 1;
+        const value = parseInt(modMatch[2], 10);
+        totalModifier += value * sign;
+      }
     }
 
     return {
-      total: sum + modifier,
+      total: totalSum + totalModifier,
       rolls,
-      modifier,
+      modifier: totalModifier,
       notation
     };
   },
