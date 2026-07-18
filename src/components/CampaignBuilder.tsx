@@ -72,7 +72,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
   const playerHeadingRef = useRef<HTMLHeadingElement>(null);
   const addPlayerBtnRef = useRef<HTMLButtonElement>(null);
 
-  const addChapterBtnRef = useRef<HTMLButtonElement>(null);
+
   const chapterHeadingRef = useRef<HTMLHeadingElement>(null);
   const chapterOptionsBtnRef = useRef<HTMLButtonElement>(null);
   const chapterOptionsHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -109,7 +109,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
         lastFocusedElement.current.focus();
         lastFocusedElement.current = null;
       } else {
-        addChapterBtnRef.current?.focus();
+        chapterOptionsBtnRef.current?.focus();
       }
     }, 0);
   }, []);
@@ -543,7 +543,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
     }
     setShowChapterOptionsModal(false);
     setTimeout(() => {
-      addChapterBtnRef.current?.focus();
+      chapterOptionsBtnRef.current?.focus();
     }, 0);
   };
 
@@ -923,7 +923,6 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
                 ))}
                 {activeCampaign.chapters.length === 0 && <option value="">No Chapters</option>}
               </select>
-              <button type="button" ref={addChapterBtnRef} onClick={() => setShowChapterForm(true)}>+ Add Chapter</button>
             </div>
           </section>
 
@@ -1072,10 +1071,17 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
             </h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <button type="button" onClick={() => {
+                lastFocusedElement.current = chapterOptionsBtnRef.current;
+                setShowChapterOptionsModal(false);
+                setShowChapterForm(true);
+              }} style={{ padding: '0.75rem', fontWeight: 'bold' }}>
+                Add New Chapter
+              </button>
+              <button type="button" onClick={() => {
                 const chapter = activeCampaign.chapters.find(c => c.id === selectedChapterId);
                 if (chapter) handleEditChapter(chapter);
                 setShowChapterOptionsModal(false);
-              }} style={{ padding: '0.75rem', fontWeight: 'bold' }}>
+              }} style={{ padding: '0.75rem' }}>
                 Edit Chapter
               </button>
               <button type="button" onClick={() => {
