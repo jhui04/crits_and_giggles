@@ -17,6 +17,7 @@ DATA_FILE = "public/data/scraped_world.json"
 MAPPING_FILE = "tools/state/wildemount_asset_ids.json"
 WILDEMOUNT_WORLD_ID = "4a2b9c3d-1e5f-4a7b-8c9d-1e5f4a7b8c9d"
 
+
 def slugify(text):
     text = text.lower()
     text = re.sub(r'[\\/]+', '-', text)
@@ -61,6 +62,7 @@ def main():
     )
 
     try:
+        heading_logs = []
         # Load existing world or initialize new
         world_data = {
             "id": WILDEMOUNT_WORLD_ID,
@@ -114,6 +116,7 @@ def main():
 
         print(f"Found {len(chapter_links)} EGTW chapter pages to process.")
 
+        overrides = manager.state.get("overrides", {})
         assets = []
         name_to_id = {}
         connections = []
@@ -170,6 +173,8 @@ def main():
             current_sub_section = None
             current_asset = None
             last_header_of_level = {}
+            last_header_name_of_level = {}
+            active_sub_section_overrides = {}
 
             # Parse elements sequentially to build descriptions and connections
             for child in content_area.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'ul', 'ol', 'table', 'blockquote']):
@@ -180,9 +185,65 @@ def main():
                 if child.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
                     level = int(child.name[1])
                     
-                    # Update sub-section context for Chapter 3 / Character Options
+                    lower_text = text.lower().replace('’', "'").rstrip('?:.')
+
+                    # 1. Clean up active overrides for levels >= current level
+                    for l in list(active_sub_section_overrides.keys()):
+                        if l >= level:
+                            active_sub_section_overrides.pop(l)
+
+                    # 2. Determine active parent override default (closest level < current level)
+                    parent_override = None
+                    for l in sorted(active_sub_section_overrides.keys(), reverse=True):
+                        if l < level:
+                            parent_override = active_sub_section_overrides[l]
+                            break
+
+                    # Clean up last header names for levels >= current level
+                    for l in list(last_header_name_of_level.keys()):
+                        if l >= level:
+                            last_header_name_of_level.pop(l)
+
+                    # Determine active parent heading name
+                    parent_name = None
+                    for l in sorted(last_header_name_of_level.keys(), reverse=True):
+                        if l < level:
+                            parent_name = last_header_name_of_level[l]
+                            break
+
+                    # Save the current header name
+                    last_header_name_of_level[level] = text
+
+                    # 3. Look up explicit override in JSON
+                    heading_override = overrides.get(lower_text)
+                    
+                    heading_type = None
+                    sub_section_default = None
+
+                    if re.match(r"^areas \([a-z]-[a-z]\)$", lower_text):
+                        heading_type = "SKIPPED"
+                    elif parent_name and lower_text == parent_name.lower().replace('’', "'").rstrip('?:.'):
+                        heading_type = "EMBEDDED"
+                    elif heading_override:
+                        heading_type = heading_override.get("type")
+                        sub_section_default = heading_override.get("sub_section")
+                    elif parent_override:
+                        # Inherit from parent override if no explicit override is defined
+                        heading_type = parent_override
+                        sub_section_default = parent_override
+
+                    # 4. Save the active sub_section_default for lower levels if defined
+                    if sub_section_default is not None:
+                        active_sub_section_overrides[level] = sub_section_default
+
+                    # 5. Handle "SKIPPED" status
+                    if heading_type == "SKIPPED":
+                        current_asset = None
+                        heading_logs.append(f"H{level} {text}: skipped")
+                        continue
+
+                    # Update sub-section context for Chapter 3 / Character Options or Religion
                     if primary_type == "CharacterOption" or "character-options" in slug:
-                        lower_text = text.lower()
                         if "race" in lower_text:
                             current_sub_section = "race"
                         elif "subclass" in lower_text or "class" in lower_text or "dunamancy" in lower_text:
@@ -191,6 +252,9 @@ def main():
                             current_sub_section = "background"
                         elif "spell" in lower_text:
                             current_sub_section = "spell"
+                    elif level == 3:
+                        if primary_type == "Faction":
+                            current_sub_section = None
 
                     # Skip spelling sections (covered elsewhere)
                     if current_sub_section == "spell":
@@ -199,6 +263,7 @@ def main():
 
                     # Skip main chapter page titles
                     if level == 1 and ("chapter" in text.lower() or text.lower() == title.lower()):
+                        heading_logs.append(f"H{level} {text}: skipped")
                         continue
 
                     # Check if this header should just be appended to the current asset instead of creating a new one
@@ -225,24 +290,34 @@ def main():
                     elif any(lower_text_clean.startswith(prefix) for prefix in compress_starts_with):
                         is_sub_section_to_compress = True
 
-                    if current_asset and is_sub_section_to_compress:
+                    if current_asset and (is_sub_section_to_compress or heading_type == "EMBEDDED"):
                         # Append the header text as a markdown section inside the current asset
                         current_asset["description"] += f"### {text}\n\n"
+                        heading_logs.append(f"H{level} {text}: embedded")
                         continue
 
-                    # Special case for Religion in Chapter 1
-                    asset_type = primary_type
-                    if primary_type == "Religion" or "pantheon" in text.lower() or "deities" in text.lower():
-                        asset_type = "Religion"
-                    elif primary_type == "CharacterOption" or "character-options" in slug:
-                        if current_sub_section == "race":
-                            asset_type = "Race"
-                        elif current_sub_section == "class":
-                            asset_type = "Class"
-                        elif current_sub_section == "background":
-                            asset_type = "Background"
-                        else:
-                            asset_type = "Lore"
+                    # Special case for Religion, Location, and NPCs
+                    if heading_type is not None:
+                        asset_type = heading_type
+                    else:
+                        asset_type = primary_type
+                        if current_sub_section == "faction":
+                            asset_type = "Faction"
+                        elif primary_type == "Religion" or current_sub_section == "religion" or "pantheon" in text.lower() or "deities" in text.lower():
+                            asset_type = "Religion"
+                        elif primary_type == "Location" or (current_sub_section == "location" and "calamity" not in text.lower()) or "gazetteer" in text.lower():
+                            asset_type = "Location"
+                        elif current_sub_section == "npc":
+                            asset_type = "NPC"
+                        elif primary_type == "CharacterOption" or "character-options" in slug:
+                            if current_sub_section == "race":
+                                asset_type = "Race"
+                            elif current_sub_section == "class":
+                                asset_type = "Class"
+                            elif current_sub_section == "background":
+                                asset_type = "Background"
+                            else:
+                                asset_type = "Lore"
 
                     # Generate auto-incrementing integer IDs
                     asset_counter += 1
@@ -259,6 +334,7 @@ def main():
                     }
                     assets.append(current_asset)
                     name_to_id[text.lower()] = asset_id
+                    heading_logs.append(f"H{level} {text}: {asset_type}")
 
                     # Establish Hierarchical Connections
                     last_header_of_level[level] = asset_id
@@ -284,51 +360,59 @@ def main():
                                 "relationship": "is located in"
                             })
 
-                elif current_asset:
-                    # Append description text
-                    if child.name == 'p':
-                        # Check for tags in first paragraph
-                        if not current_asset["description"]:
-                            # Look for city indicators: e.g. "(Small City)" or "Large City" in parentheses or italics
-                            italic_elem = child.find('em') or child.find('i')
-                            if italic_elem:
-                                italic_text = clean_text(italic_elem.get_text())
-                                for ind in loc_indicators:
-                                    if ind in italic_text.lower():
-                                        tag = italic_text.strip('() ')
-                                        if tag and tag not in current_asset["tags"]:
-                                            current_asset["tags"].append(tag)
-                            # Regular patterns: "Nicodranas (Small City)..."
-                            paren_match = re.search(r'\(([^)]+)\)', text[:100])
-                            if paren_match:
-                                for ind in loc_indicators:
-                                    if ind in paren_match.group(1).lower():
-                                        tag = paren_match.group(1).strip()
-                                        if tag and tag not in current_asset["tags"]:
-                                            current_asset["tags"].append(tag)
+                    parent_override = None
+                    if active_sub_section_overrides:
+                        closest_level = max(active_sub_section_overrides.keys())
+                        parent_override = active_sub_section_overrides[closest_level]
 
-                        current_asset["description"] += f"{text}\n\n"
-                    elif child.name in ['ul', 'ol']:
-                        list_items = []
-                        for li in child.find_all('li'):
-                            li_text = clean_text(li.get_text())
-                            if li_text:
-                                list_items.append(li_text)
-                                # Capture sub-references or list tags if helpful
-                        if list_items:
-                            markdown_list = "\n".join([f"- {item}" for item in list_items])
-                            current_asset["description"] += f"{markdown_list}\n\n"
-                    elif child.name == 'table':
-                        # Convert table to simple markdown string
-                        rows = []
-                        for tr in child.find_all('tr'):
-                            cells = [clean_text(td.get_text()) for td in tr.find_all(['td', 'th'])]
-                            if any(cells):
-                                rows.append(" | ".join(cells))
-                        if rows:
-                            current_asset["description"] += "\n".join(rows) + "\n\n"
-                    else:
-                        current_asset["description"] += f"{text}\n\n"
+                    if parent_override == "SKIPPED":
+                        continue
+
+                    if current_asset:
+                        # Append description text
+                        if child.name == 'p':
+                            # Check for tags in first paragraph
+                            if not current_asset["description"]:
+                                # Look for city indicators: e.g. "(Small City)" or "Large City" in parentheses or italics
+                                italic_elem = child.find('em') or child.find('i')
+                                if italic_elem:
+                                    italic_text = clean_text(italic_elem.get_text())
+                                    for ind in loc_indicators:
+                                        if ind in italic_text.lower():
+                                            tag = italic_text.strip('() ')
+                                            if tag and tag not in current_asset["tags"]:
+                                                current_asset["tags"].append(tag)
+                                # Regular patterns: "Nicodranas (Small City)..."
+                                paren_match = re.search(r'\(([^)]+)\)', text[:100])
+                                if paren_match:
+                                    for ind in loc_indicators:
+                                        if ind in paren_match.group(1).lower():
+                                            tag = paren_match.group(1).strip()
+                                            if tag and tag not in current_asset["tags"]:
+                                                current_asset["tags"].append(tag)
+
+                            current_asset["description"] += f"{text}\n\n"
+                        elif child.name in ['ul', 'ol']:
+                            list_items = []
+                            for li in child.find_all('li'):
+                                li_text = clean_text(li.get_text())
+                                if li_text:
+                                    list_items.append(li_text)
+                                    # Capture sub-references or list tags if helpful
+                            if list_items:
+                                markdown_list = "\n".join([f"- {item}" for item in list_items])
+                                current_asset["description"] += f"{markdown_list}\n\n"
+                        elif child.name == 'table':
+                            # Convert table to simple markdown string
+                            rows = []
+                            for tr in child.find_all('tr'):
+                                cells = [clean_text(td.get_text()) for td in tr.find_all(['td', 'th'])]
+                                if any(cells):
+                                    rows.append(" | ".join(cells))
+                            if rows:
+                                current_asset["description"] += "\n".join(rows) + "\n\n"
+                        else:
+                            current_asset["description"] += f"{text}\n\n"
 
         # Cleanup whitespace on descriptions
         for as_item in assets:
@@ -366,6 +450,12 @@ def main():
         with open(MAPPING_FILE, 'w', encoding='utf-8') as f:
             json.dump(name_to_id, f, indent=2)
         print(f"Saved asset-to-ID mapping dictionary to {MAPPING_FILE}")
+
+        headings_file = "tools/state/world_headings.txt"
+        os.makedirs(os.path.dirname(headings_file), exist_ok=True)
+        with open(headings_file, 'w', encoding='utf-8') as f:
+            f.write("\n".join(heading_logs) + "\n")
+        print(f"Saved heading parse logs to {headings_file}")
 
     finally:
         manager.close_playwright()

@@ -89,7 +89,7 @@ export interface Chapter {
   mentionedAssets?: ChapterAssetRef[];
 }
 
-export type WorldAssetType = 'NPC' | 'Location' | 'Item' | 'Spell' | 'Organization' | 'Religion' | 'Lore' | 'Faction' | 'Race' | 'Class' | 'Background';
+export type WorldAssetType = 'NPC' | 'Location' | 'Item' | 'Spell' | 'Organization' | 'Religion' | 'Lore' | 'Faction' | 'Race' | 'Class' | 'Background' | 'Note';
 
 export type AssetType = WorldAssetType;
 

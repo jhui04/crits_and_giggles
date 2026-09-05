@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useWorlds } from '../context/WorldContext';
 import type { WorldAsset, WorldAssetConnection, WorldAssetType, World } from '../types';
 
-const ASSET_TYPES: WorldAssetType[] = ['NPC', 'Location', 'Item', 'Spell', 'Organization', 'Religion', 'Lore', 'Faction', 'Race', 'Class', 'Background'];
+const ASSET_TYPES: WorldAssetType[] = ['NPC', 'Location', 'Item', 'Spell', 'Organization', 'Religion', 'Lore', 'Faction', 'Race', 'Class', 'Background', 'Note'];
 
 export function WorldBuilder() {
   const { activeWorld, updateWorld } = useWorlds();

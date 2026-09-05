@@ -877,7 +877,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
                 aria-label="Filter by type"
               >
                 <option value="All">All Types</option>
-                {['NPC', 'Location', 'Item', 'Spell', 'Organization', 'Religion', 'Lore', 'Faction', 'Race', 'Class', 'Background'].map(t => (
+                {['NPC', 'Location', 'Item', 'Spell', 'Organization', 'Religion', 'Lore', 'Faction', 'Race', 'Class', 'Background', 'Note'].map(t => (
                   <option key={t} value={t}>{t}</option>
                 ))}
               </select>
@@ -1280,6 +1280,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
                   <option value="Race">Race</option>
                   <option value="Class">Class</option>
                   <option value="Background">Background</option>
+                  <option value="Note">Note</option>
                 </select>
               </div>
               <fieldset style={{ border: '1px solid #ccc', padding: '1rem', borderRadius: '4px' }}>

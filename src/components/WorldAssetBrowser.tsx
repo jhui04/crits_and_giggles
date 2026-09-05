@@ -86,7 +86,7 @@ export function WorldAssetBrowser({ autoFocus }: WorldAssetBrowserProps) {
             }}
           >
             <option value="All">All Types</option>
-            {['NPC', 'Location', 'Item', 'Spell', 'Organization', 'Religion', 'Lore', 'Faction', 'Race', 'Class', 'Background'].map(t => (
+            {['NPC', 'Location', 'Item', 'Spell', 'Organization', 'Religion', 'Lore', 'Faction', 'Race', 'Class', 'Background', 'Note'].map(t => (
               <option key={t} value={t}>{t}</option>
             ))}
           </select>

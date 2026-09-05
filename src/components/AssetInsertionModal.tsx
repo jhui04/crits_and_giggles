@@ -245,6 +245,7 @@ export function AssetInsertionModal({
                     <option value="Race">Race</option>
                     <option value="Class">Class</option>
                     <option value="Background">Background</option>
+                    <option value="Note">Note</option>
                   </select>
                 </div>
               </div>
@@ -325,6 +326,7 @@ export function AssetInsertionModal({
                 <option value="Race">Race</option>
                 <option value="Class">Class</option>
                 <option value="Background">Background</option>
+                <option value="Note">Note</option>
               </select>
             </div>
             <div>
