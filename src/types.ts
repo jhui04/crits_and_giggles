@@ -61,6 +61,16 @@ export interface EncounterUnit {
   passivePerception?: number;
   isPlayer?: boolean;
   fullData?: Monster;
+  conditions?: string[];
+  notes?: string;
+}
+
+export interface EncounterRunningState {
+  isCombatStarted: boolean;
+  round: number;
+  turnIndex: number;
+  combatants: EncounterUnit[];
+  updatedAt?: string;
 }
 
 export interface Encounter {
@@ -68,6 +78,7 @@ export interface Encounter {
   name: string;
   units: EncounterUnit[];
   chapterIds?: string[];
+  runningState?: EncounterRunningState | null;
 }
 
 /**

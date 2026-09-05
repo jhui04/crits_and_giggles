@@ -41,8 +41,9 @@ function getFullCampaign(id) {
 
   campaign.players = db.prepare('SELECT id, name, description FROM players WHERE campaign_id = ?').all(id);
   
-  const encounters = db.prepare('SELECT id, name FROM encounters WHERE campaign_id = ?').all(id);
+  const encounters = db.prepare('SELECT id, name, running_state as runningState FROM encounters WHERE campaign_id = ?').all(id);
   for (const enc of encounters) {
+    enc.runningState = enc.runningState ? JSON.parse(enc.runningState) : null;
     enc.chapterIds = db.prepare('SELECT chapter_id FROM encounter_chapters WHERE encounter_id = ? AND campaign_id = ?').all(enc.id, id).map(r => r.chapter_id);
     enc.units = db.prepare('SELECT * FROM encounter_units WHERE encounter_id = ? AND campaign_id = ?').all(enc.id, id);
     // Convert isPlayer back to boolean
@@ -221,7 +222,7 @@ app.post('/api/campaigns', (req, res) => {
     }
     
     if (data.encounters) {
-      const insertEncounter = db.prepare('INSERT INTO encounters (id, campaign_id, name) VALUES (?, ?, ?)');
+      const insertEncounter = db.prepare('INSERT INTO encounters (id, campaign_id, name, running_state) VALUES (?, ?, ?, ?)');
       const insertEncounterChapter = db.prepare('INSERT INTO encounter_chapters (encounter_id, chapter_id, campaign_id) VALUES (?, ?, ?)');
       const insertUnit = db.prepare(`
         INSERT INTO encounter_units (instanceId, encounter_id, campaign_id, monsterId, playerId, name, maxHp, currentHp, hpDice, dexMod, initiative, passivePerception, isPlayer)
@@ -229,7 +230,7 @@ app.post('/api/campaigns', (req, res) => {
       `);
       
       data.encounters.forEach(enc => {
-        insertEncounter.run(enc.id, data.id, enc.name);
+        insertEncounter.run(enc.id, data.id, enc.name, enc.runningState ? JSON.stringify(enc.runningState) : null);
         if (enc.chapterIds) {
           enc.chapterIds.forEach(chapId => insertEncounterChapter.run(enc.id, chapId, data.id));
         }
@@ -290,7 +291,7 @@ app.put('/api/campaigns/:id', (req, res) => {
     }
     
     if (data.encounters) {
-      const insertEncounter = db.prepare('INSERT INTO encounters (id, campaign_id, name) VALUES (?, ?, ?)');
+      const insertEncounter = db.prepare('INSERT INTO encounters (id, campaign_id, name, running_state) VALUES (?, ?, ?, ?)');
       const insertEncounterChapter = db.prepare('INSERT INTO encounter_chapters (encounter_id, chapter_id, campaign_id) VALUES (?, ?, ?)');
       const insertUnit = db.prepare(`
         INSERT INTO encounter_units (instanceId, encounter_id, campaign_id, monsterId, playerId, name, maxHp, currentHp, hpDice, dexMod, initiative, passivePerception, isPlayer)
@@ -298,7 +299,7 @@ app.put('/api/campaigns/:id', (req, res) => {
       `);
       
       data.encounters.forEach(enc => {
-        insertEncounter.run(enc.id, campaignId, enc.name);
+        insertEncounter.run(enc.id, campaignId, enc.name, enc.runningState ? JSON.stringify(enc.runningState) : null);
         if (enc.chapterIds) {
           enc.chapterIds.forEach(chapId => insertEncounterChapter.run(enc.id, chapId, campaignId));
         }

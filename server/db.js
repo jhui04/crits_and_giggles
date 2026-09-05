@@ -103,6 +103,7 @@ export function initDb() {
       id TEXT NOT NULL,
       campaign_id TEXT NOT NULL,
       name TEXT NOT NULL,
+      running_state TEXT,
       PRIMARY KEY (id, campaign_id),
       FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
     );
@@ -152,6 +153,12 @@ export function initDb() {
 
   try {
     db.exec('ALTER TABLE assets ADD COLUMN world_asset_id TEXT;');
+  } catch (e) {
+    // Column already exists, ignore
+  }
+
+  try {
+    db.exec('ALTER TABLE encounters ADD COLUMN running_state TEXT;');
   } catch (e) {
     // Column already exists, ignore
   }

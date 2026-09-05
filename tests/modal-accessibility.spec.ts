@@ -176,7 +176,9 @@ test.describe('Create Mode Accessibility', () => {
 });
 
 test.describe('Run Mode Accessibility', () => {
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page, request }) => {
+    const apiBase = 'http://localhost:3005/api';
+    await request.post(`${apiBase}/campaigns`, { data: suiteSeed });
     await setupApp(page);
     await page.keyboard.press('Alt+m');
   });

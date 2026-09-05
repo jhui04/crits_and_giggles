@@ -55,14 +55,36 @@ describe('Campaign API', () => {
     expect(res.body.chapters[0].title).toBe('Chapter 1');
   });
 
-  it('PUT /api/campaigns/:id should update campaign', async () => {
-    const updated = { ...testCampaign, name: 'Updated Name' };
+  it('PUT /api/campaigns/:id should update campaign and persist encounter runningState', async () => {
+    const runningState = {
+      isCombatStarted: true,
+      round: 2,
+      turnIndex: 1,
+      combatants: [
+        { instanceId: 'u1', name: 'Monster 1', dexMod: 2, isPlayer: false, currentHp: 5, maxHp: 10, initiative: 14 }
+      ]
+    };
+    const updated = {
+      ...testCampaign,
+      name: 'Updated Name',
+      encounters: [
+        {
+          ...testCampaign.encounters[0],
+          runningState
+        }
+      ]
+    };
     const res = await request(app)
       .put(`/api/campaigns/${testCampaign.id}`)
       .send(updated);
     
     expect(res.status).toBe(200);
     expect(res.body.name).toBe('Updated Name');
+    expect(res.body.encounters[0].runningState).toEqual(runningState);
+
+    const getRes = await request(app).get(`/api/campaigns/${testCampaign.id}`);
+    expect(getRes.status).toBe(200);
+    expect(getRes.body.encounters[0].runningState).toEqual(runningState);
   });
 
   it('DELETE /api/campaigns/:id should delete campaign', async () => {

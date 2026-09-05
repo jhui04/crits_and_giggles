@@ -133,7 +133,8 @@ export function EncounterBuilder({ initialEncounter, chapterId, onClose }: Encou
       id: encounterId,
       name: encounterName,
       units: strippedUnits,
-      chapterIds: initialEncounter ? initialEncounter.chapterIds : (chapterId ? [chapterId] : [])
+      chapterIds: initialEncounter ? initialEncounter.chapterIds : (chapterId ? [chapterId] : []),
+      runningState: initialEncounter ? initialEncounter.runningState : null
     };
     
     const existingEncounters = initialEncounter 

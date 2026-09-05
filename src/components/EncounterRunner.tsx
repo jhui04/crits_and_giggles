@@ -2,18 +2,52 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { DiceService } from '../services/DiceService';
 import { MonsterDetails } from './MonsterDetails';
 import { MonsterOperationsModal } from './MonsterOperationsModal';
-import type { Encounter, EncounterUnit } from '../types';
+import type { Encounter, EncounterUnit, EncounterRunningState, Campaign } from '../types';
 import { useCampaigns } from '../context/CampaignContext';
 import { dataService } from '../services/DataService';
 
 export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: string | null }) {
-  const { activeCampaign, updateCampaign } = useCampaigns();
+  const { campaigns, activeCampaign, setActiveCampaignId, updateCampaign } = useCampaigns();
   const [activeEncounter, setActiveEncounter] = useState<Encounter | null>(null);
+  const [combatants, setCombatants] = useState<EncounterUnit[]>([]);
+  const [turnIndex, setTurnIndex] = useState(0);
+  const [round, setRound] = useState(1);
+  const [isCombatStarted, setIsCombatStarted] = useState(false);
+  const [announcement, setAnnouncement] = useState('');
+  const [selectedUnit, setSelectedUnit] = useState<EncounterUnit | null>(null);
+  const [activeOperationsUnit, setActiveOperationsUnit] = useState<EncounterUnit | null>(null);
+  const [hpMods, setHpMods] = useState<Record<string, string>>({});
 
-  const syncEncounterState = useCallback((updatedCombatants: EncounterUnit[]) => {
+  const syncEncounterState = useCallback((
+    updatedCombatants: EncounterUnit[],
+    combatStarted: boolean = isCombatStarted,
+    currentTurn: number = turnIndex,
+    currentRound: number = round
+  ) => {
     if (!activeCampaign || !activeEncounter) return;
 
-    const updatedEncounter = {
+    // Strip fullData to keep serialization small and clean
+    const cleanCombatants = updatedCombatants.map(c => {
+      const { fullData, ...rest } = c;
+      return rest;
+    });
+
+    const runningState: EncounterRunningState = {
+      isCombatStarted: combatStarted,
+      round: currentRound,
+      turnIndex: currentTurn,
+      combatants: cleanCombatants,
+      updatedAt: new Date().toISOString()
+    };
+
+    // Immediate synchronous localStorage update for instant page refresh recovery
+    try {
+      localStorage.setItem(`crits_encounter_${activeEncounter.id}`, JSON.stringify(runningState));
+    } catch (e) {
+      console.warn('Failed to sync encounter to localStorage:', e);
+    }
+
+    const updatedEncounter: Encounter = {
       ...activeEncounter,
       units: activeEncounter.units.map(u => {
         const found = updatedCombatants.find(c => c.instanceId === u.instanceId);
@@ -26,10 +60,11 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
           };
         }
         return u;
-      })
+      }),
+      runningState
     };
 
-    const updatedCampaign = {
+    const updatedCampaign: Campaign = {
       ...activeCampaign,
       encounters: activeCampaign.encounters.map(e => 
         e.id === activeEncounter.id ? updatedEncounter : e
@@ -38,7 +73,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
 
     updateCampaign(updatedCampaign);
     setActiveEncounter(updatedEncounter);
-  }, [activeCampaign, activeEncounter, updateCampaign]);
+  }, [activeCampaign, activeEncounter, updateCampaign, isCombatStarted, turnIndex, round]);
 
   const handleClose = () => {
     window.close();
@@ -47,13 +82,6 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
       window.location.href = '/';
     }, 100);
   };
-  const [combatants, setCombatants] = useState<EncounterUnit[]>([]);
-  const [turnIndex, setTurnIndex] = useState(0);
-  const [isCombatStarted, setIsCombatStarted] = useState(false);
-  const [announcement, setAnnouncement] = useState('');
-  const [selectedUnit, setSelectedUnit] = useState<EncounterUnit | null>(null);
-  const [activeOperationsUnit, setActiveOperationsUnit] = useState<EncounterUnit | null>(null);
-  const [hpMods, setHpMods] = useState<Record<string, string>>({});
   
   const [activeRoll, setActiveRoll] = useState<{ title: string, hit?: string, damage?: string, unitName?: string } | null>(null);
   const rollModalRef = useRef<HTMLHeadingElement>(null);
@@ -65,10 +93,50 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   const lastActiveRollButtonRef = useRef<HTMLElement | null>(null);
   const lastFocusedOperationsButtonRef = useRef<HTMLButtonElement | null>(null);
 
-  const loadEncounter = useCallback(async (encounter: Encounter) => {
+  const loadEncounter = useCallback(async (encounter: Encounter, forceFresh: boolean = false) => {
     setActiveEncounter(encounter);
     
-    // Start with monsters from the encounter and enrich with fullData
+    let savedState: EncounterRunningState | null = forceFresh ? null : (encounter.runningState || null);
+    if (!forceFresh) {
+      try {
+        const local = localStorage.getItem(`crits_encounter_${encounter.id}`);
+        if (local) {
+          const parsed = JSON.parse(local) as EncounterRunningState;
+          if (!savedState || (parsed.updatedAt && (!savedState.updatedAt || parsed.updatedAt >= savedState.updatedAt))) {
+            savedState = parsed;
+          }
+        }
+      } catch (e) {
+        // ignore parse error
+      }
+    }
+
+    // If there is saved running state (either active combat or entered setup initiatives)
+    if (savedState && savedState.combatants && savedState.combatants.length > 0) {
+      const enrichedCombatants = await Promise.all(savedState.combatants.map(async u => {
+        const copy = { ...u };
+        if (!u.isPlayer && u.monsterId && !u.fullData) {
+          copy.fullData = await dataService.getMonsterById(u.monsterId) || undefined;
+        }
+        return copy;
+      }));
+
+      setCombatants(enrichedCombatants);
+      const started = !!savedState.isCombatStarted;
+      setIsCombatStarted(started);
+      const tIdx = Math.min(Math.max(0, savedState.turnIndex || 0), Math.max(0, enrichedCombatants.length - 1));
+      setTurnIndex(tIdx);
+      const rVal = savedState.round || 1;
+      setRound(rVal);
+      setHpMods({});
+
+      if (started && enrichedCombatants[tIdx]) {
+        setAnnouncement(`Encounter resumed. Round ${rVal}. Current turn: ${enrichedCombatants[tIdx].name}.`);
+      }
+      return;
+    }
+
+    // Fresh start from template monsters and campaign players:
     const monsterUnits = await Promise.all(encounter.units
       .filter(u => !u.isPlayer)
       .map(async u => {
@@ -79,23 +147,59 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
         return enriched;
       }));
     
-    // Inject players from the campaign
-    const playerUnits: EncounterUnit[] = (activeCampaign?.players || []).map(p => ({
-      instanceId: crypto.randomUUID(),
-      playerId: p.id,
-      name: p.name,
-      dexMod: 0,
-      isPlayer: true,
-      currentHp: 1,
-      maxHp: 1,
-      passivePerception: 10
-    }));
+    const existingPlayerUnits = encounter.units.filter(u => u.isPlayer);
+    const playerUnits: EncounterUnit[] = (activeCampaign?.players || []).map(p => {
+      const existing = existingPlayerUnits.find(ep => ep.playerId === p.id || ep.name === p.name);
+      return {
+        instanceId: existing?.instanceId || `player-${p.id}`,
+        playerId: p.id,
+        name: p.name,
+        dexMod: existing?.dexMod ?? 0,
+        isPlayer: true,
+        currentHp: existing?.currentHp ?? 1,
+        maxHp: existing?.maxHp ?? 1,
+        initiative: existing?.initiative,
+        passivePerception: existing?.passivePerception ?? 10
+      };
+    });
 
     setCombatants([...monsterUnits, ...playerUnits]);
     setIsCombatStarted(false);
     setTurnIndex(0);
+    setRound(1);
     setHpMods({});
   }, [activeCampaign]);
+
+  const resetCombat = useCallback(() => {
+    if (!activeCampaign || !activeEncounter) return;
+
+    try {
+      localStorage.removeItem(`crits_encounter_${activeEncounter.id}`);
+    } catch (e) {}
+
+    const updatedEncounter: Encounter = {
+      ...activeEncounter,
+      runningState: null
+    };
+
+    const updatedCampaign: Campaign = {
+      ...activeCampaign,
+      encounters: activeCampaign.encounters.map(e => 
+        e.id === activeEncounter.id ? updatedEncounter : e
+      )
+    };
+
+    updateCampaign(updatedCampaign);
+    setActiveEncounter(updatedEncounter);
+    loadEncounter(updatedEncounter, true);
+    setAnnouncement(`Encounter "${activeEncounter.name}" has been reset to setup.`);
+  }, [activeCampaign, activeEncounter, updateCampaign, loadEncounter]);
+
+  const handleResetCombat = () => {
+    if (window.confirm(`Are you sure you want to reset "${activeEncounter?.name}"? This will clear active turns, rounds, and rolled HP.`)) {
+      resetCombat();
+    }
+  };
 
   useEffect(() => {
     // Focus heading on mount or when view changes
@@ -107,17 +211,27 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   const lastLoadedId = useRef<string | null>(null);
 
   useEffect(() => {
-    if (targetEncounterId && activeCampaign) {
+    if (targetEncounterId) {
       if (lastLoadedId.current === targetEncounterId) return;
       
-      const encounter = activeCampaign.encounters.find(e => e.id === targetEncounterId);
-      if (encounter) {
-        lastLoadedId.current = targetEncounterId;
-        // Use a timeout or functional update to avoid synchronous setState in effect
-        setTimeout(() => loadEncounter(encounter), 0);
+      let campaign = activeCampaign;
+      if (!campaign || !campaign.encounters.some(e => e.id === targetEncounterId)) {
+        const foundCamp = campaigns.find(c => c.encounters.some(e => e.id === targetEncounterId));
+        if (foundCamp) {
+          campaign = foundCamp;
+          setActiveCampaignId(foundCamp.id);
+        }
+      }
+
+      if (campaign) {
+        const encounter = campaign.encounters.find(e => e.id === targetEncounterId);
+        if (encounter) {
+          lastLoadedId.current = targetEncounterId;
+          setTimeout(() => loadEncounter(encounter), 0);
+        }
       }
     }
-  }, [targetEncounterId, activeCampaign, loadEncounter]);
+  }, [targetEncounterId, activeCampaign, campaigns, setActiveCampaignId, loadEncounter]);
 
   useEffect(() => {
     if (activeRoll && rollModalRef.current) {
@@ -130,14 +244,22 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
 
   const nextTurn = useCallback(() => {
     if (!isCombatStarted || combatants.length === 0) return;
-    setTurnIndex((prev) => {
-      const nextIndex = (prev + 1) % combatants.length;
-      const current = combatants[nextIndex];
-      const following = combatants[(nextIndex + 1) % combatants.length];
-      setAnnouncement(`Current turn: ${current.name}. Next up: ${following.name}.`);
-      return nextIndex;
-    });
-  }, [isCombatStarted, combatants]);
+    const nextIndex = (turnIndex + 1) % combatants.length;
+    const isNewRound = nextIndex === 0;
+    const nextRound = isNewRound ? round + 1 : round;
+
+    setTurnIndex(nextIndex);
+    if (isNewRound) {
+      setRound(nextRound);
+    }
+
+    const current = combatants[nextIndex];
+    const following = combatants[(nextIndex + 1) % combatants.length];
+    const roundPrefix = isNewRound ? `Round ${nextRound}. ` : '';
+    setAnnouncement(`${roundPrefix}Current turn: ${current.name}. Next up: ${following.name}.`);
+
+    syncEncounterState(combatants, true, nextIndex, nextRound);
+  }, [isCombatStarted, combatants, turnIndex, round, syncEncounterState]);
 
   const closeDetails = useCallback(() => {
     setSelectedUnit(null);
@@ -224,12 +346,10 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   }, [selectedUnit, activeOperationsUnit, activeRoll]);
 
   const updateInitiative = (instanceId: string, val: string) => {
-    const num = parseInt(val, 10) || 0;
-    setCombatants(prev => {
-      const next = prev.map(u => u.instanceId === instanceId ? { ...u, initiative: num } : u);
-      syncEncounterState(next);
-      return next;
-    });
+    const num = val === '' ? undefined : (parseInt(val, 10) || 0);
+    const next = combatants.map(u => u.instanceId === instanceId ? { ...u, initiative: num } : u);
+    setCombatants(next);
+    syncEncounterState(next, false, 0, 1);
   };
 
   const startCombat = () => {
@@ -252,10 +372,11 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
 
     const sorted = [...rolledCombatants].sort((a, b) => (b.initiative || 0) - (a.initiative || 0));
     setCombatants(sorted);
-    syncEncounterState(sorted);
     setIsCombatStarted(true);
     setTurnIndex(0);
-    setAnnouncement(`Combat started. First up is ${sorted[0].name}.`);
+    setRound(1);
+    syncEncounterState(sorted, true, 0, 1);
+    setAnnouncement(`Combat started. Round 1. First up is ${sorted[0].name}.`);
   };
 
   const openUnitDetails = (unit: EncounterUnit) => {
@@ -267,23 +388,30 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     const val = amount !== undefined ? amount : parseInt(hpMods[instanceId] || '0', 10);
     if (isNaN(val) || val <= 0) return;
     
-    setCombatants(prev => {
-      const next = prev.map(u => {
-        if (u.instanceId === instanceId) {
-          if (u.isPlayer) return u;
-          
-          const newHp = isDamage 
-            ? Math.max(0, (u.currentHp || 0) - val) 
-            : Math.min((u.maxHp || 0), (u.currentHp || 0) + val);
-          
-          setAnnouncement(`${u.name} takes ${val} ${isDamage ? 'damage' : 'healing'}. New HP is ${newHp}.`);
-          return { ...u, currentHp: newHp };
-        }
-        return u;
-      });
-      syncEncounterState(next);
-      return next;
+    let updatedUnitName = '';
+    let updatedNewHp = 0;
+
+    const next = combatants.map(u => {
+      if (u.instanceId === instanceId) {
+        if (u.isPlayer) return u;
+        
+        const newHp = isDamage 
+          ? Math.max(0, (u.currentHp || 0) - val) 
+          : Math.min((u.maxHp || 0), (u.currentHp || 0) + val);
+        
+        updatedUnitName = u.name;
+        updatedNewHp = newHp;
+        return { ...u, currentHp: newHp };
+      }
+      return u;
     });
+
+    if (updatedUnitName) {
+      setAnnouncement(`${updatedUnitName} takes ${val} ${isDamage ? 'damage' : 'healing'}. New HP is ${updatedNewHp}.`);
+    }
+
+    setCombatants(next);
+    syncEncounterState(next, isCombatStarted, turnIndex, round);
     
     if (amount === undefined) {
       setHpMods(prev => ({ ...prev, [instanceId]: '' }));
@@ -342,9 +470,19 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
 
   return (
     <div className="encounter-runner" >
-      <header>
-        <h2 ref={runnerHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>Running: {activeEncounter.name}</h2>
-        <button type="button" onClick={handleClose}>Close Encounter Tab</button>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+        <div>
+          <h2 ref={runnerHeadingRef} tabIndex={-1} style={{ outline: 'none', margin: 0 }}>Running: {activeEncounter.name}</h2>
+          {isCombatStarted && (
+            <p style={{ margin: '0.25rem 0 0 0', fontWeight: 'bold' }} aria-label={`Round ${round}`}>Round {round}</p>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          {(isCombatStarted || combatants.some(c => c.initiative !== undefined)) && (
+            <button type="button" onClick={handleResetCombat}>Reset Encounter</button>
+          )}
+          <button type="button" onClick={handleClose}>Close Encounter Tab</button>
+        </div>
       </header>
 
       <div aria-live="assertive" className="sr-only">
