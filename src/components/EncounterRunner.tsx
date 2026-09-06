@@ -2,7 +2,9 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { DiceService } from '../services/DiceService';
 import { MonsterDetails } from './MonsterDetails';
 import { MonsterOperationsModal } from './MonsterOperationsModal';
-import type { Encounter, EncounterUnit, EncounterRunningState, Campaign } from '../types';
+import { CombatMap } from './CombatMap';
+import { autoDeployUnits } from '../utils/mapUtils';
+import type { Encounter, EncounterUnit, EncounterRunningState, Campaign, Position } from '../types';
 import { useCampaigns } from '../context/CampaignContext';
 import { dataService } from '../services/DataService';
 
@@ -56,7 +58,8 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
             ...u,
             currentHp: found.currentHp,
             maxHp: found.maxHp,
-            initiative: found.initiative
+            initiative: found.initiative,
+            position: found.position
           };
         }
         return u;
@@ -84,6 +87,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   };
   
   const [activeRoll, setActiveRoll] = useState<{ title: string, hit?: string, damage?: string, unitName?: string } | null>(null);
+  const [radarRequestedUnit, setRadarRequestedUnit] = useState<EncounterUnit | null>(null);
   const rollModalRef = useRef<HTMLHeadingElement>(null);
 
   const unitRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -121,17 +125,19 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
         return copy;
       }));
 
-      setCombatants(enrichedCombatants);
+      const mapSize = encounter.mapSize || { width: 20, height: 20 };
+      const deployedCombatants = autoDeployUnits(enrichedCombatants, mapSize);
+      setCombatants(deployedCombatants);
       const started = !!savedState.isCombatStarted;
       setIsCombatStarted(started);
-      const tIdx = Math.min(Math.max(0, savedState.turnIndex || 0), Math.max(0, enrichedCombatants.length - 1));
+      const tIdx = Math.min(Math.max(0, savedState.turnIndex || 0), Math.max(0, deployedCombatants.length - 1));
       setTurnIndex(tIdx);
       const rVal = savedState.round || 1;
       setRound(rVal);
       setHpMods({});
 
-      if (started && enrichedCombatants[tIdx]) {
-        setAnnouncement(`Encounter resumed. Round ${rVal}. Current turn: ${enrichedCombatants[tIdx].name}.`);
+      if (started && deployedCombatants[tIdx]) {
+        setAnnouncement(`Encounter resumed. Round ${rVal}. Current turn: ${deployedCombatants[tIdx].name}.`);
       }
       return;
     }
@@ -163,7 +169,9 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
       };
     });
 
-    setCombatants([...monsterUnits, ...playerUnits]);
+    const mapSize = encounter.mapSize || { width: 20, height: 20 };
+    const deployedFresh = autoDeployUnits([...monsterUnits, ...playerUnits], mapSize);
+    setCombatants(deployedFresh);
     setIsCombatStarted(false);
     setTurnIndex(0);
     setRound(1);
@@ -317,7 +325,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
 
       // Prevent default behavior for Enter/Space on non-button focused elements (like the heading)
       // to avoid potential page scroll/teleport issues.
-      if ((e.key === 'Enter' || e.key === ' ') && !(e.target instanceof HTMLButtonElement || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement)) {
+      if ((e.key === 'Enter' || e.key === ' ') && !(e.target instanceof HTMLButtonElement || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTableCellElement)) {
         e.preventDefault();
       }
     };
@@ -383,6 +391,14 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     lastFocusedUnitId.current = unit.instanceId;
     setSelectedUnit(unit);
   };
+
+  const handleUpdateUnitPosition = useCallback((instanceId: string, newPos: Position) => {
+    setCombatants(prev => {
+      const next = prev.map(u => u.instanceId === instanceId ? { ...u, position: newPos } : u);
+      syncEncounterState(next);
+      return next;
+    });
+  }, [syncEncounterState]);
 
   const applyHpMod = (instanceId: string, isDamage: boolean, amount?: number) => {
     const val = amount !== undefined ? amount : parseInt(hpMods[instanceId] || '0', 10);
@@ -547,6 +563,19 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
         </section>
       )}
 
+      {activeEncounter && isCombatStarted && (
+        <CombatMap
+          units={combatants}
+          mapSize={activeEncounter.mapSize || { width: 20, height: 20 }}
+          activeTurnUnitId={isCombatStarted && combatants[turnIndex] ? combatants[turnIndex].instanceId : undefined}
+          onUpdateUnitPosition={handleUpdateUnitPosition}
+          onOpenOperations={(unit) => openOperations(null, unit)}
+          onOpenDetails={openUnitDetails}
+          externalRadarUnit={radarRequestedUnit}
+          onResetExternalRadarUnit={() => setRadarRequestedUnit(null)}
+        />
+      )}
+
       {activeOperationsUnit && (
         <MonsterOperationsModal 
           unit={activeOperationsUnit}
@@ -554,6 +583,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
           onApplyHpMod={applyHpMod}
           onRoll={(title, hit, damage) => handleInlineRoll(null, activeOperationsUnit.name, title, hit, damage)}
           onAnnounce={setAnnouncement}
+          onOpenRadar={(unit) => setRadarRequestedUnit(unit)}
         />
       )}
 

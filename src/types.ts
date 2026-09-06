@@ -48,6 +48,16 @@ export interface PlayerCharacter {
   description: string;
 }
 
+export interface Position {
+  x: number;
+  y: number;
+}
+
+export interface MapSize {
+  width: number;
+  height: number;
+}
+
 export interface EncounterUnit {
   instanceId: string;
   monsterId?: string;
@@ -63,6 +73,7 @@ export interface EncounterUnit {
   fullData?: Monster;
   conditions?: string[];
   notes?: string;
+  position?: Position;
 }
 
 export interface EncounterRunningState {
@@ -79,6 +90,7 @@ export interface Encounter {
   units: EncounterUnit[];
   chapterIds?: string[];
   runningState?: EncounterRunningState | null;
+  mapSize?: MapSize;
 }
 
 /**

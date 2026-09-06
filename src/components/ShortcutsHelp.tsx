@@ -35,6 +35,9 @@ export function ShortcutsHelp({ isOpen, onClose }: ShortcutsHelpProps) {
     { key: 'Alt + S', description: 'Switch to Spells tab' },
     { key: 'Alt + H', description: 'Show/Hide this Shortcuts Help' },
     { key: 'Alt + N', description: 'Next Turn (during Combat)' },
+    { key: 'Alt + B', description: 'Jump Focus to Combat Map' },
+    { key: 'Alt + E', description: 'Nearby Entities Radar (Combat Map)' },
+    { key: 'Alt + J', description: 'Jump to Creature (Combat Map)' },
     { key: 'Esc', description: 'Close any open modal or dialog' },
   ];
 

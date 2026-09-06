@@ -9,11 +9,12 @@ interface MonsterOperationsModalProps {
   onApplyHpMod: (instanceId: string, isDamage: boolean, amount: number) => void;
   onRoll: (title: string, hit: string, damage?: string) => void;
   onAnnounce: (msg: string) => void;
+  onOpenRadar?: (unit: EncounterUnit) => void;
 }
 
 type ViewMode = 'MAIN' | 'DAMAGE' | 'HEAL' | 'ACTIONS' | 'SKILLS' | 'SAVES';
 
-export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, onAnnounce }: MonsterOperationsModalProps) {
+export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, onAnnounce, onOpenRadar }: MonsterOperationsModalProps) {
   const [view, setView] = useState<ViewMode>('MAIN');
   const [hpAmount, setHpAmount] = useState<string>('');
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -117,6 +118,18 @@ export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, on
       <button type="button" onClick={() => setView('ACTIONS')}>Actions</button>
       <button type="button" onClick={() => setView('SKILLS')}>Skill Checks</button>
       <button type="button" onClick={() => setView('SAVES')}>Saving Throws</button>
+      {onOpenRadar && (
+        <button
+          type="button"
+          onClick={() => {
+            onClose();
+            onOpenRadar(unit);
+          }}
+          style={{ backgroundColor: '#198754', color: '#fff', fontWeight: 'bold' }}
+        >
+          Scan Radar & Move on Map
+        </button>
+      )}
     </div>
   );
 
