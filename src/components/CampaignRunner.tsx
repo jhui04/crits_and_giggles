@@ -181,7 +181,7 @@ export function CampaignRunner() {
                   ) : (
                     <ul style={{ listStyle: 'none', padding: 0 }}>
                       {activeCampaign.encounters.filter(e => e.chapterIds?.includes(activeChapter.id)).map(enc => (
-                        <li key={enc.id} style={{ marginBottom: '0.5rem' }}>
+                        <li key={enc.id} style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                           <a 
                             href={`/?encounter=${enc.id}`} 
                             target="_blank" 
@@ -199,6 +199,20 @@ export function CampaignRunner() {
                             Run {enc.name}
                             <span className="sr-only"> (opens in new tab)</span>
                           </a>
+                          {(enc.dmMapUrl || enc.playerMapUrl) && (
+                            <span 
+                              style={{ 
+                                fontSize: '0.8rem', 
+                                backgroundColor: '#6f42c1', 
+                                color: '#fff', 
+                                padding: '0.2rem 0.5rem', 
+                                borderRadius: '4px',
+                                fontWeight: 'bold'
+                              }}
+                            >
+                              Map Available
+                            </span>
+                          )}
                         </li>
                       ))}
                     </ul>

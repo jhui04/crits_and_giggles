@@ -3,6 +3,7 @@ import { DiceService } from '../services/DiceService';
 import { MonsterDetails } from './MonsterDetails';
 import { MonsterOperationsModal } from './MonsterOperationsModal';
 import { CombatMap } from './CombatMap';
+import { EncounterMapModal } from './EncounterMapModal';
 import { autoDeployUnits } from '../utils/mapUtils';
 import type { Encounter, EncounterUnit, EncounterRunningState, Campaign, Position } from '../types';
 import { useCampaigns } from '../context/CampaignContext';
@@ -89,7 +90,10 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   
   const [activeRoll, setActiveRoll] = useState<{ title: string, hit?: string, damage?: string, unitName?: string } | null>(null);
   const [radarRequestedUnit, setRadarRequestedUnit] = useState<EncounterUnit | null>(null);
+  const [isMapModalOpen, setIsMapModalOpen] = useState(false);
   const rollModalRef = useRef<HTMLHeadingElement>(null);
+  const lastFocusedBeforeMapModal = useRef<HTMLElement | null>(null);
+  const mapTriggerBtnRef = useRef<HTMLButtonElement>(null);
 
   const unitRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const detailHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -296,12 +300,32 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     setActiveOperationsUnit(unit);
   }, []);
 
+  const openMapModal = useCallback(() => {
+    lastFocusedBeforeMapModal.current = document.activeElement as HTMLElement;
+    setIsMapModalOpen(true);
+  }, []);
+
+  const closeMapModal = useCallback(() => {
+    setIsMapModalOpen(false);
+    setTimeout(() => {
+      if (lastFocusedBeforeMapModal.current && document.body.contains(lastFocusedBeforeMapModal.current)) {
+        lastFocusedBeforeMapModal.current.focus();
+      } else {
+        mapTriggerBtnRef.current?.focus();
+      }
+    }, 0);
+  }, []);
+
   // Global Keyboard Listeners
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Escape
       if (e.key === 'Escape' && !e.defaultPrevented) {
-        if (activeRoll) {
+        if (isMapModalOpen) {
+          e.preventDefault();
+          closeMapModal();
+          return;
+        } else if (activeRoll) {
           e.preventDefault();
           closeRollModal();
         } else if (activeOperationsUnit) {
@@ -317,6 +341,18 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
       if (e.altKey && e.key.toLowerCase() === 'n') {
         e.preventDefault();
         nextTurn();
+      }
+
+      // Alt + P for Encounter Map
+      if (e.altKey && e.key.toLowerCase() === 'p') {
+        if (activeEncounter && (activeEncounter.dmMapUrl || activeEncounter.playerMapUrl)) {
+          e.preventDefault();
+          if (isMapModalOpen) {
+            closeMapModal();
+          } else {
+            openMapModal();
+          }
+        }
       }
 
       // Alt + A for Actions Menu (current combatant)
@@ -336,7 +372,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [nextTurn, selectedUnit, activeRoll, activeOperationsUnit, turnIndex, combatants, closeDetails, closeRollModal, closeOperations, openOperations]);
+  }, [nextTurn, selectedUnit, activeRoll, activeOperationsUnit, isMapModalOpen, activeEncounter, turnIndex, combatants, closeDetails, closeRollModal, closeOperations, openOperations, openMapModal, closeMapModal]);
 
   // Focus management for details modal and operations modal
   useEffect(() => {
@@ -512,6 +548,16 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
           )}
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          {(activeEncounter.dmMapUrl || activeEncounter.playerMapUrl) && (
+            <button
+              ref={mapTriggerBtnRef}
+              type="button"
+              onClick={openMapModal}
+              style={{ backgroundColor: '#6f42c1', color: '#fff', fontWeight: 'bold' }}
+            >
+              View Map (Alt+P)
+            </button>
+          )}
           {(isCombatStarted || combatants.some(c => c.initiative !== undefined)) && (
             <button type="button" onClick={handleResetCombat}>Reset Encounter</button>
           )}
@@ -591,6 +637,10 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
           onOpenDetails={(unit, cell) => openUnitDetails(unit, cell)}
           externalRadarUnit={radarRequestedUnit}
           onResetExternalRadarUnit={() => setRadarRequestedUnit(null)}
+          dmMapUrl={activeEncounter.dmMapUrl}
+          playerMapUrl={activeEncounter.playerMapUrl}
+          mapName={activeEncounter.name}
+          onOpenMapModal={openMapModal}
         />
       )}
 
@@ -662,6 +712,16 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
             Close (Esc)
           </button>
         </div>
+      )}
+
+      {activeEncounter && (
+        <EncounterMapModal
+          isOpen={isMapModalOpen}
+          onClose={closeMapModal}
+          mapName={activeEncounter.name}
+          dmMapUrl={activeEncounter.dmMapUrl}
+          playerMapUrl={activeEncounter.playerMapUrl}
+        />
       )}
     </div>
   );

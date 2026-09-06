@@ -12,6 +12,8 @@ interface EncounterBuilderProps {
 export function EncounterBuilder({ initialEncounter, chapterId, onClose }: EncounterBuilderProps) {
   const { activeCampaign, updateCampaign } = useCampaigns();
   const [encounterName, setEncounterName] = useState(initialEncounter ? initialEncounter.name : 'New Encounter');
+  const [dmMapUrl, setDmMapUrl] = useState(initialEncounter?.dmMapUrl || '');
+  const [playerMapUrl, setPlayerMapUrl] = useState(initialEncounter?.playerMapUrl || '');
   const [units, setUnits] = useState<EncounterUnit[]>(initialEncounter ? initialEncounter.units : []);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
@@ -134,7 +136,10 @@ export function EncounterBuilder({ initialEncounter, chapterId, onClose }: Encou
       name: encounterName,
       units: strippedUnits,
       chapterIds: initialEncounter ? initialEncounter.chapterIds : (chapterId ? [chapterId] : []),
-      runningState: initialEncounter ? initialEncounter.runningState : null
+      runningState: initialEncounter ? initialEncounter.runningState : null,
+      dmMapUrl: dmMapUrl.trim() || undefined,
+      playerMapUrl: playerMapUrl.trim() || undefined,
+      mapSize: initialEncounter?.mapSize || { width: 20, height: 20 }
     };
     
     const existingEncounters = initialEncounter 
@@ -165,6 +170,22 @@ export function EncounterBuilder({ initialEncounter, chapterId, onClose }: Encou
           id="encounter-name"
           value={encounterName}
           onChange={e => setEncounterName(e.target.value)}
+          style={{ width: '100%', padding: '0.5rem', marginBottom: '1rem' }}
+        />
+        <label htmlFor="encounter-dm-map">DM Map URL (optional):</label>
+        <input
+          id="encounter-dm-map"
+          value={dmMapUrl}
+          onChange={e => setDmMapUrl(e.target.value)}
+          placeholder="/maps/5.1-palma-flora.png"
+          style={{ width: '100%', padding: '0.5rem', marginBottom: '1rem' }}
+        />
+        <label htmlFor="encounter-player-map">Player Map URL (optional):</label>
+        <input
+          id="encounter-player-map"
+          value={playerMapUrl}
+          onChange={e => setPlayerMapUrl(e.target.value)}
+          placeholder="/maps/5.1-palma-flora-player.png"
           style={{ width: '100%', padding: '0.5rem', marginBottom: '1rem' }}
         />
       </section>

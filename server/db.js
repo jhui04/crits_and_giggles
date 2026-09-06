@@ -104,6 +104,8 @@ export function initDb() {
       campaign_id TEXT NOT NULL,
       name TEXT NOT NULL,
       running_state TEXT,
+      dm_map_url TEXT,
+      player_map_url TEXT,
       PRIMARY KEY (id, campaign_id),
       FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
     );
@@ -159,6 +161,18 @@ export function initDb() {
 
   try {
     db.exec('ALTER TABLE encounters ADD COLUMN running_state TEXT;');
+  } catch (e) {
+    // Column already exists, ignore
+  }
+
+  try {
+    db.exec('ALTER TABLE encounters ADD COLUMN dm_map_url TEXT;');
+  } catch (e) {
+    // Column already exists, ignore
+  }
+
+  try {
+    db.exec('ALTER TABLE encounters ADD COLUMN player_map_url TEXT;');
   } catch (e) {
     // Column already exists, ignore
   }

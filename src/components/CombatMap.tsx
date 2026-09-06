@@ -18,6 +18,10 @@ interface CombatMapProps {
   onOpenDetails?: (unit: EncounterUnit, mapCell?: Position) => void;
   externalRadarUnit?: EncounterUnit | null;
   onResetExternalRadarUnit?: () => void;
+  dmMapUrl?: string;
+  playerMapUrl?: string;
+  mapName?: string;
+  onOpenMapModal?: () => void;
 }
 
 const DEFAULT_MAP_SIZE: MapSize = { width: 20, height: 20 };
@@ -30,7 +34,10 @@ export function CombatMap({
   onOpenOperations,
   onOpenDetails,
   externalRadarUnit,
-  onResetExternalRadarUnit
+  onResetExternalRadarUnit,
+  dmMapUrl,
+  playerMapUrl,
+  onOpenMapModal
 }: CombatMapProps) {
   const [focusedCell, setFocusedCell] = useState<Position>({ x: 0, y: 0 });
   const [moveModeUnit, setMoveModeUnit] = useState<EncounterUnit | null>(null);
@@ -39,6 +46,7 @@ export function CombatMap({
   const [isRadarOpen, setIsRadarOpen] = useState(false);
   const [radarOriginUnit, setRadarOriginUnit] = useState<EncounterUnit | null>(null);
   const [isJumpOpen, setIsJumpOpen] = useState(false);
+  const [isMapBackdropVisible, setIsMapBackdropVisible] = useState(true);
 
   // Unit Action Modal state (menu when clicking/pressing Enter on monster/unit)
   const [actionModalUnit, setActionModalUnit] = useState<EncounterUnit | null>(null);
@@ -420,6 +428,25 @@ export function CombatMap({
           >
             Radar Scan (Alt+E)
           </button>
+          {onOpenMapModal && (dmMapUrl || playerMapUrl) && (
+            <button
+              type="button"
+              onClick={onOpenMapModal}
+              style={{ padding: '0.4rem 0.8rem', cursor: 'pointer', backgroundColor: '#6f42c1', color: '#fff', fontWeight: 'bold', border: 'none', borderRadius: '4px' }}
+            >
+              View Map (Alt+P)
+            </button>
+          )}
+          {(dmMapUrl || playerMapUrl) && (
+            <button
+              type="button"
+              onClick={() => setIsMapBackdropVisible(v => !v)}
+              aria-pressed={isMapBackdropVisible}
+              style={{ padding: '0.4rem 0.8rem', cursor: 'pointer', backgroundColor: '#343a40', color: '#fff', border: '1px solid #6c757d', borderRadius: '4px' }}
+            >
+              {isMapBackdropVisible ? 'Hide Grid Backdrop' : 'Show Grid Backdrop'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -572,7 +599,26 @@ export function CombatMap({
       )}
 
       {/* ARIA Grid Container */}
-      <div style={{ overflowX: 'auto', border: '2px solid #495057', borderRadius: '6px', backgroundColor: '#121416' }}>
+      <div style={{ overflowX: 'auto', border: '2px solid #495057', borderRadius: '6px', backgroundColor: '#121416', position: 'relative' }}>
+        {isMapBackdropVisible && (dmMapUrl || playerMapUrl) && (
+          <div
+            aria-hidden="true"
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundImage: `url(${dmMapUrl || playerMapUrl})`,
+              backgroundSize: 'contain',
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'center',
+              opacity: 0.3,
+              pointerEvents: 'none',
+              zIndex: 0
+            }}
+          />
+        )}
         <table
           ref={tableRef}
           role="grid"
@@ -582,7 +628,10 @@ export function CombatMap({
           style={{
             borderCollapse: 'collapse',
             margin: '0 auto',
-            tableLayout: 'fixed'
+            tableLayout: 'fixed',
+            position: 'relative',
+            zIndex: 1,
+            backgroundColor: 'transparent'
           }}
         >
           <thead aria-hidden="true">

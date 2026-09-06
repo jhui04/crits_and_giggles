@@ -91,6 +91,8 @@ export interface Encounter {
   chapterIds?: string[];
   runningState?: EncounterRunningState | null;
   mapSize?: MapSize;
+  dmMapUrl?: string;
+  playerMapUrl?: string;
 }
 
 /**

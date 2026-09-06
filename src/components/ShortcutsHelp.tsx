@@ -38,6 +38,7 @@ export function ShortcutsHelp({ isOpen, onClose }: ShortcutsHelpProps) {
     { key: 'Alt + B', description: 'Jump Focus to Combat Map' },
     { key: 'Alt + E', description: 'Nearby Entities Radar (Combat Map)' },
     { key: 'Alt + J', description: 'Jump to Creature (Combat Map)' },
+    { key: 'Alt + P', description: 'View Encounter Map (DM / Player versions)' },
     { key: 'Esc', description: 'Close any open modal or dialog' },
   ];
 

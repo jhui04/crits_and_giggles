@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import type { Campaign } from '../types';
 import { CampaignContext } from './CampaignContext';
 import { CampaignApiService } from '../services/CampaignApiService';
+import { ensureEncountersForCampaign } from '../utils/encounterGenerator';
 
 export function CampaignProvider({ children }: { children: ReactNode }) {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -30,12 +31,12 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
             const template = templates[0];
             const newId = crypto.randomUUID();
               
-            const defaultCampaign: Campaign = {
+            const defaultCampaign: Campaign = ensureEncountersForCampaign({
               ...template,
               id: newId,
               players: template.players || [],
               encounters: template.encounters || []
-            };
+            });
 
             // If template has no encounters, add a sample one to the first chapter
             if (defaultCampaign.encounters.length === 0 && defaultCampaign.chapters.length > 0) {
@@ -56,7 +57,8 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
             setCampaigns([]);
           }
         } else if (mounted) {
-          setCampaigns(fetchedCampaigns);
+          const ensuredCampaigns = fetchedCampaigns.map(c => ensureEncountersForCampaign(c));
+          setCampaigns(ensuredCampaigns);
           
           const savedActive = localStorage.getItem('crits_active_campaign');
           if (savedActive && fetchedCampaigns.some(c => c.id === savedActive)) {
@@ -110,7 +112,7 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
         try {
           const full = await CampaignApiService.getById(activeCampaignId);
           if (mounted) {
-            setCampaigns(prev => prev.map(c => c.id === full.id ? full : c));
+            setCampaigns(prev => prev.map(c => c.id === full.id ? ensureEncountersForCampaign(full) : c));
           }
         } catch (err) {
           console.error('Failed to sync active campaign:', err);
@@ -131,7 +133,7 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
   }, [activeCampaignId]);
 
   const createCampaign = async (name: string, description: string, template?: Partial<Campaign>) => {
-    const newCamp: Campaign = {
+    let newCamp: Campaign = {
       id: crypto.randomUUID(),
       name,
       description,
@@ -140,6 +142,7 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
       players: template?.players || [],
       encounters: template?.encounters || []
     };
+    newCamp = ensureEncountersForCampaign(newCamp);
     
     try {
       const created = await CampaignApiService.create(newCamp);

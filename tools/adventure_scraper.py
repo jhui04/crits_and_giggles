@@ -5,12 +5,31 @@ import time
 import random
 import argparse
 import uuid
+import urllib.request
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 from playwright.sync_api import sync_playwright
 
 STATE_FILE = "tools/adventure_scraper_state.json"
 DATA_FILE = "public/data/scraped_campaign.json"
+
+def download_map_image(url, output_dir="public/maps"):
+    if not url:
+        return None
+    os.makedirs(output_dir, exist_ok=True)
+    fname = os.path.basename(url.split('?')[0])
+    dest = os.path.join(output_dir, fname)
+    if os.path.exists(dest) and os.path.getsize(dest) > 0:
+        return f"/maps/{fname}"
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+        with urllib.request.urlopen(req, timeout=15) as resp, open(dest, 'wb') as out:
+            out.write(resp.read())
+        print(f"Downloaded map {fname} ({os.path.getsize(dest)} bytes)")
+        return f"/maps/{fname}"
+    except Exception as e:
+        print(f"Warning: Could not download map from {url}: {e}")
+        return f"/maps/{fname}"
 
 def slugify(text):
     return re.sub(r'[\s_]+', '-', text.lower()).strip('-')
@@ -48,13 +67,12 @@ def main():
     args = parser.parse_args()
 
     # Read base URL
-    base_url = ""
+    base_url = "https://www.dndbeyond.com/sources/dnd/egtw"
     if os.path.exists('url.txt'):
         with open('url.txt', 'r', encoding='utf-8') as f:
-            base_url = f.read().strip()
-    elif not args.offline:
-        print("url.txt not found!")
-        return
+            content = f.read().strip()
+            if content:
+                base_url = content
 
     page = None
     playwright_mgr = None
@@ -119,6 +137,17 @@ def main():
                         world_assets_by_id[asset["id"]] = asset
                 except Exception as e:
                     print(f"Error loading scraped_world.json: {e}")
+
+        monsters_by_id = {}
+        monsters_path = "public/data/monsters.json"
+        if os.path.exists(monsters_path):
+            with open(monsters_path, 'r', encoding='utf-8') as f:
+                try:
+                    for m in json.load(f):
+                        if 'id' in m:
+                            monsters_by_id[str(m['id'])] = m
+                except Exception as e:
+                    print(f"Error loading monsters.json: {e}")
 
         # 1. Fetch main index
         index_filepath = os.path.join("dnd_beyond", "adventures", "index.html")
@@ -206,10 +235,50 @@ def main():
                     "encounters": [],
                     "worldId": "4a2b9c3d-1e5f-4a7b-8c9d-1e5f4a7b8c9d"
                 }
-                known_assets = {}
                 current_chapter = None
+                seen_map_ids = set()
+                current_encounter = None
 
-                for elem in content_area.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'p', 'ul', 'div']):
+                for elem in content_area.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'p', 'ul', 'figure', 'div']):
+                    if elem.name == 'figure':
+                        caption = elem.find('figcaption')
+                        cap_text = caption.get_text(' ', strip=True) if caption else ''
+                        fid = elem.get('id', '')
+                        map_key = fid or cap_text
+                        if ('map' in cap_text.lower() or 'map' in fid.lower()) and map_key and map_key not in seen_map_ids:
+                            seen_map_ids.add(map_key)
+                            clean_name = re.sub(r'View Player Version.*', '', cap_text, flags=re.IGNORECASE).strip()
+                            if not clean_name:
+                                clean_name = fid or "Encounter Map"
+
+                            dm_img = elem.find('img')
+                            dm_src = dm_img.get('src', '') if dm_img else ''
+
+                            player_a = elem.find('a', string=lambda s: s and 'player' in s.lower()) or elem.find('a', attrs={'data-title': lambda t: t and 'player' in t.lower()})
+                            player_href = player_a.get('href', '') if player_a else ''
+
+                            dm_local = download_map_image(dm_src)
+                            player_local = download_map_image(player_href)
+
+                            enc_id = str(uuid.uuid4())
+
+                            # Where the map appears in the HTML, insert encounter element in chapter text
+                            if current_chapter:
+                                current_chapter['content'] += f"@Encounter[{enc_id}]{{{clean_name}}}\n\n"
+
+                            encounter = {
+                                "id": enc_id,
+                                "name": clean_name,
+                                "chapterIds": [current_chapter["id"]] if current_chapter else [],
+                                "units": [],
+                                "mapSize": {"width": 20, "height": 20},
+                                "dmMapUrl": dm_local,
+                                "playerMapUrl": player_local
+                            }
+                            campaign['encounters'].append(encounter)
+                            current_encounter = encounter
+                        continue
+
                     text = clean_text(elem.get_text(strip=True))
                     if not text: continue
 
@@ -226,6 +295,28 @@ def main():
 
                         if '/monsters/' in href:
                             tag_type = 'Monster'
+                            if current_encounter is not None:
+                                existing_units = [u for u in current_encounter["units"] if u.get("monsterId") == asset_id]
+                                if len(existing_units) < 3:
+                                    monster_data = monsters_by_id.get(asset_id)
+                                    dex_mod = monster_data.get('stats', {}).get('DEX', {}).get('modifier', 0) if monster_data else 0
+                                    hp_dice = monster_data.get('attributes', {}).get('hp', {}).get('dice', '1d1') if monster_data else '1d1'
+                                    max_hp = monster_data.get('attributes', {}).get('hp', {}).get('value', 10) if monster_data else 10
+                                    unit_idx = len(current_encounter["units"])
+                                    unit_name = f"{item_name} {len(existing_units) + 1}" if existing_units else item_name
+                                    current_encounter["units"].append({
+                                        "instanceId": str(uuid.uuid4()),
+                                        "monsterId": asset_id,
+                                        "name": unit_name,
+                                        "hpDice": hp_dice,
+                                        "maxHp": max_hp,
+                                        "dexMod": dex_mod,
+                                        "isPlayer": False,
+                                        "position": {
+                                            "x": min(18, 2 + (unit_idx % 6) * 2),
+                                            "y": min(18, 2 + (unit_idx // 6) * 2)
+                                        }
+                                    })
                         elif '/spells/' in href:
                             tag_type = 'Spell'
                         else:
@@ -236,6 +327,7 @@ def main():
                     # Replace references to Wildemount World Assets
                     if wildemount_asset_ids and world_assets_by_id:
                         text = replace_world_references(text, wildemount_asset_ids, world_assets_by_id, campaign, current_chapter)
+
                     if elem.name in ['h1', 'h2']:
                         if current_chapter:
                             campaign['chapters'].append(current_chapter)
@@ -246,6 +338,7 @@ def main():
                             "content": "",
                             "order": len(campaign['chapters'])
                         }
+                        current_encounter = None
                     elif current_chapter and elem.name == 'h3':
                         current_chapter['content'] += f"## {text}\n\n"
                     elif current_chapter and elem.name in ['h4', 'h5']:
@@ -260,6 +353,35 @@ def main():
 
                 if current_chapter:
                     campaign['chapters'].append(current_chapter)
+
+                # Ensure any encounters with 0 units get populated from monsters in their chapter
+                for enc in campaign['encounters']:
+                    if len(enc['units']) == 0 and enc.get('chapterIds'):
+                        chap = next((c for c in campaign['chapters'] if c['id'] in enc['chapterIds']), None)
+                        if chap:
+                            found_monsters = re.findall(r'@Monster\[([^\]]+)\]\{([^}]+)\}', chap['content'])
+                            seen_m_ids = set()
+                            for m_id, m_name in found_monsters:
+                                if m_id not in seen_m_ids and len(enc['units']) < 6:
+                                    seen_m_ids.add(m_id)
+                                    monster_data = monsters_by_id.get(m_id)
+                                    dex_mod = monster_data.get('stats', {}).get('DEX', {}).get('modifier', 0) if monster_data else 0
+                                    hp_dice = monster_data.get('attributes', {}).get('hp', {}).get('dice', '1d1') if monster_data else '1d1'
+                                    max_hp = monster_data.get('attributes', {}).get('hp', {}).get('value', 10) if monster_data else 10
+                                    unit_idx = len(enc["units"])
+                                    enc["units"].append({
+                                        "instanceId": str(uuid.uuid4()),
+                                        "monsterId": m_id,
+                                        "name": m_name,
+                                        "hpDice": hp_dice,
+                                        "maxHp": max_hp,
+                                        "dexMod": dex_mod,
+                                        "isPlayer": False,
+                                        "position": {
+                                            "x": min(18, 2 + (unit_idx % 6) * 2),
+                                            "y": min(18, 2 + (unit_idx // 6) * 2)
+                                        }
+                                    })
 
                 scraped_campaigns.append(campaign)
             else:
