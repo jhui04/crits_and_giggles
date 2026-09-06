@@ -14,8 +14,8 @@ interface CombatMapProps {
   mapSize?: MapSize;
   activeTurnUnitId?: string;
   onUpdateUnitPosition: (instanceId: string, newPos: Position) => void;
-  onOpenOperations?: (unit: EncounterUnit) => void;
-  onOpenDetails?: (unit: EncounterUnit) => void;
+  onOpenOperations?: (unit: EncounterUnit, mapCell?: Position) => void;
+  onOpenDetails?: (unit: EncounterUnit, mapCell?: Position) => void;
   externalRadarUnit?: EncounterUnit | null;
   onResetExternalRadarUnit?: () => void;
 }
@@ -51,6 +51,8 @@ export function CombatMap({
   const jumpTriggerRef = useRef<HTMLButtonElement>(null);
   const focusBoardTriggerRef = useRef<HTMLButtonElement>(null);
   const isInternalFocusChange = useRef(false);
+  const radarOpenedFromCellRef = useRef(false);
+  const radarReturnCellRef = useRef<Position | null>(null);
 
   // Lookup map: `${x},${y}` -> EncounterUnit
   const unitByCoord = useMemo(() => {
@@ -73,7 +75,9 @@ export function CombatMap({
 
   const focusedOccupant = unitByCoord.get(`${focusedCell.x},${focusedCell.y}`) || null;
 
-  const openRadarForUnit = useCallback((unitOverride?: EncounterUnit | null) => {
+  const openRadarForUnit = useCallback((unitOverride?: EncounterUnit | null, fromCell = false, returnCell?: Position) => {
+    radarOpenedFromCellRef.current = fromCell;
+    radarReturnCellRef.current = returnCell || unitOverride?.position || focusedCell;
     const candidate =
       unitOverride ||
       focusedOccupant ||
@@ -83,12 +87,15 @@ export function CombatMap({
       null;
     setRadarOriginUnit(candidate);
     setIsRadarOpen(true);
-  }, [focusedOccupant, units, activeTurnUnitId]);
+  }, [focusedOccupant, units, activeTurnUnitId, focusedCell]);
 
   useEffect(() => {
     if (externalRadarUnit) {
-      openRadarForUnit(externalRadarUnit);
-      onResetExternalRadarUnit?.();
+      const timer = setTimeout(() => {
+        openRadarForUnit(externalRadarUnit);
+        onResetExternalRadarUnit?.();
+      }, 0);
+      return () => clearTimeout(timer);
     }
   }, [externalRadarUnit, onResetExternalRadarUnit, openRadarForUnit]);
 
@@ -311,12 +318,12 @@ export function CombatMap({
       }
       if (e.key.toLowerCase() === 'a' && onOpenOperations && !occupant.isPlayer) {
         e.preventDefault();
-        onOpenOperations(occupant);
+        onOpenOperations(occupant, pos);
         return;
       }
       if (e.key.toLowerCase() === 'd' && onOpenDetails) {
         e.preventDefault();
-        onOpenDetails(occupant);
+        onOpenDetails(occupant, pos);
         return;
       }
     }
@@ -578,16 +585,13 @@ export function CombatMap({
             tableLayout: 'fixed'
           }}
         >
-          <thead>
-            <tr role="row">
+          <thead aria-hidden="true">
+            <tr style={{ userSelect: 'none' }}>
               {/* Corner Empty Header */}
-              <th scope="col" style={{ width: '38px', height: '32px', backgroundColor: '#212529', border: '1px solid #343a40' }}>
-                <span className="sr-only">Coordinates</span>
-              </th>
+              <th style={{ width: '38px', height: '32px', backgroundColor: '#212529', border: '1px solid #343a40' }} />
               {Array.from({ length: mapSize.width }, (_, colIdx) => (
                 <th
                   key={colIdx}
-                  scope="col"
                   style={{
                     width: '42px',
                     height: '32px',
@@ -605,10 +609,10 @@ export function CombatMap({
           </thead>
           <tbody>
             {Array.from({ length: mapSize.height }, (_, rowIdx) => (
-              <tr key={rowIdx} role="row" aria-rowindex={rowIdx + 1}>
-                {/* Row Header Number */}
-                <th
-                  scope="row"
+              <tr key={rowIdx} role="row">
+                {/* Row Number (Visual guide only, aria-hidden so screen readers don't prefix with row number) */}
+                <td
+                  aria-hidden="true"
                   style={{
                     width: '38px',
                     height: '42px',
@@ -616,11 +620,12 @@ export function CombatMap({
                     color: '#ced4da',
                     fontSize: '0.75rem',
                     textAlign: 'center',
-                    border: '1px solid #343a40'
+                    border: '1px solid #343a40',
+                    userSelect: 'none'
                   }}
                 >
                   {rowIdx + 1}
-                </th>
+                </td>
 
                 {/* Grid Cells */}
                 {Array.from({ length: mapSize.width }, (_, colIdx) => {
@@ -632,7 +637,7 @@ export function CombatMap({
                   const isActiveTurn = occupant && occupant.instanceId === activeTurnUnitId;
 
                   // Build Accessible Label
-                  let cellAriaLabel = coordLabel;
+                  let cellAriaLabel: string;
                   if (occupant) {
                     const role = occupant.isPlayer ? 'Player' : 'Monster';
                     const hp = occupant.currentHp !== undefined ? `${occupant.currentHp} of ${occupant.maxHp ?? '?'} HP` : '';
@@ -644,7 +649,7 @@ export function CombatMap({
                   }
 
                   // Visual indicator styling
-                  let cellBg = '#16191c';
+                  const cellBg = '#16191c';
                   let cellBorder = '1px solid #2b3035';
                   if (isFocused) {
                     cellBorder = '3px solid #ffc107';
@@ -655,7 +660,6 @@ export function CombatMap({
                       key={colIdx}
                       role="gridcell"
                       data-cell={`${colIdx}-${rowIdx}`}
-                      aria-colindex={colIdx + 1}
                       aria-label={cellAriaLabel}
                       tabIndex={isFocused ? 0 : -1}
                       onClick={() => handleCellClick(pos)}
@@ -746,12 +750,31 @@ export function CombatMap({
           }, 50);
         }}
         onStartMove={unit => {
+          setIsActionModalOpen(false);
+          setActionModalUnit(null);
+          setActionModalPos(null);
           handleStartMoveMode(unit);
         }}
-        onOpenOperations={onOpenOperations}
-        onOpenDetails={onOpenDetails}
+        onOpenOperations={unit => {
+          const cell = actionModalPos || focusedCell;
+          setIsActionModalOpen(false);
+          setActionModalUnit(null);
+          setActionModalPos(null);
+          onOpenOperations?.(unit, cell);
+        }}
+        onOpenDetails={unit => {
+          const cell = actionModalPos || focusedCell;
+          setIsActionModalOpen(false);
+          setActionModalUnit(null);
+          setActionModalPos(null);
+          onOpenDetails?.(unit, cell);
+        }}
         onOpenRadar={unit => {
-          openRadarForUnit(unit);
+          const cell = actionModalPos || focusedCell;
+          setIsActionModalOpen(false);
+          setActionModalUnit(null);
+          setActionModalPos(null);
+          openRadarForUnit(unit, true, cell);
         }}
       />
 
@@ -769,6 +792,8 @@ export function CombatMap({
           }
           setIsRadarOpen(false);
           setRadarOriginUnit(null);
+          radarOpenedFromCellRef.current = false;
+          radarReturnCellRef.current = null;
           const clampedX = Math.max(0, Math.min(mapSize.width - 1, newPos.x));
           const clampedY = Math.max(0, Math.min(mapSize.height - 1, newPos.y));
           setFocusedCell({ x: clampedX, y: clampedY });
@@ -784,9 +809,22 @@ export function CombatMap({
         }}
         onClose={() => {
           setIsRadarOpen(false);
+          const returnCell = radarOpenedFromCellRef.current ? radarReturnCellRef.current : null;
           setRadarOriginUnit(null);
-          // Restore focus to radar trigger button
-          setTimeout(() => radarTriggerRef.current?.focus(), 50);
+          radarOpenedFromCellRef.current = false;
+          radarReturnCellRef.current = null;
+
+          if (returnCell) {
+            setTimeout(() => {
+              const cellEl = tableRef.current?.querySelector<HTMLTableCellElement>(
+                `[data-cell="${returnCell.x}-${returnCell.y}"]`
+              );
+              cellEl?.focus();
+            }, 50);
+          } else {
+            // Restore focus to radar trigger button
+            setTimeout(() => radarTriggerRef.current?.focus(), 50);
+          }
         }}
       />
 

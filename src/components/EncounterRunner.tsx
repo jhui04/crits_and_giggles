@@ -30,8 +30,9 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
 
     // Strip fullData to keep serialization small and clean
     const cleanCombatants = updatedCombatants.map(c => {
-      const { fullData, ...rest } = c;
-      return rest;
+      const copy = { ...c };
+      delete copy.fullData;
+      return copy;
     });
 
     const runningState: EncounterRunningState = {
@@ -96,6 +97,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   const lastFocusedUnitId = useRef<string | null>(null);
   const lastActiveRollButtonRef = useRef<HTMLElement | null>(null);
   const lastFocusedOperationsButtonRef = useRef<HTMLButtonElement | null>(null);
+  const lastFocusedMapCellRef = useRef<Position | null>(null);
 
   const loadEncounter = useCallback(async (encounter: Encounter, forceFresh: boolean = false) => {
     setActiveEncounter(encounter);
@@ -110,7 +112,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
             savedState = parsed;
           }
         }
-      } catch (e) {
+      } catch {
         // ignore parse error
       }
     }
@@ -183,7 +185,9 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
 
     try {
       localStorage.removeItem(`crits_encounter_${activeEncounter.id}`);
-    } catch (e) {}
+    } catch {
+      // ignore storage error
+    }
 
     const updatedEncounter: Encounter = {
       ...activeEncounter,
@@ -284,10 +288,11 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     }
   }, [activeOperationsUnit, closeOperations]);
 
-  const openOperations = useCallback((e: React.MouseEvent<HTMLButtonElement> | null, unit: EncounterUnit) => {
+  const openOperations = useCallback((e: React.MouseEvent<HTMLButtonElement> | null, unit: EncounterUnit, mapCell?: Position | null) => {
     if (e) {
       lastFocusedOperationsButtonRef.current = e.currentTarget;
     }
+    lastFocusedMapCellRef.current = mapCell || null;
     setActiveOperationsUnit(unit);
   }, []);
 
@@ -343,7 +348,19 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
       // Roll modal focus is handled by its own effect.
       // We explicitly skip focus restoration here to avoid snatching focus away from the roll result.
     } else {
-      if (lastFocusedUnitId.current) {
+      if (lastFocusedMapCellRef.current) {
+        const cell = lastFocusedMapCellRef.current;
+        lastFocusedMapCellRef.current = null;
+        lastActiveRollButtonRef.current = null;
+        lastFocusedUnitId.current = null;
+        lastFocusedOperationsButtonRef.current = null;
+        setTimeout(() => {
+          const cellEl = document.querySelector<HTMLTableCellElement>(
+            `[data-cell="${cell.x}-${cell.y}"]`
+          );
+          cellEl?.focus();
+        }, 50);
+      } else if (lastFocusedUnitId.current) {
         unitRefs.current[lastFocusedUnitId.current]?.focus();
         lastFocusedUnitId.current = null;
       } else if (lastFocusedOperationsButtonRef.current) {
@@ -387,8 +404,9 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     setAnnouncement(`Combat started. Round 1. First up is ${sorted[0].name}.`);
   };
 
-  const openUnitDetails = (unit: EncounterUnit) => {
+  const openUnitDetails = (unit: EncounterUnit, mapCell?: Position | null) => {
     lastFocusedUnitId.current = unit.instanceId;
+    lastFocusedMapCellRef.current = mapCell || null;
     setSelectedUnit(unit);
   };
 
@@ -569,8 +587,8 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
           mapSize={activeEncounter.mapSize || { width: 20, height: 20 }}
           activeTurnUnitId={isCombatStarted && combatants[turnIndex] ? combatants[turnIndex].instanceId : undefined}
           onUpdateUnitPosition={handleUpdateUnitPosition}
-          onOpenOperations={(unit) => openOperations(null, unit)}
-          onOpenDetails={openUnitDetails}
+          onOpenOperations={(unit, cell) => openOperations(null, unit, cell)}
+          onOpenDetails={(unit, cell) => openUnitDetails(unit, cell)}
           externalRadarUnit={radarRequestedUnit}
           onResetExternalRadarUnit={() => setRadarRequestedUnit(null)}
         />

@@ -22,7 +22,12 @@ const setupEncounterPage = async (page: Page, context: BrowserContext) => {
   await encounterPage.waitForLoadState();
   const startBtn = encounterPage.getByRole('button', { name: 'Start Combat' });
   await expect(startBtn).toBeVisible({ timeout: 15000 });
-  await startBtn.click();
+  await expect(async () => {
+    if (await startBtn.isVisible()) {
+      await startBtn.click();
+    }
+    await expect(startBtn).not.toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout: 15000 });
   return encounterPage;
 };
 
@@ -434,6 +439,156 @@ test.describe('Combat Map Accessibility Suite', () => {
     // Screen reader focus is returned to the map point (cell on map), NOT top of page
     const destinationCell = encounterPage.locator('td[tabindex="0"]');
     await expect(destinationCell).toBeFocused();
+
+    await encounterPage.close();
+  });
+
+  test('Enter menu -> Actions & Attacks opens Monster Operations with focused heading, and Escape restores focus to map cell', async ({ page, context }) => {
+    const encounterPage = await setupEncounterPage(page, context);
+
+    // Jump to monster
+    const jumpButton = encounterPage.getByRole('button', { name: 'Jump to Creature (Alt+J)' });
+    await jumpButton.click();
+    const monsterOption = encounterPage.locator('[role="dialog"] button').filter({ hasText: /Monster/ }).first();
+    await monsterOption.click();
+
+    // Verify cell is focused and press Enter
+    const monsterCell = encounterPage.locator('td[tabindex="0"]');
+    await expect(monsterCell).toBeFocused();
+    await encounterPage.keyboard.press('Enter');
+
+    // Unit Action Menu is open
+    const menuHeading = encounterPage.getByRole('heading', { name: /Options$/ });
+    await expect(menuHeading).toBeVisible();
+
+    // Click "Actions & Attacks"
+    const actionsBtn = encounterPage.getByRole('button', { name: /Actions & Attacks/ });
+    await actionsBtn.click();
+
+    // Unit Action Menu closes, Monster Operations opens, and focus lands on heading
+    await expect(menuHeading).not.toBeVisible();
+    const opsHeading = encounterPage.getByRole('heading', { name: /Actions$/ });
+    await expect(opsHeading).toBeVisible();
+    await expect(opsHeading).toBeFocused();
+
+    // Press Escape to close Monster Operations
+    await encounterPage.keyboard.press('Escape');
+
+    // Operations modal closes, and focus is restored to the starting cell on the map
+    await expect(opsHeading).not.toBeVisible();
+    await expect(monsterCell).toBeFocused();
+
+    await encounterPage.close();
+  });
+
+  test('Enter menu -> Actions & Attacks -> Saving Throw executes roll and closing roll restores focus to map cell', async ({ page, context }) => {
+    const encounterPage = await setupEncounterPage(page, context);
+
+    // Jump to monster
+    const jumpButton = encounterPage.getByRole('button', { name: 'Jump to Creature (Alt+J)' });
+    await jumpButton.click();
+    const monsterOption = encounterPage.locator('[role="dialog"] button').filter({ hasText: /Monster/ }).first();
+    await monsterOption.click();
+
+    // Verify cell is focused and press Enter
+    const monsterCell = encounterPage.locator('td[tabindex="0"]');
+    await expect(monsterCell).toBeFocused();
+    await encounterPage.keyboard.press('Enter');
+
+    // Click Actions & Attacks
+    await encounterPage.getByRole('button', { name: /Actions & Attacks/ }).click();
+    const opsHeading = encounterPage.getByRole('heading', { name: /Actions$/ });
+    await expect(opsHeading).toBeVisible();
+    await expect(opsHeading).toBeFocused();
+
+    // Click Saving Throws
+    const savesBtn = encounterPage.getByRole('button', { name: 'Saving Throws' });
+    await savesBtn.click();
+
+    // Click the first saving throw button (e.g. STR)
+    const saveRollBtn = encounterPage.locator('[role="dialog"] button').filter({ hasText: /STR/ }).first();
+    await expect(saveRollBtn).toBeVisible();
+    await saveRollBtn.click();
+
+    // Roll Result modal opens with focused heading
+    const rollHeading = encounterPage.locator('#encounter-roll-result-title');
+    await expect(rollHeading).toBeVisible();
+    await expect(rollHeading).toBeFocused();
+
+    // Close roll modal via Escape
+    await encounterPage.keyboard.press('Escape');
+
+    // Roll modal and operations modal close, and focus is restored to the starting cell on the map
+    await expect(rollHeading).not.toBeVisible();
+    await expect(opsHeading).not.toBeVisible();
+    await expect(monsterCell).toBeFocused();
+
+    await encounterPage.close();
+  });
+
+  test('Enter menu -> View Details & Stats opens details with focused heading, and closing restores focus to map cell', async ({ page, context }) => {
+    const encounterPage = await setupEncounterPage(page, context);
+
+    // Jump to monster
+    const jumpButton = encounterPage.getByRole('button', { name: 'Jump to Creature (Alt+J)' });
+    await jumpButton.click();
+    const monsterOption = encounterPage.locator('[role="dialog"] button').filter({ hasText: /Monster/ }).first();
+    await monsterOption.click();
+
+    // Verify cell is focused and press Enter
+    const monsterCell = encounterPage.locator('td[tabindex="0"]');
+    await expect(monsterCell).toBeFocused();
+    await encounterPage.keyboard.press('Enter');
+
+    // Click View Details & Stats
+    await encounterPage.getByRole('button', { name: /View Details & Stats/ }).click();
+
+    // Details modal opens, heading is focused
+    const detailHeading = encounterPage.locator('#unit-detail-title');
+    await expect(detailHeading).toBeVisible();
+    await expect(detailHeading).toBeFocused();
+
+    // Check accessibility of Details Modal
+    await checkA11y(encounterPage, 'Unit Details Modal from Map');
+
+    // Press Escape to close Details
+    await encounterPage.keyboard.press('Escape');
+
+    // Details modal closes, and focus is restored to the starting cell on the map
+    await expect(detailHeading).not.toBeVisible();
+    await expect(monsterCell).toBeFocused();
+
+    await encounterPage.close();
+  });
+
+  test('Enter menu -> Scan Radar opens radar with focused heading, and closing restores focus to map cell', async ({ page, context }) => {
+    const encounterPage = await setupEncounterPage(page, context);
+
+    // Jump to monster
+    const jumpButton = encounterPage.getByRole('button', { name: 'Jump to Creature (Alt+J)' });
+    await jumpButton.click();
+    const monsterOption = encounterPage.locator('[role="dialog"] button').filter({ hasText: /Monster/ }).first();
+    await monsterOption.click();
+
+    // Verify cell is focused and press Enter
+    const monsterCell = encounterPage.locator('td[tabindex="0"]');
+    await expect(monsterCell).toBeFocused();
+    await encounterPage.keyboard.press('Enter');
+
+    // Click Scan Radar (Nearby Entities)
+    await encounterPage.getByRole('button', { name: /Scan Radar/ }).click();
+
+    // Radar modal opens, heading is focused
+    const radarHeading = encounterPage.getByRole('heading', { name: 'Nearby Entities (Radar)' });
+    await expect(radarHeading).toBeVisible();
+    await expect(radarHeading).toBeFocused();
+
+    // Press Escape to close Radar
+    await encounterPage.keyboard.press('Escape');
+
+    // Radar closes, and focus is restored to the starting cell on the map
+    await expect(radarHeading).not.toBeVisible();
+    await expect(monsterCell).toBeFocused();
 
     await encounterPage.close();
   });

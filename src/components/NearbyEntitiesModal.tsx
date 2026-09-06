@@ -24,7 +24,6 @@ export function NearbyEntitiesModal({
 }: NearbyEntitiesModalProps) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const [moveTarget, setMoveTarget] = useState<EncounterUnit | null>(null);
-  const [selectedOriginId, setSelectedOriginId] = useState<string>('');
 
   // Track button that opened MoveTowardsModal to restore focus on close
   const moveBtnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -36,27 +35,33 @@ export function NearbyEntitiesModal({
     return allUnits.filter(u => !!u.position);
   }, [allUnits]);
 
-  // Sync selected origin unit when modal opens or originUnit changes
-  useEffect(() => {
-    if (isOpen) {
-      if (originUnit && originUnit.position) {
-        setSelectedOriginId(originUnit.instanceId);
-      } else {
-        // Fallback to active turn combatant, first monster, or first positioned unit
-        const fallback =
-          positionedUnits.find(u => !u.isPlayer) ||
-          positionedUnits[0];
-        if (fallback) {
-          setSelectedOriginId(fallback.instanceId);
-        }
-      }
+  const defaultOriginId = useMemo(() => {
+    if (originUnit && originUnit.position) {
+      return originUnit.instanceId;
     }
-  }, [isOpen, originUnit, positionedUnits]);
+    const fallback =
+      positionedUnits.find(u => !u.isPlayer) ||
+      positionedUnits[0];
+    return fallback?.instanceId || '';
+  }, [originUnit, positionedUnits]);
+
+  const [selectedOriginId, setSelectedOriginId] = useState<string | null>(null);
+  const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
+  const [prevOriginId, setPrevOriginId] = useState(originUnit?.instanceId);
+
+  // Adjust state during render when modal opens or originUnit prop changes
+  if (prevIsOpen !== isOpen || prevOriginId !== originUnit?.instanceId) {
+    setPrevIsOpen(isOpen);
+    setPrevOriginId(originUnit?.instanceId);
+    setSelectedOriginId(null);
+  }
+
+  const effectiveOriginId = selectedOriginId ?? defaultOriginId;
 
   // The active creature acting as the radar scanner origin
   const activeOriginUnit = useMemo(() => {
-    return positionedUnits.find(u => u.instanceId === selectedOriginId) || originUnit || positionedUnits[0] || null;
-  }, [positionedUnits, selectedOriginId, originUnit]);
+    return positionedUnits.find(u => u.instanceId === effectiveOriginId) || originUnit || positionedUnits[0] || null;
+  }, [positionedUnits, effectiveOriginId, originUnit]);
 
   const activeOriginPos = activeOriginUnit?.position || originPosition || null;
 

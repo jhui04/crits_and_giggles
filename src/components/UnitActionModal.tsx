@@ -76,28 +76,24 @@ export function UnitActionModal({
       if (key === 'm') {
         e.preventDefault();
         e.stopPropagation();
-        onClose();
         onStartMove(unit);
         return;
       }
       if (key === 'a' && onOpenOperations && !unit.isPlayer) {
         e.preventDefault();
         e.stopPropagation();
-        onClose();
         onOpenOperations(unit);
         return;
       }
       if (key === 'd' && onOpenDetails) {
         e.preventDefault();
         e.stopPropagation();
-        onClose();
         onOpenDetails(unit);
         return;
       }
       if (key === 'r') {
         e.preventDefault();
         e.stopPropagation();
-        onClose();
         onOpenRadar(unit);
         return;
       }
@@ -146,7 +142,6 @@ export function UnitActionModal({
           <button
             type="button"
             onClick={() => {
-              onClose();
               onStartMove(unit);
             }}
             style={{
@@ -171,7 +166,6 @@ export function UnitActionModal({
             <button
               type="button"
               onClick={() => {
-                onClose();
                 onOpenOperations(unit);
               }}
               style={{
@@ -197,7 +191,6 @@ export function UnitActionModal({
             <button
               type="button"
               onClick={() => {
-                onClose();
                 onOpenDetails(unit);
               }}
               style={{
@@ -222,7 +215,6 @@ export function UnitActionModal({
           <button
             type="button"
             onClick={() => {
-              onClose();
               onOpenRadar(unit);
             }}
             style={{

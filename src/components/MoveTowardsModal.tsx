@@ -51,12 +51,15 @@ export function MoveTowardsModal({
 
   const [moveAmount, setMoveAmount] = useState<number>(defaultMoveAmount);
   const [manualPos, setManualPos] = useState<Position | null>(null);
+  const [prevKey, setPrevKey] = useState(`${originUnit.instanceId}-${targetUnit.instanceId}-${defaultMoveAmount}`);
 
-  // Set default move amount whenever origin or target changes
-  useEffect(() => {
+  // Adjust default move amount whenever origin or target changes
+  const currentKey = `${originUnit.instanceId}-${targetUnit.instanceId}-${defaultMoveAmount}`;
+  if (prevKey !== currentKey) {
+    setPrevKey(currentKey);
     setMoveAmount(defaultMoveAmount);
     setManualPos(null);
-  }, [defaultMoveAmount, originUnit.instanceId, targetUnit.instanceId]);
+  }
 
   useEffect(() => {
     if (isOpen) {
