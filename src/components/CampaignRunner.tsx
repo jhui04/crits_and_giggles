@@ -9,9 +9,8 @@ import { MagicItemDetail } from './MagicItemBrowser';
 import { dataService } from '../services/DataService';
 
 export function CampaignRunner() {
-  const { activeCampaign } = useCampaigns();
+  const { activeCampaign, activeChapterId, setActiveChapterId } = useCampaigns();
   const { activeWorld } = useWorlds();
-  const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
   const [selectedAsset, setSelectedAsset] = useState<{ id: string; tagType: string; name?: string } | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
@@ -70,7 +69,9 @@ export function CampaignRunner() {
     return <p>No active campaign selected. Go to Create Mode to select one.</p>;
   }
 
-  const currentChapterId = activeChapterId || (activeCampaign.chapters.length > 0 ? activeCampaign.chapters[0].id : null);
+  const currentChapterId = (activeChapterId && activeCampaign.chapters.some(c => c.id === activeChapterId))
+    ? activeChapterId
+    : (activeCampaign.chapters.length > 0 ? activeCampaign.chapters[0].id : null);
   const activeChapter = activeCampaign.chapters.find(c => c.id === currentChapterId);
 
   const getChapterAssets = (content: string, chapterId: string) => {
@@ -153,13 +154,13 @@ export function CampaignRunner() {
                 <Markdown 
                   content={activeChapter.content} 
                   onAssetClick={handleAssetClick} 
-                  baseHeadingLevel={1} 
+                  baseHeadingLevel={3} 
                 />
               </div>
 
               <div style={{ marginTop: '2rem', paddingTop: '2rem', borderTop: '1px solid #eee', display: 'flex', gap: '2rem' }}>
                 <div style={{ flex: 1 }}>
-                  <h4>Chapter Assets</h4>
+                  <h3>Chapter Assets</h3>
                   {getChapterAssets(activeChapter.content, activeChapter.id).length === 0 ? (
                     <p>No assets linked to this chapter.</p>
                   ) : (
@@ -175,7 +176,7 @@ export function CampaignRunner() {
                   )}
                 </div>
                 <div style={{ flex: 1 }}>
-                  <h4>Chapter Encounters</h4>
+                  <h3>Chapter Encounters</h3>
                   {activeCampaign.encounters.filter(e => e.chapterIds?.includes(activeChapter.id)).length === 0 ? (
                     <p>No encounters linked to this chapter.</p>
                   ) : (

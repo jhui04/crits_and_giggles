@@ -90,7 +90,7 @@ test.describe('Encounter Map Accessibility and Workflow Suite', () => {
     await expect(mapBadge).toBeVisible();
   });
 
-  test('Encounter Runner setup view displays View Map button and opens accessible map modal', async ({ page, context }) => {
+  test('Combat Map toolbar contains Backdrop and Art controls', async ({ page, context }) => {
     await page.keyboard.press('Alt+m');
     await expect(page.getByRole('heading', { name: 'Run Mode' })).toBeVisible();
 
@@ -100,56 +100,8 @@ test.describe('Encounter Map Accessibility and Workflow Suite', () => {
     ]);
     await encounterPage.waitForLoadState();
 
-    // Verify header View Map button
-    const viewMapBtn = encounterPage.getByRole('button', { name: 'View Map (Alt+P)' });
-    await expect(viewMapBtn).toBeVisible();
-
-    // Click View Map button to open modal
-    await viewMapBtn.click();
-
-    // Assert modal dialog and focus on heading
-    const modalHeading = encounterPage.getByRole('heading', { name: /Map: Map 5\.1: Palma Flora/ });
-    await expect(modalHeading).toBeVisible();
-    await expect(modalHeading).toBeFocused();
-
-    // Assert Axe accessibility check on Encounter Map Modal
-    await checkA11y(encounterPage, 'Encounter Map Modal - Setup View');
-
-    // Switch to Player version
-    const playerVerBtn = encounterPage.getByRole('button', { name: 'Player Version' });
-    await expect(playerVerBtn).toBeVisible();
-    await playerVerBtn.click();
-    await expect(playerVerBtn).toHaveAttribute('aria-pressed', 'true');
-
-    // Image alt text updates to reflect player version
-    const mapImg = encounterPage.getByRole('img');
-    await expect(mapImg).toHaveAttribute('alt', /Player Version/);
-
-    // Switch back to DM version
-    const dmVerBtn = encounterPage.getByRole('button', { name: 'DM Version' });
-    await dmVerBtn.click();
-    await expect(dmVerBtn).toHaveAttribute('aria-pressed', 'true');
-    await expect(mapImg).toHaveAttribute('alt', /Dungeon Master Version/);
-
-    // Close via Escape key
-    await encounterPage.keyboard.press('Escape');
-    await expect(modalHeading).not.toBeVisible();
-
-    // Focus restored to the View Map button
-    await expect(viewMapBtn).toBeFocused();
-
-    await encounterPage.close();
-  });
-
-  test('Combat Map toolbar contains View Map and Backdrop controls with Alt+P shortcut', async ({ page, context }) => {
-    await page.keyboard.press('Alt+m');
-    await expect(page.getByRole('heading', { name: 'Run Mode' })).toBeVisible();
-
-    const [encounterPage] = await Promise.all([
-      context.waitForEvent('page'),
-      page.getByRole('link', { name: /Run Map 5\.1: Palma Flora/ }).click()
-    ]);
-    await encounterPage.waitForLoadState();
+    // Verify "View Map" button is not present
+    await expect(encounterPage.getByRole('button', { name: /View Map/ })).not.toBeVisible();
 
     // Start combat
     const startBtn = encounterPage.getByRole('button', { name: 'Start Combat' });
@@ -161,10 +113,7 @@ test.describe('Encounter Map Accessibility and Workflow Suite', () => {
     const combatMapHeading = encounterPage.getByRole('heading', { name: /Combat Map/ });
     await expect(combatMapHeading).toBeVisible();
 
-    // Verify toolbar controls
-    const toolbarViewMapBtn = encounterPage.locator('.combat-map-section').getByRole('button', { name: 'View Map (Alt+P)' });
-    await expect(toolbarViewMapBtn).toBeVisible();
-
+    // Verify toolbar backdrop controls
     const backdropToggleBtn = encounterPage.getByRole('button', { name: /Grid Backdrop/ });
     await expect(backdropToggleBtn).toBeVisible();
     await expect(backdropToggleBtn).toHaveAttribute('aria-pressed', 'true');
@@ -179,19 +128,17 @@ test.describe('Encounter Map Accessibility and Workflow Suite', () => {
     await expect(backdropToggleBtn).toHaveAttribute('aria-pressed', 'true');
     await expect(backdropToggleBtn).toHaveText('Hide Grid Backdrop');
 
-    // Open map modal via Alt+P shortcut from combat map
-    await encounterPage.keyboard.press('Alt+p');
-    const modalHeading = encounterPage.getByRole('heading', { name: /Map: Map 5\.1: Palma Flora/ });
-    await expect(modalHeading).toBeVisible();
-    await expect(modalHeading).toBeFocused();
+    // Verify art view toggle (DM vs Player view)
+    const artToggleBtn = encounterPage.getByRole('button', { name: /Art:/ });
+    await expect(artToggleBtn).toBeVisible();
+    await expect(artToggleBtn).toHaveText('Art: DM View');
+    await artToggleBtn.click();
+    await expect(artToggleBtn).toHaveText('Art: Player View');
+    await artToggleBtn.click();
+    await expect(artToggleBtn).toHaveText('Art: DM View');
 
-    // Check accessibility during combat view modal
-    await checkA11y(encounterPage, 'Encounter Map Modal - Active Combat View');
-
-    // Close via close button
-    const closeBtn = encounterPage.getByRole('button', { name: 'Close (Esc)' });
-    await closeBtn.click();
-    await expect(modalHeading).not.toBeVisible();
+    // Verify Axe accessibility check on Combat Map
+    await checkA11y(encounterPage, 'Combat Map - Backdrop and Art Controls');
 
     await encounterPage.close();
   });

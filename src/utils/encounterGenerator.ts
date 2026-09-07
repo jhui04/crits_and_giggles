@@ -1,5 +1,6 @@
 import type { Campaign, Encounter, EncounterUnit, Position } from '../types';
 import { dataService } from '../services/DataService';
+import { mapGridService } from '../services/MapGridService';
 
 const KNOWN_MAP_FILES: Record<string, { dm: string; player?: string }> = {
   '5.1': { dm: '/maps/5.1-palma-flora.png', player: '/maps/5.1-palma-flora-player.png' },
@@ -83,6 +84,17 @@ export function ensureEncountersForCampaign(campaign: Campaign): Campaign {
         if (mapKeyMatch && KNOWN_MAP_FILES[mapKeyMatch[1]]) {
           encounter.dmMapUrl = KNOWN_MAP_FILES[mapKeyMatch[1]].dm;
           encounter.playerMapUrl = KNOWN_MAP_FILES[mapKeyMatch[1]].player;
+          const cachedGrid = mapGridService.getCachedGrid(encounter.dmMapUrl) || mapGridService.getCachedGrid(encounter.playerMapUrl);
+          if (cachedGrid) {
+            encounter.mapSize = {
+              width: cachedGrid.columns,
+              height: cachedGrid.rows,
+              cellPitch: cachedGrid.cellPitch,
+              offsetX: cachedGrid.offsetX,
+              offsetY: cachedGrid.offsetY
+            };
+            encounter.gridConfig = cachedGrid;
+          }
           hasChanges = true;
         }
       }

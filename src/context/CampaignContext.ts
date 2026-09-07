@@ -6,6 +6,8 @@ export interface CampaignContextType {
   activeCampaignId: string | null;
   activeCampaign: Campaign | undefined;
   setActiveCampaignId: (id: string | null) => void;
+  activeChapterId: string | null;
+  setActiveChapterId: (id: string | null) => void;
   createCampaign: (name: string, description: string, template?: Partial<Campaign>) => Promise<void>;
   updateCampaign: (campaign: Campaign) => Promise<void>;
   deleteCampaign: (id: string) => Promise<void>;

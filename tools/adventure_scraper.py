@@ -10,6 +10,15 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 from playwright.sync_api import sync_playwright
 
+try:
+    from tools.map_grid_detector import detect_map_grid, get_or_create_grid_cache
+except ImportError:
+    try:
+        from map_grid_detector import detect_map_grid, get_or_create_grid_cache
+    except ImportError:
+        detect_map_grid = None
+        get_or_create_grid_cache = None
+
 STATE_FILE = "tools/adventure_scraper_state.json"
 DATA_FILE = "public/data/scraped_campaign.json"
 
@@ -266,12 +275,28 @@ def main():
                             if current_chapter:
                                 current_chapter['content'] += f"@Encounter[{enc_id}]{{{clean_name}}}\n\n"
 
+                            enc_map_size = {"width": 20, "height": 20}
+                            enc_grid_config = None
+                            if get_or_create_grid_cache:
+                                grid_cache = get_or_create_grid_cache()
+                                grid_info = grid_cache.get(dm_local) or grid_cache.get(player_local)
+                                if grid_info:
+                                    enc_map_size = {
+                                        "width": grid_info["columns"],
+                                        "height": grid_info["rows"],
+                                        "cellPitch": grid_info["cellPitch"],
+                                        "offsetX": grid_info["offsetX"],
+                                        "offsetY": grid_info["offsetY"]
+                                    }
+                                    enc_grid_config = grid_info
+
                             encounter = {
                                 "id": enc_id,
                                 "name": clean_name,
                                 "chapterIds": [current_chapter["id"]] if current_chapter else [],
                                 "units": [],
-                                "mapSize": {"width": 20, "height": 20},
+                                "mapSize": enc_map_size,
+                                "gridConfig": enc_grid_config,
                                 "dmMapUrl": dm_local,
                                 "playerMapUrl": player_local
                             }

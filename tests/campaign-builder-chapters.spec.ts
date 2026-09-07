@@ -7,7 +7,7 @@ test.describe('Campaign Builder Chapters', () => {
     name: 'Test Campaign Chapters',
     description: 'A campaign for testing chapters.',
     chapters: [
-      { id: 'chap-1', title: 'Chapter 1', content: 'Content of Chapter 1', order: 0 },
+      { id: 'chap-1', title: 'Chapter 1', content: '# Section One\n\nContent of Chapter 1\n\n## Subsection A', order: 0 },
       { id: 'chap-2', title: 'Chapter 2', content: 'Content of Chapter 2', order: 1 }
     ],
     assets: [
@@ -32,16 +32,15 @@ test.describe('Campaign Builder Chapters', () => {
 
   test.beforeEach(async ({ page }) => {
     await page.addInitScript((id) => {
-      window.localStorage.clear();
-      window.localStorage.setItem('crits_active_campaign', id);
+      if (!window.sessionStorage.getItem('initialized')) {
+        window.sessionStorage.setItem('initialized', 'true');
+        window.localStorage.clear();
+        window.localStorage.setItem('crits_active_campaign', id);
+      }
     }, 'test-campaign-chapters');
 
     await page.goto('/');
-    // Switch to Create Mode if not already there
-    const isRunMode = await page.locator('.layout-run').isVisible();
-    if (isRunMode) {
-      await page.keyboard.press('Alt+m');
-    }
+    await expect(page.getByRole('heading', { name: 'Create Mode' })).toBeVisible();
   });
 
   test('should display chapter-specific items in "Chapters" view', async ({ page }) => {
@@ -127,5 +126,82 @@ test.describe('Campaign Builder Chapters', () => {
     // Switch to All Assets and assert it IS there
     await page.getByRole('button', { name: /All Assets/i }).click();
     await expect(page.getByText('New Chapter Asset (NPC)')).toBeVisible();
+  });
+
+  test('preserves selected chapter when switching between Create Mode and Run Mode and on app reload', async ({ page }) => {
+    // 1. In Create Mode, select Chapter 2
+    const chapterSelect = page.getByLabel(/Current Chapter:/i);
+    await chapterSelect.selectOption('chap-2');
+    await expect(page.getByText('Content of Chapter 2')).toBeVisible();
+
+    // 2. Switch to Run Mode (Alt+m)
+    await page.keyboard.press('Alt+m');
+    await expect(page.getByRole('heading', { name: 'Run Mode' })).toBeVisible();
+
+    // 3. Verify Run Mode shows Chapter 2 selected in the sidebar dropdown and its content
+    const runChapterSelect = page.getByLabel('Chapters');
+    await expect(runChapterSelect).toHaveValue('chap-2');
+    await expect(page.getByRole('heading', { level: 3, name: 'Chapter 2' })).toBeVisible();
+    await expect(page.getByText('Content of Chapter 2')).toBeVisible();
+
+    // 4. In Run Mode, switch to Chapter 1
+    await runChapterSelect.selectOption('chap-1');
+    await expect(page.getByRole('heading', { level: 3, name: 'Chapter 1' })).toBeVisible();
+    await expect(page.getByText('Content of Chapter 1')).toBeVisible();
+
+    // 5. Switch back to Create Mode (Alt+m)
+    await page.keyboard.press('Alt+m');
+    await expect(page.getByRole('button', { name: /Chapters/i })).toBeVisible();
+
+    // 6. Verify Create Mode now shows Chapter 1
+    const createChapterSelect = page.getByLabel(/Current Chapter:/i);
+    await expect(createChapterSelect).toHaveValue('chap-1');
+    await expect(page.getByText('Content of Chapter 1')).toBeVisible();
+
+    // Switch back to Chapter 2
+    await createChapterSelect.selectOption('chap-2');
+    await expect(createChapterSelect).toHaveValue('chap-2');
+
+    // 7. Reload the page (simulating closing and reopening the app)
+    await page.reload();
+    await page.waitForSelector('header');
+
+    // 8. Verify Chapter 2 is still selected on restart
+    const reloadedSelect = page.getByLabel(/Current Chapter:/i);
+    await expect(reloadedSelect).toHaveValue('chap-2');
+    await expect(page.getByText('Content of Chapter 2')).toBeVisible();
+  });
+
+  test('verifies correct heading hierarchy in Run Mode (H3 chapter title, H4 markdown headings, H3 assets and encounters)', async ({ page }) => {
+    // Switch to Run Mode
+    await page.keyboard.press('Alt+m');
+    await expect(page.getByRole('heading', { name: 'Run Mode' })).toBeVisible();
+
+    // Select Chapter 1 (which has markdown headings)
+    const runChapterSelect = page.getByLabel('Chapters');
+    await runChapterSelect.selectOption('chap-1');
+
+    // Verify Chapter Title is an H3
+    const chapterHeading = page.getByRole('heading', { level: 3, name: 'Chapter 1' });
+    await expect(chapterHeading).toBeVisible();
+
+    // Verify markdown top heading (# Section One) is an H4
+    const sectionHeading = page.getByRole('heading', { level: 4, name: 'Section One' });
+    await expect(sectionHeading).toBeVisible();
+
+    // Verify markdown sub heading (## Subsection A) is an H5
+    const subsectionHeading = page.getByRole('heading', { level: 5, name: 'Subsection A' });
+    await expect(subsectionHeading).toBeVisible();
+
+    // Verify Chapter Assets is an H3
+    const assetsHeading = page.getByRole('heading', { level: 3, name: 'Chapter Assets' });
+    await expect(assetsHeading).toBeVisible();
+
+    // Verify Chapter Encounters is an H3
+    const encountersHeading = page.getByRole('heading', { level: 3, name: 'Chapter Encounters' });
+    await expect(encountersHeading).toBeVisible();
+
+    // Run Axe accessibility scan
+    await checkA11y(page, 'Run Mode - Chapter Headings Hierarchy');
   });
 });

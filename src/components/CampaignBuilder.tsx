@@ -18,7 +18,7 @@ interface CampaignBuilderProps {
 }
 
 export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSettings }: CampaignBuilderProps) {
-  const { activeCampaign, updateCampaign } = useCampaigns();
+  const { activeCampaign, updateCampaign, activeChapterId, setActiveChapterId } = useCampaigns();
   const { worlds, activeWorld, updateWorld, createWorld, deleteWorld } = useWorlds();
 
   // World Association State
@@ -63,8 +63,12 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
   // View & Chapter Context State
   const [viewMode, setViewMode] = useState<'chapters' | 'all' | 'world'>('chapters');
   const [dataLoaded, setDataLoaded] = useState(false);
-  const [selectedChapterIdOverride, setSelectedChapterId] = useState<string | null>(null);
-  const selectedChapterId = selectedChapterIdOverride || (activeCampaign?.chapters?.[0]?.id ?? null);
+  const selectedChapterId = (activeChapterId && activeCampaign?.chapters?.some(c => c.id === activeChapterId))
+    ? activeChapterId
+    : (activeCampaign?.chapters?.[0]?.id ?? null);
+  const setSelectedChapterId = (id: string | null) => {
+    setActiveChapterId(id);
+  };
 
   // Refs for focus management
   const campaignHeadingRef = useRef<HTMLHeadingElement>(null);

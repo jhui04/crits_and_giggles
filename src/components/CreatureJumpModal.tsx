@@ -1,10 +1,11 @@
-import React, { useRef, useEffect } from 'react';
-import type { EncounterUnit, Position } from '../types';
+import React, { useRef, useEffect, useMemo } from 'react';
+import type { EncounterUnit, Position, MapRegion } from '../types';
 import { coordinateToLabel } from '../utils/mapUtils';
 
 interface CreatureJumpModalProps {
   isOpen: boolean;
   units: EncounterUnit[];
+  regions?: MapRegion[];
   onSelect: (position: Position) => void;
   onClose: () => void;
 }
@@ -12,6 +13,7 @@ interface CreatureJumpModalProps {
 export function CreatureJumpModal({
   isOpen,
   units,
+  regions,
   onSelect,
   onClose
 }: CreatureJumpModalProps) {
@@ -25,6 +27,20 @@ export function CreatureJumpModal({
       }, 0);
     }
   }, [isOpen]);
+
+  const regionByCoord = useMemo(() => {
+    const map = new Map<string, string>();
+    if (regions) {
+      for (const reg of regions) {
+        const idPart = reg.id && reg.id !== 'ocean' ? ` - ${reg.id}` : '';
+        const display = `${reg.name}${idPart}`;
+        for (const cell of reg.cells) {
+          map.set(cell, display);
+        }
+      }
+    }
+    return map;
+  }, [regions]);
 
   if (!isOpen) return null;
 
@@ -74,6 +90,8 @@ export function CreatureJumpModal({
             <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
               {positionedUnits.map((unit, index) => {
                 const coord = coordinateToLabel(unit.position!);
+                const regionName = regionByCoord.get(`${unit.position!.x},${unit.position!.y}`);
+                const regionTag = regionName ? ` (${regionName})` : '';
                 const roleText = unit.isPlayer ? 'Player' : 'Monster';
                 const hpText = unit.currentHp !== undefined ? ` • ${unit.currentHp}/${unit.maxHp ?? '?'} HP` : '';
                 return (
@@ -97,7 +115,7 @@ export function CreatureJumpModal({
                     >
                       <div>
                         <strong>{unit.name}</strong> <span style={{ fontSize: '0.85em', color: '#666' }}>({roleText})</span>
-                        <div style={{ fontSize: '0.85em', color: '#555' }}>Cell {coord}{hpText}</div>
+                        <div style={{ fontSize: '0.85em', color: '#555' }}>Cell {coord}{regionTag}{hpText}</div>
                       </div>
                       <span style={{ fontWeight: 'bold', color: '#0056b3' }}>Jump &rarr;</span>
                     </button>

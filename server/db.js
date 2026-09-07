@@ -176,4 +176,28 @@ export function initDb() {
   } catch (e) {
     // Column already exists, ignore
   }
+
+  try {
+    db.exec('ALTER TABLE encounters ADD COLUMN map_size TEXT;');
+  } catch (e) {
+    // Column already exists, ignore
+  }
+
+  try {
+    db.exec('ALTER TABLE encounters ADD COLUMN grid_config TEXT;');
+  } catch (e) {
+    // Column already exists, ignore
+  }
+
+  try {
+    db.exec('ALTER TABLE encounter_units ADD COLUMN position_x INTEGER;');
+  } catch (e) {
+    // Column already exists, ignore
+  }
+
+  try {
+    db.exec('ALTER TABLE encounter_units ADD COLUMN position_y INTEGER;');
+  } catch (e) {
+    // Column already exists, ignore
+  }
 }

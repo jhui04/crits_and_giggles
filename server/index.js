@@ -41,14 +41,21 @@ function getFullCampaign(id) {
 
   campaign.players = db.prepare('SELECT id, name, description FROM players WHERE campaign_id = ?').all(id);
   
-  const encounters = db.prepare('SELECT id, name, running_state as runningState, dm_map_url as dmMapUrl, player_map_url as playerMapUrl FROM encounters WHERE campaign_id = ?').all(id);
+  const encounters = db.prepare('SELECT id, name, running_state as runningState, dm_map_url as dmMapUrl, player_map_url as playerMapUrl, map_size as mapSize, grid_config as gridConfig FROM encounters WHERE campaign_id = ?').all(id);
   for (const enc of encounters) {
     enc.runningState = enc.runningState ? JSON.parse(enc.runningState) : null;
+    enc.mapSize = enc.mapSize ? JSON.parse(enc.mapSize) : null;
+    enc.gridConfig = enc.gridConfig ? JSON.parse(enc.gridConfig) : null;
     enc.chapterIds = db.prepare('SELECT chapter_id FROM encounter_chapters WHERE encounter_id = ? AND campaign_id = ?').all(enc.id, id).map(r => r.chapter_id);
     enc.units = db.prepare('SELECT * FROM encounter_units WHERE encounter_id = ? AND campaign_id = ?').all(enc.id, id);
-    // Convert isPlayer back to boolean
+    // Convert isPlayer back to boolean and restore position
     enc.units.forEach(u => {
       u.isPlayer = !!u.isPlayer;
+      if (u.position_x !== null && u.position_x !== undefined && u.position_y !== null && u.position_y !== undefined) {
+        u.position = { x: u.position_x, y: u.position_y };
+      }
+      delete u.position_x;
+      delete u.position_y;
     });
   }
   campaign.encounters = encounters;
@@ -222,21 +229,32 @@ app.post('/api/campaigns', (req, res) => {
     }
     
     if (data.encounters) {
-      const insertEncounter = db.prepare('INSERT INTO encounters (id, campaign_id, name, running_state, dm_map_url, player_map_url) VALUES (?, ?, ?, ?, ?, ?)');
+      const insertEncounter = db.prepare('INSERT INTO encounters (id, campaign_id, name, running_state, dm_map_url, player_map_url, map_size, grid_config) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
       const insertEncounterChapter = db.prepare('INSERT INTO encounter_chapters (encounter_id, chapter_id, campaign_id) VALUES (?, ?, ?)');
       const insertUnit = db.prepare(`
-        INSERT INTO encounter_units (instanceId, encounter_id, campaign_id, monsterId, playerId, name, maxHp, currentHp, hpDice, dexMod, initiative, passivePerception, isPlayer)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO encounter_units (instanceId, encounter_id, campaign_id, monsterId, playerId, name, maxHp, currentHp, hpDice, dexMod, initiative, passivePerception, isPlayer, position_x, position_y)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       
       data.encounters.forEach(enc => {
-        insertEncounter.run(enc.id, data.id, enc.name, enc.runningState ? JSON.stringify(enc.runningState) : null, enc.dmMapUrl || null, enc.playerMapUrl || null);
+        insertEncounter.run(
+          enc.id,
+          data.id,
+          enc.name,
+          enc.runningState ? JSON.stringify(enc.runningState) : null,
+          enc.dmMapUrl || null,
+          enc.playerMapUrl || null,
+          enc.mapSize ? JSON.stringify(enc.mapSize) : null,
+          enc.gridConfig ? JSON.stringify(enc.gridConfig) : null
+        );
         if (enc.chapterIds) {
           enc.chapterIds.forEach(chapId => insertEncounterChapter.run(enc.id, chapId, data.id));
         }
         if (enc.units) {
           enc.units.forEach(u => insertUnit.run(
-            u.instanceId, enc.id, data.id, u.monsterId, u.playerId, u.name, u.maxHp, u.currentHp, u.hpDice, u.dexMod, u.initiative, u.passivePerception, u.isPlayer ? 1 : 0
+            u.instanceId, enc.id, data.id, u.monsterId, u.playerId, u.name, u.maxHp, u.currentHp, u.hpDice, u.dexMod, u.initiative, u.passivePerception, u.isPlayer ? 1 : 0,
+            u.position?.x ?? null,
+            u.position?.y ?? null
           ));
         }
       });
@@ -291,21 +309,32 @@ app.put('/api/campaigns/:id', (req, res) => {
     }
     
     if (data.encounters) {
-      const insertEncounter = db.prepare('INSERT INTO encounters (id, campaign_id, name, running_state, dm_map_url, player_map_url) VALUES (?, ?, ?, ?, ?, ?)');
+      const insertEncounter = db.prepare('INSERT INTO encounters (id, campaign_id, name, running_state, dm_map_url, player_map_url, map_size, grid_config) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
       const insertEncounterChapter = db.prepare('INSERT INTO encounter_chapters (encounter_id, chapter_id, campaign_id) VALUES (?, ?, ?)');
       const insertUnit = db.prepare(`
-        INSERT INTO encounter_units (instanceId, encounter_id, campaign_id, monsterId, playerId, name, maxHp, currentHp, hpDice, dexMod, initiative, passivePerception, isPlayer)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO encounter_units (instanceId, encounter_id, campaign_id, monsterId, playerId, name, maxHp, currentHp, hpDice, dexMod, initiative, passivePerception, isPlayer, position_x, position_y)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       
       data.encounters.forEach(enc => {
-        insertEncounter.run(enc.id, campaignId, enc.name, enc.runningState ? JSON.stringify(enc.runningState) : null, enc.dmMapUrl || null, enc.playerMapUrl || null);
+        insertEncounter.run(
+          enc.id,
+          campaignId,
+          enc.name,
+          enc.runningState ? JSON.stringify(enc.runningState) : null,
+          enc.dmMapUrl || null,
+          enc.playerMapUrl || null,
+          enc.mapSize ? JSON.stringify(enc.mapSize) : null,
+          enc.gridConfig ? JSON.stringify(enc.gridConfig) : null
+        );
         if (enc.chapterIds) {
           enc.chapterIds.forEach(chapId => insertEncounterChapter.run(enc.id, chapId, campaignId));
         }
         if (enc.units) {
           enc.units.forEach(u => insertUnit.run(
-            u.instanceId, enc.id, campaignId, u.monsterId, u.playerId, u.name, u.maxHp, u.currentHp, u.hpDice, u.dexMod, u.initiative, u.passivePerception, u.isPlayer ? 1 : 0
+            u.instanceId, enc.id, campaignId, u.monsterId, u.playerId, u.name, u.maxHp, u.currentHp, u.hpDice, u.dexMod, u.initiative, u.passivePerception, u.isPlayer ? 1 : 0,
+            u.position?.x ?? null,
+            u.position?.y ?? null
           ));
         }
       });

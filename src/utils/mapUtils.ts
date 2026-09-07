@@ -1,4 +1,4 @@
-import type { Position, MapSize, EncounterUnit } from '../types';
+import type { Position, MapSize, EncounterUnit, MapRegion } from '../types';
 
 /**
  * Calculates standard D&D 5e grid distance in feet between two positions.
@@ -54,6 +54,100 @@ export function columnIndexToLabel(index: number): string {
  */
 export function coordinateToLabel(pos: Position): string {
   return `${columnIndexToLabel(pos.x)}${pos.y + 1}`;
+}
+
+/**
+ * Calculates the representative center cell for a map region.
+ * Computes the mean coordinate (centroid) of the region's cells, then finds
+ * the actual member cell closest to that centroid (minimizing Euclidean distance).
+ * This guarantees the center cell always belongs inside the region, even for irregular,
+ * non-convex, or curved shapes.
+ */
+export function getRegionCenter(region: MapRegion): Position {
+  if (!region.cells || region.cells.length === 0) {
+    if (region.bounds) {
+      return {
+        x: Math.floor((region.bounds.minCol + region.bounds.maxCol) / 2),
+        y: Math.floor((region.bounds.minRow + region.bounds.maxRow) / 2)
+      };
+    }
+    return { x: 0, y: 0 };
+  }
+
+  const coords = region.cells.map(c => {
+    const [x, y] = c.split(',').map(Number);
+    return { x, y };
+  });
+
+  // Arithmetic centroid
+  let sumX = 0;
+  let sumY = 0;
+  for (const p of coords) {
+    sumX += p.x;
+    sumY += p.y;
+  }
+  const avgX = sumX / coords.length;
+  const avgY = sumY / coords.length;
+
+  // Closest member cell to centroid
+  let bestCell = coords[0];
+  let minDistanceSq = Infinity;
+
+  for (const p of coords) {
+    const dx = p.x - avgX;
+    const dy = p.y - avgY;
+    const distSq = dx * dx + dy * dy;
+    if (distSq < minDistanceSq) {
+      minDistanceSq = distSq;
+      bestCell = p;
+    }
+  }
+
+  return bestCell;
+}
+
+/**
+ * Categorizes a coordinate into a human-readable 9-quadrant tactical sector
+ * on the battlemap (e.g. "North-West", "North", "North-East", "West", "Central", "East", "South-West", "South", "South-East").
+ */
+export function getRegionSector(pos: Position, mapSize?: MapSize): string {
+  if (!mapSize || mapSize.width <= 0 || mapSize.height <= 0) return 'Central';
+
+  const relX = pos.x / mapSize.width;
+  const relY = pos.y / mapSize.height;
+
+  let vert = 'Central';
+  if (relY < 0.35) vert = 'North';
+  else if (relY > 0.65) vert = 'South';
+
+  let horiz = 'Central';
+  if (relX < 0.35) horiz = 'West';
+  else if (relX > 0.65) horiz = 'East';
+
+  if (vert === 'Central' && horiz === 'Central') return 'Central';
+  if (vert === 'Central') return horiz;
+  if (horiz === 'Central') return vert;
+  return `${vert}-${horiz}`;
+}
+
+/**
+ * Organizes regions in order of map location.
+ * Sorts primarily from North to South (top of map / lower Y to bottom / higher Y),
+ * and secondarily from West to East (left / lower X to right / higher X).
+ */
+export function sortRegionsByLocation(regions: MapRegion[], mapSize?: MapSize): Array<{ region: MapRegion; center: Position; sector: string }> {
+  const list = regions.map(reg => {
+    const center = getRegionCenter(reg);
+    const sector = getRegionSector(center, mapSize);
+    return { region: reg, center, sector };
+  });
+
+  return list.sort((a, b) => {
+    if (a.center.y !== b.center.y) {
+      return a.center.y - b.center.y;
+    }
+    return a.center.x - b.center.x;
+  });
 }
 
 /**

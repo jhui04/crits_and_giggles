@@ -8,6 +8,7 @@ import { ensureEncountersForCampaign } from '../utils/encounterGenerator';
 export function CampaignProvider({ children }: { children: ReactNode }) {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [activeCampaignId, setActiveCampaignId] = useState<string | null>(null);
+  const [activeChapterIdState, setActiveChapterIdState] = useState<string | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -92,10 +93,13 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
       if (e.key === 'crits_active_campaign' && e.newValue) {
         setActiveCampaignId(e.newValue);
       }
+      if (e.key && activeCampaignId && e.key === `crits_active_chapter_${activeCampaignId}`) {
+        setActiveChapterIdState(e.newValue);
+      }
     };
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
-  }, []);
+  }, [activeCampaignId]);
 
   // Sync campaigns state to localStorage for storage events
   useEffect(() => {
@@ -179,10 +183,43 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
 
   const activeCampaign = campaigns.find(c => c.id === activeCampaignId);
 
+  // Sync active chapter when active campaign changes or campaigns update
+  useEffect(() => {
+    if (!activeCampaignId || !activeCampaign) {
+      setActiveChapterIdState(null);
+      return;
+    }
+    const saved = localStorage.getItem(`crits_active_chapter_${activeCampaignId}`);
+    if (saved && activeCampaign.chapters.some(ch => ch.id === saved)) {
+      setActiveChapterIdState(saved);
+    } else if (activeCampaign.chapters.length > 0) {
+      setActiveChapterIdState(prev => {
+        if (prev && activeCampaign.chapters.some(ch => ch.id === prev)) {
+          return prev;
+        }
+        return activeCampaign.chapters[0].id;
+      });
+    } else {
+      setActiveChapterIdState(null);
+    }
+  }, [activeCampaignId, activeCampaign]);
+
+  const setActiveChapterId = (id: string | null) => {
+    setActiveChapterIdState(id);
+    if (activeCampaignId) {
+      if (id) {
+        localStorage.setItem(`crits_active_chapter_${activeCampaignId}`, id);
+      } else {
+        localStorage.removeItem(`crits_active_chapter_${activeCampaignId}`);
+      }
+    }
+  };
+
   return (
     <CampaignContext.Provider value={{
       campaigns, activeCampaignId, activeCampaign,
-      setActiveCampaignId, createCampaign, updateCampaign, deleteCampaign
+      setActiveCampaignId, activeChapterId: activeChapterIdState, setActiveChapterId,
+      createCampaign, updateCampaign, deleteCampaign
     }}>
       {isLoaded ? children : (
         <div role="status" aria-live="polite" style={{ padding: '2rem', textAlign: 'center' }}>

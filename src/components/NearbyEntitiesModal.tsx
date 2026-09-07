@@ -124,6 +124,20 @@ export function NearbyEntitiesModal({
     return () => window.removeEventListener('keydown', handleWindowKeyDown);
   }, [isOpen, moveTarget, onClose]);
 
+  const regionByCoord = useMemo(() => {
+    const map = new Map<string, string>();
+    if (mapSize?.regions) {
+      for (const reg of mapSize.regions) {
+        const idPart = reg.id && reg.id !== 'ocean' ? ` - ${reg.id}` : '';
+        const display = `${reg.name}${idPart}`;
+        for (const cell of reg.cells) {
+          map.set(cell, display);
+        }
+      }
+    }
+    return map;
+  }, [mapSize?.regions]);
+
   if (!isOpen || !activeOriginPos) return null;
 
   // Filter out the active origin unit, calculate relative distances & directions
@@ -133,18 +147,23 @@ export function NearbyEntitiesModal({
       const pos = u.position!;
       const distance = calculateDistance(activeOriginPos, pos);
       const direction = calculateDirection(activeOriginPos, pos);
+      const regionName = regionByCoord.get(`${pos.x},${pos.y}`);
+      const locLabel = regionName ? `${coordinateToLabel(pos)} (${regionName})` : coordinateToLabel(pos);
       return {
         unit: u,
         distance,
         direction,
-        coordLabel: coordinateToLabel(pos)
+        coordLabel: locLabel
       };
     })
     .sort((a, b) => a.distance - b.distance);
 
+  const originRegion = regionByCoord.get(`${activeOriginPos.x},${activeOriginPos.y}`);
+  const originRegionTag = originRegion ? ` (${originRegion})` : '';
+
   const originLabel = activeOriginUnit
-    ? `${activeOriginUnit.name} (${activeOriginUnit.isPlayer ? 'Player' : 'Monster'}) at ${coordinateToLabel(activeOriginPos)}`
-    : `Cell ${coordinateToLabel(activeOriginPos)}`;
+    ? `${activeOriginUnit.name} (${activeOriginUnit.isPlayer ? 'Player' : 'Monster'}) at ${coordinateToLabel(activeOriginPos)}${originRegionTag}`
+    : `Cell ${coordinateToLabel(activeOriginPos)}${originRegionTag}`;
 
   return (
     <>
@@ -152,6 +171,7 @@ export function NearbyEntitiesModal({
         className="modal-overlay"
         role="dialog"
         aria-modal="true"
+        aria-label="Nearby Entities (Radar)"
         aria-labelledby="radar-title"
         aria-hidden={!!moveTarget}
         style={{

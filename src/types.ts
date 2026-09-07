@@ -53,9 +53,40 @@ export interface Position {
   y: number;
 }
 
+export interface MapRegion {
+  id: string;
+  name: string;
+  type?: string;
+  description?: string;
+  color?: [number, number, number];
+  bounds?: {
+    minCol: number;
+    maxCol: number;
+    minRow: number;
+    maxRow: number;
+  };
+  cells: string[];
+}
+
+export interface MapGridConfig {
+  columns: number;
+  rows: number;
+  cellPitch: number;
+  offsetX: number;
+  offsetY: number;
+  imageWidth?: number;
+  imageHeight?: number;
+  confidence?: number;
+  regions?: MapRegion[];
+}
+
 export interface MapSize {
   width: number;
   height: number;
+  cellPitch?: number;
+  offsetX?: number;
+  offsetY?: number;
+  regions?: MapRegion[];
 }
 
 export interface EncounterUnit {
@@ -91,6 +122,7 @@ export interface Encounter {
   chapterIds?: string[];
   runningState?: EncounterRunningState | null;
   mapSize?: MapSize;
+  gridConfig?: MapGridConfig;
   dmMapUrl?: string;
   playerMapUrl?: string;
 }
