@@ -19,8 +19,8 @@ export async function detectGridFromImage(
     height = imageSource.height;
     rgbaData = imageSource.data;
   } else {
-    width = imageSource.width;
-    height = imageSource.height;
+    width = ('naturalWidth' in imageSource && imageSource.naturalWidth) ? imageSource.naturalWidth : imageSource.width;
+    height = ('naturalHeight' in imageSource && imageSource.naturalHeight) ? imageSource.naturalHeight : imageSource.height;
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;

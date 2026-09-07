@@ -116,6 +116,24 @@ describe('mapUtils', () => {
       const coords = deployed.map(u => `${u.position?.x},${u.position?.y}`);
       expect(new Set(coords).size).toBe(4);
     });
+
+    it('gracefully handles small or densely occupied maps without infinite loops', () => {
+      const units: EncounterUnit[] = [
+        { instanceId: 'u1', name: 'Goblin 1', isPlayer: false, dexMod: 2 },
+        { instanceId: 'u2', name: 'Goblin 2', isPlayer: false, dexMod: 2 },
+        { instanceId: 'u3', name: 'Fighter', isPlayer: true, dexMod: 1 },
+      ];
+      // Small 2x2 map
+      const deployed = autoDeployUnits(units, { width: 2, height: 2 });
+      expect(deployed.length).toBe(3);
+      deployed.forEach(u => {
+        expect(u.position).toBeDefined();
+        expect(u.position!.x).toBeGreaterThanOrEqual(0);
+        expect(u.position!.x).toBeLessThan(2);
+        expect(u.position!.y).toBeGreaterThanOrEqual(0);
+        expect(u.position!.y).toBeLessThan(2);
+      });
+    });
   });
 
   describe('getCreatureSpeed', () => {

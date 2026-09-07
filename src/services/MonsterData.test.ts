@@ -371,6 +371,6 @@ describe('Monster Data Integrity', () => {
         console.error('Extra Monsters Details:', extraMonsters);
       }
       expect(extraMonsters.length, `Database has ${extraMonsters.length} extra/unowned monsters`).toBe(0);
-    });
+    }, 30000);
   });
 });

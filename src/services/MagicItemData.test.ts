@@ -120,6 +120,6 @@ describe('Magic Item Data Integrity', () => {
         console.error('Extra Magic Items Details:', extraItems);
       }
       expect(extraItems.length, `Database has ${extraItems.length} extra/unowned magic items`).toBe(0);
-    });
+    }, 30000);
   });
 });

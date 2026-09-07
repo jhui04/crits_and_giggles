@@ -54,6 +54,10 @@ test.describe('Combat Map Accessibility Suite', () => {
     const mapHeading = encounterPage.getByRole('heading', { name: /Combat Map/ });
     await expect(mapHeading).toBeVisible();
 
+    // Tactical application container semantics for screen readers (JAWS/NVDA)
+    const appContainer = encounterPage.getByRole('application', { name: 'Combat Map Tactical Grid' });
+    await expect(appContainer).toBeVisible();
+
     // Table grid semantics
     const grid = encounterPage.getByRole('grid', { name: 'Combat Map' });
     await expect(grid).toBeVisible();
@@ -97,6 +101,11 @@ test.describe('Combat Map Accessibility Suite', () => {
     await encounterPage.keyboard.press('Home');
     const cellA2 = encounterPage.locator('[data-cell="0-1"]');
     await expect(cellA2).toBeFocused();
+
+    // Press Escape to exit the tactical board and restore Virtual PC Cursor
+    await encounterPage.keyboard.press('Escape');
+    const focusBoardBtn = encounterPage.getByRole('button', { name: 'Focus Board (Alt+B)' });
+    await expect(focusBoardBtn).toBeFocused();
 
     await encounterPage.close();
   });

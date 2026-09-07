@@ -183,26 +183,18 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
 
   const activeCampaign = campaigns.find(c => c.id === activeCampaignId);
 
-  // Sync active chapter when active campaign changes or campaigns update
-  useEffect(() => {
-    if (!activeCampaignId || !activeCampaign) {
-      setActiveChapterIdState(null);
-      return;
+  // Effectively active chapter id (saved or first chapter of active campaign)
+  const effectiveActiveChapterId = (() => {
+    if (!activeCampaignId || !activeCampaign) return null;
+    if (activeChapterIdState && activeCampaign.chapters.some(ch => ch.id === activeChapterIdState)) {
+      return activeChapterIdState;
     }
-    const saved = localStorage.getItem(`crits_active_chapter_${activeCampaignId}`);
+    const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(`crits_active_chapter_${activeCampaignId}`) : null;
     if (saved && activeCampaign.chapters.some(ch => ch.id === saved)) {
-      setActiveChapterIdState(saved);
-    } else if (activeCampaign.chapters.length > 0) {
-      setActiveChapterIdState(prev => {
-        if (prev && activeCampaign.chapters.some(ch => ch.id === prev)) {
-          return prev;
-        }
-        return activeCampaign.chapters[0].id;
-      });
-    } else {
-      setActiveChapterIdState(null);
+      return saved;
     }
-  }, [activeCampaignId, activeCampaign]);
+    return activeCampaign.chapters.length > 0 ? activeCampaign.chapters[0].id : null;
+  })();
 
   const setActiveChapterId = (id: string | null) => {
     setActiveChapterIdState(id);
@@ -218,7 +210,7 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
   return (
     <CampaignContext.Provider value={{
       campaigns, activeCampaignId, activeCampaign,
-      setActiveCampaignId, activeChapterId: activeChapterIdState, setActiveChapterId,
+      setActiveCampaignId, activeChapterId: effectiveActiveChapterId, setActiveChapterId,
       createCampaign, updateCampaign, deleteCampaign
     }}>
       {isLoaded ? children : (

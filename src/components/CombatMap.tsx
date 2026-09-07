@@ -145,40 +145,44 @@ export function CombatMap({
   );
 
   useEffect(() => {
+    let isCancelled = false;
     if (activeMapUrl) {
-      mapGridService.getOrDetectGrid(activeMapUrl, mapSize as any).then(cfg => {
-        if (cfg) setGridConfig(cfg);
+      mapGridService.getOrDetectGrid(activeMapUrl, mapSize).then(cfg => {
+        if (!isCancelled && cfg) setGridConfig(cfg);
       });
-    } else {
-      setGridConfig(null);
     }
+    return () => {
+      isCancelled = true;
+    };
   }, [activeMapUrl, mapSize]);
 
   // Effective dimensions for the game board (scales to the true battlemap grid and attaches regions)
   const effectiveMapSize: MapSize = useMemo(() => {
-    if (gridConfig && gridConfig.columns > 0 && gridConfig.rows > 0) {
+    const currentGrid = activeMapUrl ? gridConfig : null;
+    if (currentGrid && currentGrid.columns > 0 && currentGrid.rows > 0) {
       return {
-        width: gridConfig.columns,
-        height: gridConfig.rows,
-        cellPitch: gridConfig.cellPitch,
-        offsetX: gridConfig.offsetX,
-        offsetY: gridConfig.offsetY,
-        regions: gridConfig.regions || mapSize?.regions
+        width: currentGrid.columns,
+        height: currentGrid.rows,
+        cellPitch: currentGrid.cellPitch,
+        offsetX: currentGrid.offsetX,
+        offsetY: currentGrid.offsetY,
+        regions: currentGrid.regions || mapSize?.regions
       };
     }
     return mapSize || DEFAULT_MAP_SIZE;
-  }, [gridConfig, mapSize]);
+  }, [activeMapUrl, gridConfig, mapSize]);
 
   // Scaled background alignment math to perfectly map board cells (42px) to battlemap grid
   const { backdropSize, backdropPosition } = useMemo(() => {
     const D = 42;
-    if (gridConfig && gridConfig.cellPitch > 0) {
-      const s = gridConfig.cellPitch;
+    const currentGrid = activeMapUrl ? gridConfig : null;
+    if (currentGrid && currentGrid.cellPitch > 0) {
+      const s = currentGrid.cellPitch;
       const scale = D / s;
-      const x0 = gridConfig.offsetX ?? 0;
-      const y0 = gridConfig.offsetY ?? 0;
-      const imgW = gridConfig.imageWidth || (gridConfig.columns * s + x0);
-      const imgH = gridConfig.imageHeight || (gridConfig.rows * s + y0);
+      const x0 = currentGrid.offsetX ?? 0;
+      const y0 = currentGrid.offsetY ?? 0;
+      const imgW = currentGrid.imageWidth || (currentGrid.columns * s + x0);
+      const imgH = currentGrid.imageHeight || (currentGrid.rows * s + y0);
 
       const scaledW = imgW * scale;
       const scaledH = imgH * scale;
@@ -194,7 +198,7 @@ export function CombatMap({
       backdropSize: `${effectiveMapSize.width * D}px ${effectiveMapSize.height * D}px`,
       backdropPosition: '0 0'
     };
-  }, [gridConfig, effectiveMapSize.width, effectiveMapSize.height]);
+  }, [activeMapUrl, gridConfig, effectiveMapSize.width, effectiveMapSize.height]);
 
   // Unit Action Modal state (menu when clicking/pressing Enter on monster/unit)
   const [actionModalUnit, setActionModalUnit] = useState<EncounterUnit | null>(null);
@@ -297,7 +301,7 @@ export function CombatMap({
         const cell = row?.cells[focusedCell.x + 1];
         cell?.focus();
         const regionTag = getRegionLabel(focusedCell);
-        setLiveAnnouncement(`Combat Map board focused at cell ${coordinateToLabel(focusedCell)}${regionTag}.`);
+        setLiveAnnouncement(`Combat Map board focused at cell ${coordinateToLabel(focusedCell)}${regionTag}. Use arrow keys to navigate, Escape to exit.`);
       } else if (e.altKey && e.key.toLowerCase() === 'e') {
         e.preventDefault();
         openRadarForUnit();
@@ -434,7 +438,7 @@ export function CombatMap({
   };
 
   // Cell keyboard listener
-  const handleCellKeyDown = (e: React.KeyboardEvent<HTMLTableCellElement>, pos: Position) => {
+  const handleCellKeyDown = (e: React.KeyboardEvent<HTMLElement>, pos: Position) => {
     // Arrow Navigation around board
     if (e.key === 'ArrowUp') {
       e.preventDefault();
@@ -520,13 +524,18 @@ export function CombatMap({
       return;
     }
 
-    // Escape cancels move mode
+    // Escape cancels move mode or exits the board to restore Virtual Cursor
     if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
       if (moveModeUnit) {
-        e.preventDefault();
-        e.stopPropagation();
         handleCancelMove();
+      } else {
+        // Exit application container and restore virtual PC cursor by focusing Focus Board button
+        focusBoardTriggerRef.current?.focus();
+        setLiveAnnouncement('Exited Combat Map board. Virtual cursor restored.');
       }
+      return;
     }
   };
 
@@ -542,7 +551,7 @@ export function CombatMap({
     const cell = (e.target as HTMLElement).closest<HTMLTableCellElement>('td[data-cell]');
     if (!cell) return;
     const [x, y] = cell.getAttribute('data-cell')!.split('-').map(Number);
-    handleCellKeyDown(e as any, { x, y });
+    handleCellKeyDown(e, { x, y });
   };
 
   return (
@@ -574,7 +583,7 @@ export function CombatMap({
             Combat Map ({effectiveMapSize.width * 5}x{effectiveMapSize.height * 5} ft)
           </h2>
           <span style={{ fontSize: '0.85rem', color: '#adb5bd' }}>
-            Grid coordinates A1 to {coordinateToLabel({ x: effectiveMapSize.width - 1, y: effectiveMapSize.height - 1 })}. Use arrow keys to navigate. Click or press Enter on a monster for its menu.
+            Grid coordinates A1 to {coordinateToLabel({ x: effectiveMapSize.width - 1, y: effectiveMapSize.height - 1 })}. Use arrow keys to navigate. Press Escape to exit board. Click or press Enter on a monster for its menu.
           </span>
         </div>
 
@@ -587,7 +596,7 @@ export function CombatMap({
               isInternalFocusChange.current = true;
               setFocusedCell({ ...focusedCell });
               const regionTag = getRegionLabel(focusedCell);
-              setLiveAnnouncement(`Combat Map board focused at cell ${coordinateToLabel(focusedCell)}${regionTag}.`);
+              setLiveAnnouncement(`Combat Map board focused at cell ${coordinateToLabel(focusedCell)}${regionTag}. Use arrow keys to navigate, Escape to exit.`);
             }}
             style={{ padding: '0.4rem 0.8rem', cursor: 'pointer', backgroundColor: '#198754', color: '#fff', fontWeight: 'bold', border: 'none', borderRadius: '4px' }}
           >
@@ -666,7 +675,7 @@ export function CombatMap({
         }}
       >
         <span style={{ color: '#adb5bd' }}>
-          Navigate grid with <strong>Arrow keys</strong>, <strong>WASD</strong>, or <strong>Numpad</strong>. Press <strong>Alt+B</strong> to focus board.
+          Navigate grid with <strong>Arrow keys</strong>, <strong>WASD</strong>, or <strong>Numpad</strong>. Press <strong>Escape</strong> to exit board. Press <strong>Alt+B</strong> to focus board.
         </span>
         <span style={{ color: '#ffc107', marginLeft: 'auto' }}>
           Current: <strong>{coordinateToLabel(focusedCell)}</strong>{getRegionLabel(focusedCell)} {focusedOccupant ? `(${focusedOccupant.name})` : '(Empty)'}
@@ -766,8 +775,12 @@ export function CombatMap({
         </div>
       )}
 
-      {/* ARIA Grid Container */}
-      <div style={{ overflowX: 'auto', border: '2px solid #495057', borderRadius: '6px', backgroundColor: '#121416', position: 'relative' }}>
+      {/* Tactical Combat Grid Container (role="application" signals screen readers like JAWS/NVDA to delegate arrow navigation without manual virtual cursor toggle) */}
+      <div
+        role="application"
+        aria-label="Combat Map Tactical Grid"
+        style={{ overflowX: 'auto', border: '2px solid #495057', borderRadius: '6px', backgroundColor: '#121416', position: 'relative' }}
+      >
         <div style={{ display: 'inline-block', position: 'relative', minWidth: '100%' }}>
           {isMapBackdropVisible && activeMapUrl && (
             <div

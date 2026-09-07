@@ -7,6 +7,7 @@ interface ShortcutsHelpProps {
 
 export function ShortcutsHelp({ isOpen, onClose }: ShortcutsHelpProps) {
   const modalHeadingRef = useRef<HTMLHeadingElement>(null);
+  const modalContentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -20,7 +21,32 @@ export function ShortcutsHelp({ isOpen, onClose }: ShortcutsHelpProps) {
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
+      e.preventDefault();
       onClose();
+      return;
+    }
+
+    // Modal focus trap
+    if (e.key === 'Tab' && modalContentRef.current) {
+      const focusable = modalContentRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      if (focusable.length > 0) {
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+
+        if (e.shiftKey) {
+          if (document.activeElement === first || document.activeElement === modalHeadingRef.current || !modalContentRef.current.contains(document.activeElement)) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (document.activeElement === last || !modalContentRef.current.contains(document.activeElement)) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      }
     }
   };
 
@@ -39,7 +65,6 @@ export function ShortcutsHelp({ isOpen, onClose }: ShortcutsHelpProps) {
     { key: 'Alt + E', description: 'Nearby Entities Radar (Combat Map)' },
     { key: 'Alt + J', description: 'Jump to Creature (Combat Map)' },
     { key: 'Alt + L', description: 'Jump to Region (Combat Map)' },
-    { key: 'Alt + P', description: 'View Encounter Map (DM / Player versions)' },
     { key: 'Esc', description: 'Close any open modal or dialog' },
   ];
 
@@ -57,6 +82,7 @@ export function ShortcutsHelp({ isOpen, onClose }: ShortcutsHelpProps) {
       }}
     >
       <div 
+        ref={modalContentRef}
         className="modal-content"
         style={{
           backgroundColor: '#fff', color: '#333', padding: '2rem',

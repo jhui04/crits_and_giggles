@@ -166,10 +166,18 @@ export function autoDeployUnits(units: EncounterUnit[], mapSize: MapSize): Encou
     }
   });
 
-  let monsterCol = 1;
-  let monsterRow = 1;
-  let playerCol = 1;
-  let playerRow = Math.max(1, mapSize.height - 2);
+  const width = Math.max(1, mapSize.width);
+  const height = Math.max(1, mapSize.height);
+  const maxAttempts = width * height;
+
+  const startMonsterCol = width > 2 ? 1 : 0;
+  const colLimit = width > 2 ? width - 1 : width;
+  let monsterCol = startMonsterCol;
+  let monsterRow = Math.min(1, height - 1);
+
+  const startPlayerCol = width > 2 ? 1 : 0;
+  let playerCol = startPlayerCol;
+  let playerRow = Math.max(0, height - 2);
 
   return units.map(unit => {
     if (unit.position && uPositionValid(unit.position, mapSize)) {
@@ -179,34 +187,38 @@ export function autoDeployUnits(units: EncounterUnit[], mapSize: MapSize): Encou
     let pos: Position;
 
     if (unit.isPlayer) {
-      while (occupied.has(`${playerCol},${playerRow}`)) {
+      let attempts = 0;
+      while (occupied.has(`${playerCol},${playerRow}`) && attempts < maxAttempts) {
+        attempts++;
         playerCol++;
-        if (playerCol >= mapSize.width - 1) {
-          playerCol = 1;
-          playerRow = Math.max(0, playerRow - 1);
+        if (playerCol >= colLimit) {
+          playerCol = startPlayerCol;
+          playerRow = playerRow > 0 ? playerRow - 1 : height - 1;
         }
       }
       pos = { x: playerCol, y: playerRow };
       occupied.add(`${pos.x},${pos.y}`);
       playerCol++;
-      if (playerCol >= mapSize.width - 1) {
-        playerCol = 1;
-        playerRow = Math.max(0, playerRow - 1);
+      if (playerCol >= colLimit) {
+        playerCol = startPlayerCol;
+        playerRow = playerRow > 0 ? playerRow - 1 : height - 1;
       }
     } else {
-      while (occupied.has(`${monsterCol},${monsterRow}`)) {
+      let attempts = 0;
+      while (occupied.has(`${monsterCol},${monsterRow}`) && attempts < maxAttempts) {
+        attempts++;
         monsterCol++;
-        if (monsterCol >= mapSize.width - 1) {
-          monsterCol = 1;
-          monsterRow = Math.min(mapSize.height - 1, monsterRow + 1);
+        if (monsterCol >= colLimit) {
+          monsterCol = startMonsterCol;
+          monsterRow = (monsterRow + 1) % height;
         }
       }
       pos = { x: monsterCol, y: monsterRow };
       occupied.add(`${pos.x},${pos.y}`);
       monsterCol++;
-      if (monsterCol >= mapSize.width - 1) {
-        monsterCol = 1;
-        monsterRow = Math.min(mapSize.height - 1, monsterRow + 1);
+      if (monsterCol >= colLimit) {
+        monsterCol = startMonsterCol;
+        monsterRow = (monsterRow + 1) % height;
       }
     }
 

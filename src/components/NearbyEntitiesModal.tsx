@@ -136,7 +136,7 @@ export function NearbyEntitiesModal({
       }
     }
     return map;
-  }, [mapSize?.regions]);
+  }, [mapSize]);
 
   if (!isOpen || !activeOriginPos) return null;
 

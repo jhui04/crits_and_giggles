@@ -72,7 +72,6 @@ export function RegionJumpModal({
       className="modal-overlay"
       role="dialog"
       aria-modal="true"
-      aria-label="Jump to Region"
       aria-labelledby="region-jump-title"
       onKeyDown={handleKeyDown}
       style={{

@@ -106,6 +106,8 @@ export function initDb() {
       running_state TEXT,
       dm_map_url TEXT,
       player_map_url TEXT,
+      map_size TEXT,
+      grid_config TEXT,
       PRIMARY KEY (id, campaign_id),
       FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
     );
@@ -142,6 +144,8 @@ export function initDb() {
       initiative INTEGER,
       passivePerception INTEGER,
       isPlayer INTEGER NOT NULL,
+      position_x INTEGER,
+      position_y INTEGER,
       FOREIGN KEY (encounter_id, campaign_id) REFERENCES encounters(id, campaign_id) ON DELETE CASCADE
     );
   `);
