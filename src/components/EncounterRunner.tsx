@@ -1,12 +1,15 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { DiceService } from '../services/DiceService';
+import { diceLogService } from '../services/DiceLogService';
 import { MonsterDetails } from './MonsterDetails';
 import { MonsterOperationsModal } from './MonsterOperationsModal';
 import { CombatMap } from './CombatMap';
+import { DiceLogModal } from './DiceLogModal';
 import { autoDeployUnits } from '../utils/mapUtils';
-import type { Encounter, EncounterUnit, EncounterRunningState, Campaign, Position } from '../types';
+import type { Encounter, EncounterUnit, EncounterRunningState, Campaign, Position, MapSize } from '../types';
 import { useCampaigns } from '../context/CampaignContext';
 import { dataService } from '../services/DataService';
+import { mapGridService } from '../services/MapGridService';
 
 export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: string | null }) {
   const { campaigns, activeCampaign, setActiveCampaignId, updateCampaign } = useCampaigns();
@@ -19,12 +22,15 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   const [selectedUnit, setSelectedUnit] = useState<EncounterUnit | null>(null);
   const [activeOperationsUnit, setActiveOperationsUnit] = useState<EncounterUnit | null>(null);
   const [hpMods, setHpMods] = useState<Record<string, string>>({});
+  const [activePhases, setActivePhases] = useState<number[]>([1]);
+  const [isDiceLogOpen, setIsDiceLogOpen] = useState(false);
 
   const syncEncounterState = useCallback((
     updatedCombatants: EncounterUnit[],
     combatStarted: boolean = isCombatStarted,
     currentTurn: number = turnIndex,
-    currentRound: number = round
+    currentRound: number = round,
+    currentPhases: number[] = activePhases
   ) => {
     if (!activeCampaign || !activeEncounter) return;
 
@@ -40,6 +46,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
       round: currentRound,
       turnIndex: currentTurn,
       combatants: cleanCombatants,
+      activePhases: currentPhases,
       updatedAt: new Date().toISOString()
     };
 
@@ -60,7 +67,8 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
             currentHp: found.currentHp,
             maxHp: found.maxHp,
             initiative: found.initiative,
-            position: found.position
+            position: found.position,
+            phase: found.phase ?? u.phase ?? 1
           };
         }
         return u;
@@ -77,7 +85,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
 
     updateCampaign(updatedCampaign);
     setActiveEncounter(updatedEncounter);
-  }, [activeCampaign, activeEncounter, updateCampaign, isCombatStarted, turnIndex, round]);
+  }, [activeCampaign, activeEncounter, updateCampaign, isCombatStarted, turnIndex, round, activePhases]);
 
   const handleClose = () => {
     window.close();
@@ -127,13 +135,26 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
         return copy;
       }));
 
-      const mapSize = encounter.mapSize || { width: 20, height: 20 };
+      const cachedGrid = encounter.dmMapUrl ? mapGridService.getCachedGrid(encounter.dmMapUrl) : null;
+      const mapSize: MapSize = encounter.mapSize || (cachedGrid && cachedGrid.columns > 0 ? {
+        width: cachedGrid.columns,
+        height: cachedGrid.rows,
+        cellPitch: cachedGrid.cellPitch,
+        offsetX: cachedGrid.offsetX,
+        offsetY: cachedGrid.offsetY,
+        regions: cachedGrid.regions,
+        walls: cachedGrid.walls
+      } : { width: 20, height: 20 });
       const deployedCombatants = autoDeployUnits(enrichedCombatants, mapSize);
       setCombatants(deployedCombatants);
       const started = !!savedState.isCombatStarted;
       setIsCombatStarted(started);
       const tIdx = Math.min(Math.max(0, savedState.turnIndex || 0), Math.max(0, deployedCombatants.length - 1));
       setTurnIndex(tIdx);
+      const loadedPhases = savedState.activePhases && savedState.activePhases.length > 0
+        ? savedState.activePhases
+        : [1];
+      setActivePhases(loadedPhases);
       const rVal = savedState.round || 1;
       setRound(rVal);
       setHpMods({});
@@ -148,7 +169,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     const monsterUnits = await Promise.all(encounter.units
       .filter(u => !u.isPlayer)
       .map(async u => {
-        const enriched = { ...u };
+        const enriched = { ...u, phase: u.phase ?? 1 };
         if (u.monsterId && !u.fullData) {
           enriched.fullData = await dataService.getMonsterById(u.monsterId) || undefined;
         }
@@ -168,13 +189,24 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
         maxHp: existing?.maxHp ?? 1,
         initiative: existing?.initiative,
         passivePerception: existing?.passivePerception ?? 10,
-        position: existing?.position
+        position: existing?.position,
+        phase: existing?.phase ?? 1
       };
     });
 
-    const mapSize = encounter.mapSize || { width: 20, height: 20 };
+    const cachedGrid = encounter.dmMapUrl ? mapGridService.getCachedGrid(encounter.dmMapUrl) : null;
+    const mapSize: MapSize = encounter.mapSize || (cachedGrid && cachedGrid.columns > 0 ? {
+      width: cachedGrid.columns,
+      height: cachedGrid.rows,
+      cellPitch: cachedGrid.cellPitch,
+      offsetX: cachedGrid.offsetX,
+      offsetY: cachedGrid.offsetY,
+      regions: cachedGrid.regions,
+      walls: cachedGrid.walls
+    } : { width: 20, height: 20 });
     const deployedFresh = autoDeployUnits([...monsterUnits, ...playerUnits], mapSize);
     setCombatants(deployedFresh);
+    setActivePhases([1]);
     setIsCombatStarted(false);
     setTurnIndex(0);
     setRound(1);
@@ -255,9 +287,88 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     }
   }, [activeRoll]);
 
+  const availablePhases = useMemo(() => {
+    const phases = new Set<number>([1]);
+    combatants.forEach(u => phases.add(u.phase || 1));
+    return Array.from(phases).sort((a, b) => a - b);
+  }, [combatants]);
+
+  const visibleCombatants = useMemo(() => {
+    return combatants.filter(u => activePhases.includes(u.phase || 1));
+  }, [combatants, activePhases]);
+
+  const togglePhase = (phaseNum: number) => {
+    const isCurrentlyActive = activePhases.includes(phaseNum);
+    let nextPhases: number[];
+    if (isCurrentlyActive) {
+      if (activePhases.length === 1) {
+        setAnnouncement(`Cannot deactivate Phase ${phaseNum}: at least one phase must remain active.`);
+        return;
+      }
+      nextPhases = activePhases.filter(p => p !== phaseNum);
+      const hiddenUnits = combatants.filter(u => (u.phase || 1) === phaseNum);
+      setAnnouncement(`Phase ${phaseNum} deactivated. ${hiddenUnits.length} unit${hiddenUnits.length === 1 ? '' : 's'} hidden from encounter.`);
+      setActivePhases(nextPhases);
+      syncEncounterState(combatants, isCombatStarted, turnIndex, round, nextPhases);
+    } else {
+      nextPhases = [...activePhases, phaseNum].sort((a, b) => a - b);
+      const newlyVisible = combatants.filter(u => (u.phase || 1) === phaseNum);
+
+      let updatedCombatants = combatants;
+      if (isCombatStarted) {
+        let rolledAny = false;
+        updatedCombatants = combatants.map(u => {
+          if ((u.phase || 1) === phaseNum && !u.isPlayer) {
+            const hp = { max: u.maxHp || 1, current: u.currentHp || 1 };
+            if (u.hpDice && (!u.maxHp || u.maxHp <= 1)) {
+              const hpRes = DiceService.roll(u.hpDice);
+              hp.max = hpRes.total;
+              hp.current = hpRes.total;
+              diceLogService.logRoll({
+                source: u.name,
+                purpose: `Hit Points (Phase ${phaseNum} entry)`,
+                formula: u.hpDice,
+                rolls: hpRes.rolls,
+                modifier: hpRes.modifier,
+                total: hpRes.total
+              });
+            }
+
+            let initVal = u.initiative;
+            if (initVal === undefined) {
+              const initRoll = DiceService.roll(`1d20${u.dexMod >= 0 ? '+' : ''}${u.dexMod}`);
+              initVal = initRoll.total;
+              diceLogService.logRoll({
+                source: u.name,
+                purpose: `Initiative (Phase ${phaseNum} entry)`,
+                formula: `1d20${u.dexMod >= 0 ? '+' : ''}${u.dexMod}`,
+                rolls: initRoll.rolls,
+                modifier: u.dexMod,
+                total: initRoll.total,
+                critStatus: initRoll.rolls[0] === 20 ? 'crit' : initRoll.rolls[0] === 1 ? 'fumble' : 'normal'
+              });
+            }
+            rolledAny = true;
+            return { ...u, maxHp: hp.max, currentHp: hp.current, initiative: initVal };
+          }
+          return u;
+        });
+
+        if (rolledAny) {
+          updatedCombatants.sort((a, b) => (b.initiative || 0) - (a.initiative || 0));
+          setCombatants(updatedCombatants);
+        }
+      }
+
+      setAnnouncement(`Phase ${phaseNum} activated. ${newlyVisible.length} unit${newlyVisible.length === 1 ? '' : 's'} entered the encounter: ${newlyVisible.map(u => u.name).join(', ')}.`);
+      setActivePhases(nextPhases);
+      syncEncounterState(updatedCombatants, isCombatStarted, turnIndex, round, nextPhases);
+    }
+  };
+
   const nextTurn = useCallback(() => {
-    if (!isCombatStarted || combatants.length === 0) return;
-    const nextIndex = (turnIndex + 1) % combatants.length;
+    if (!isCombatStarted || visibleCombatants.length === 0) return;
+    const nextIndex = (turnIndex + 1) % visibleCombatants.length;
     const isNewRound = nextIndex === 0;
     const nextRound = isNewRound ? round + 1 : round;
 
@@ -266,13 +377,13 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
       setRound(nextRound);
     }
 
-    const current = combatants[nextIndex];
-    const following = combatants[(nextIndex + 1) % combatants.length];
+    const current = visibleCombatants[nextIndex];
+    const following = visibleCombatants[(nextIndex + 1) % visibleCombatants.length];
     const roundPrefix = isNewRound ? `Round ${nextRound}. ` : '';
     setAnnouncement(`${roundPrefix}Current turn: ${current.name}. Next up: ${following.name}.`);
 
-    syncEncounterState(combatants, true, nextIndex, nextRound);
-  }, [isCombatStarted, combatants, turnIndex, round, syncEncounterState]);
+    syncEncounterState(combatants, true, nextIndex, nextRound, activePhases);
+  }, [isCombatStarted, visibleCombatants, combatants, turnIndex, round, activePhases, syncEncounterState]);
 
   const closeDetails = useCallback(() => {
     setSelectedUnit(null);
@@ -302,7 +413,10 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     const handleKeyDown = (e: KeyboardEvent) => {
       // Escape
       if (e.key === 'Escape' && !e.defaultPrevented) {
-        if (activeRoll) {
+        if (isDiceLogOpen) {
+          e.preventDefault();
+          setIsDiceLogOpen(false);
+        } else if (activeRoll) {
           e.preventDefault();
           closeRollModal();
         } else if (activeOperationsUnit) {
@@ -314,6 +428,12 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
         }
       }
       
+      // Alt + D for Dice Log
+      if (e.altKey && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        setIsDiceLogOpen(prev => !prev);
+      }
+
       // Alt + N for Next Turn
       if (e.altKey && e.key.toLowerCase() === 'n') {
         e.preventDefault();
@@ -323,7 +443,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
       // Alt + A for Actions Menu (current combatant)
       if (e.altKey && e.key.toLowerCase() === 'a') {
         e.preventDefault();
-        const current = combatants[turnIndex];
+        const current = visibleCombatants[turnIndex];
         if (current && !current.isPlayer) {
           openOperations(null, current);
         }
@@ -337,7 +457,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [nextTurn, selectedUnit, activeRoll, activeOperationsUnit, activeEncounter, turnIndex, combatants, closeDetails, closeRollModal, closeOperations, openOperations]);
+  }, [nextTurn, selectedUnit, activeRoll, activeOperationsUnit, activeEncounter, turnIndex, visibleCombatants, isDiceLogOpen, closeDetails, closeRollModal, closeOperations, openOperations]);
 
   // Focus management for details modal and operations modal
   useEffect(() => {
@@ -375,7 +495,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     const num = val === '' ? undefined : (parseInt(val, 10) || 0);
     const next = combatants.map(u => u.instanceId === instanceId ? { ...u, initiative: num } : u);
     setCombatants(next);
-    syncEncounterState(next, false, 0, 1);
+    syncEncounterState(next, false, 0, 1, activePhases);
   };
 
   const startCombat = () => {
@@ -383,16 +503,43 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
       const hp = { max: u.maxHp || 1, current: u.currentHp || 1 };
       
       if (!u.isPlayer && u.hpDice) {
-        const roll = DiceService.roll(u.hpDice).total;
-        hp.max = roll;
-        hp.current = roll;
+        const hpRes = DiceService.roll(u.hpDice);
+        hp.max = hpRes.total;
+        hp.current = hpRes.total;
+        diceLogService.logRoll({
+          source: u.name,
+          purpose: 'Hit Points (Initial Roll)',
+          formula: u.hpDice,
+          rolls: hpRes.rolls,
+          modifier: hpRes.modifier,
+          total: hpRes.total
+        });
+      }
+
+      let initVal = u.initiative;
+      if (initVal === undefined) {
+        if (u.isPlayer) {
+          initVal = 0;
+        } else {
+          const initRoll = DiceService.roll(`1d20${u.dexMod >= 0 ? '+' : ''}${u.dexMod}`);
+          initVal = initRoll.total;
+          diceLogService.logRoll({
+            source: u.name,
+            purpose: 'Initiative (Initial Roll)',
+            formula: `1d20${u.dexMod >= 0 ? '+' : ''}${u.dexMod}`,
+            rolls: initRoll.rolls,
+            modifier: u.dexMod,
+            total: initRoll.total,
+            critStatus: initRoll.rolls[0] === 20 ? 'crit' : initRoll.rolls[0] === 1 ? 'fumble' : 'normal'
+          });
+        }
       }
 
       return {
         ...u,
         maxHp: hp.max,
         currentHp: hp.current,
-        initiative: u.initiative !== undefined ? u.initiative : (u.isPlayer ? 0 : DiceService.rollSimple(20, u.dexMod))
+        initiative: initVal
       };
     });
 
@@ -401,8 +548,9 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     setIsCombatStarted(true);
     setTurnIndex(0);
     setRound(1);
-    syncEncounterState(sorted, true, 0, 1);
-    setAnnouncement(`Combat started. Round 1. First up is ${sorted[0].name}.`);
+    syncEncounterState(sorted, true, 0, 1, activePhases);
+    const firstVisible = sorted.filter(u => activePhases.includes(u.phase || 1))[0] || sorted[0];
+    setAnnouncement(`Combat started. Round 1. First up is ${firstVisible.name}.`);
   };
 
   const openUnitDetails = (unit: EncounterUnit, mapCell?: Position | null) => {
@@ -513,6 +661,14 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
           )}
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <button 
+            type="button" 
+            onClick={() => setIsDiceLogOpen(true)}
+            aria-label="View DM Dice Roll Log (Alt+D)"
+            style={{ fontWeight: 'bold' }}
+          >
+            Dice Log (Alt+D)
+          </button>
           {(isCombatStarted || combatants.some(c => c.initiative !== undefined)) && (
             <button type="button" onClick={handleResetCombat}>Reset Encounter</button>
           )}
@@ -524,12 +680,62 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
         {announcement}
       </div>
 
+      {/* Encounter Phases Toolbar */}
+      <section 
+        aria-label="Encounter Phases" 
+        style={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: '0.75rem', 
+          padding: '0.6rem 1rem', 
+          backgroundColor: '#f5f5f5', 
+          border: '1px solid #ccc',
+          borderRadius: '6px', 
+          marginBottom: '1rem',
+          flexWrap: 'wrap'
+        }}
+      >
+        <span style={{ fontWeight: 'bold' }}>Encounter Phases:</span>
+        {availablePhases.map(phaseNum => {
+          const isActive = activePhases.includes(phaseNum);
+          const count = combatants.filter(u => (u.phase || 1) === phaseNum).length;
+          return (
+            <button
+              key={phaseNum}
+              type="button"
+              role="switch"
+              aria-checked={isActive}
+              onClick={() => togglePhase(phaseNum)}
+              style={{
+                padding: '0.4rem 0.8rem',
+                fontSize: '0.9rem',
+                borderRadius: '4px',
+                border: isActive ? '2px solid #2e7d32' : '2px solid #888',
+                backgroundColor: isActive ? '#e8f5e9' : '#fafafa',
+                color: isActive ? '#1b5e20' : '#555',
+                cursor: 'pointer',
+                fontWeight: isActive ? 'bold' : 'normal',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem'
+              }}
+              aria-label={`Phase ${phaseNum}: ${count} unit${count === 1 ? '' : 's'}. ${isActive ? 'Active (Click to hide)' : 'Hidden (Click to activate)'}`}
+            >
+              <span>Phase {phaseNum} ({count})</span>
+              <span style={{ fontSize: '0.8rem', fontWeight: 'bold' }}>
+                {isActive ? '✓ Visible' : '✗ Hidden'}
+              </span>
+            </button>
+          );
+        })}
+      </section>
+
       {!isCombatStarted ? (
         <section>
           <h3>Initiative Setup</h3>
           <p>Enter player initiatives and click Start. Monsters will auto-roll health and initiative.</p>
           <ul style={{ listStyle: 'none', padding: 0 }}>
-            {combatants.map(u => (
+            {visibleCombatants.map(u => (
               <li key={u.instanceId} style={{ marginBottom: '0.5rem' }}>
                 <label htmlFor={`init-${u.instanceId}`} style={{ marginRight: '1rem' }}>{u.name}:</label>
                 <input 
@@ -551,7 +757,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
           <button type="button" onClick={nextTurn} style={{ marginBottom: '1rem' }}>Next Turn (Alt+N)</button>
           
           <ul style={{ listStyle: 'none', padding: 0 }} role="list">
-            {combatants.map((u, i) => (
+            {visibleCombatants.map((u, i) => (
               <li key={u.instanceId} style={{ marginBottom: '1rem', border: i === turnIndex ? '3px solid #000' : '1px solid #eee', padding: '0.5rem', backgroundColor: i === turnIndex ? '#f0f8ff' : 'white' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                   <button
@@ -584,9 +790,9 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
 
       {activeEncounter && isCombatStarted && (
         <CombatMap
-          units={combatants}
+          units={visibleCombatants}
           mapSize={activeEncounter.mapSize || { width: 20, height: 20 }}
-          activeTurnUnitId={isCombatStarted && combatants[turnIndex] ? combatants[turnIndex].instanceId : undefined}
+          activeTurnUnitId={isCombatStarted && visibleCombatants[turnIndex] ? visibleCombatants[turnIndex].instanceId : undefined}
           onUpdateUnitPosition={handleUpdateUnitPosition}
           onOpenOperations={(unit, cell) => openOperations(null, unit, cell)}
           onOpenDetails={(unit, cell) => openUnitDetails(unit, cell)}
@@ -595,6 +801,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
           dmMapUrl={activeEncounter.dmMapUrl}
           playerMapUrl={activeEncounter.playerMapUrl}
           mapName={activeEncounter.name}
+          isExternalModalOpen={Boolean(activeOperationsUnit || selectedUnit || activeRoll || isDiceLogOpen)}
         />
       )}
 
@@ -667,6 +874,8 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
           </button>
         </div>
       )}
+
+      <DiceLogModal isOpen={isDiceLogOpen} onClose={() => setIsDiceLogOpen(false)} />
     </div>
   );
 }

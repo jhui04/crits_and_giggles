@@ -68,6 +68,39 @@ export interface MapRegion {
   cells: string[];
 }
 
+export type WallType = 'full' | 'half' | 'three_quarters' | 'door_closed' | 'door_open' | 'window';
+
+export interface WallEdge {
+  id: string;
+  c1: [number, number]; // [col, row] of cell 1
+  c2: [number, number]; // [col, row] of adjacent cell 2
+  type: WallType;
+  name?: string;
+  blocksVision?: boolean;
+}
+
+export interface ObstacleCell {
+  x: number;
+  y: number;
+  type: 'half' | 'three_quarters' | 'full';
+  name?: string;
+}
+
+export interface MapWallsData {
+  edges: WallEdge[];
+  obstacleCells?: Record<string, ObstacleCell>; // key "x,y"
+}
+
+export type CoverType = 'none' | 'half' | 'three_quarters' | 'total';
+
+export interface CoverResult {
+  type: CoverType;
+  acBonus: number;
+  dexSaveBonus: number;
+  description: string;
+  blockers: string[];
+}
+
 export interface MapGridConfig {
   columns: number;
   rows: number;
@@ -78,6 +111,7 @@ export interface MapGridConfig {
   imageHeight?: number;
   confidence?: number;
   regions?: MapRegion[];
+  walls?: MapWallsData;
 }
 
 export interface MapSize {
@@ -87,6 +121,7 @@ export interface MapSize {
   offsetX?: number;
   offsetY?: number;
   regions?: MapRegion[];
+  walls?: MapWallsData;
 }
 
 export interface EncounterUnit {
@@ -105,6 +140,7 @@ export interface EncounterUnit {
   conditions?: string[];
   notes?: string;
   position?: Position;
+  phase?: number;
 }
 
 export interface EncounterRunningState {
@@ -112,6 +148,7 @@ export interface EncounterRunningState {
   round: number;
   turnIndex: number;
   combatants: EncounterUnit[];
+  activePhases?: number[];
   updatedAt?: string;
 }
 

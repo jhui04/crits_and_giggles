@@ -54,6 +54,7 @@ function getFullCampaign(id) {
       if (u.position_x !== null && u.position_x !== undefined && u.position_y !== null && u.position_y !== undefined) {
         u.position = { x: u.position_x, y: u.position_y };
       }
+      u.phase = u.phase ?? 1;
       delete u.position_x;
       delete u.position_y;
     });
@@ -232,8 +233,8 @@ app.post('/api/campaigns', (req, res) => {
       const insertEncounter = db.prepare('INSERT INTO encounters (id, campaign_id, name, running_state, dm_map_url, player_map_url, map_size, grid_config) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
       const insertEncounterChapter = db.prepare('INSERT INTO encounter_chapters (encounter_id, chapter_id, campaign_id) VALUES (?, ?, ?)');
       const insertUnit = db.prepare(`
-        INSERT INTO encounter_units (instanceId, encounter_id, campaign_id, monsterId, playerId, name, maxHp, currentHp, hpDice, dexMod, initiative, passivePerception, isPlayer, position_x, position_y)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO encounter_units (instanceId, encounter_id, campaign_id, monsterId, playerId, name, maxHp, currentHp, hpDice, dexMod, initiative, passivePerception, isPlayer, position_x, position_y, phase)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       
       data.encounters.forEach(enc => {
@@ -254,7 +255,8 @@ app.post('/api/campaigns', (req, res) => {
           enc.units.forEach(u => insertUnit.run(
             u.instanceId, enc.id, data.id, u.monsterId, u.playerId, u.name, u.maxHp, u.currentHp, u.hpDice, u.dexMod, u.initiative, u.passivePerception, u.isPlayer ? 1 : 0,
             u.position?.x ?? null,
-            u.position?.y ?? null
+            u.position?.y ?? null,
+            u.phase ?? 1
           ));
         }
       });
@@ -312,8 +314,8 @@ app.put('/api/campaigns/:id', (req, res) => {
       const insertEncounter = db.prepare('INSERT INTO encounters (id, campaign_id, name, running_state, dm_map_url, player_map_url, map_size, grid_config) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
       const insertEncounterChapter = db.prepare('INSERT INTO encounter_chapters (encounter_id, chapter_id, campaign_id) VALUES (?, ?, ?)');
       const insertUnit = db.prepare(`
-        INSERT INTO encounter_units (instanceId, encounter_id, campaign_id, monsterId, playerId, name, maxHp, currentHp, hpDice, dexMod, initiative, passivePerception, isPlayer, position_x, position_y)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO encounter_units (instanceId, encounter_id, campaign_id, monsterId, playerId, name, maxHp, currentHp, hpDice, dexMod, initiative, passivePerception, isPlayer, position_x, position_y, phase)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       
       data.encounters.forEach(enc => {
@@ -334,7 +336,8 @@ app.put('/api/campaigns/:id', (req, res) => {
           enc.units.forEach(u => insertUnit.run(
             u.instanceId, enc.id, campaignId, u.monsterId, u.playerId, u.name, u.maxHp, u.currentHp, u.hpDice, u.dexMod, u.initiative, u.passivePerception, u.isPlayer ? 1 : 0,
             u.position?.x ?? null,
-            u.position?.y ?? null
+            u.position?.y ?? null,
+            u.phase ?? 1
           ));
         }
       });

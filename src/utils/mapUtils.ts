@@ -1,4 +1,5 @@
-import type { Position, MapSize, EncounterUnit, MapRegion } from '../types';
+import type { Position, MapSize, EncounterUnit, MapRegion, MapWallsData } from '../types';
+import { isStepBlockedByWall, wallEdgeToSegment, lineSegmentsIntersect } from './coverCalculation';
 
 /**
  * Calculates standard D&D 5e grid distance in feet between two positions.
@@ -252,14 +253,153 @@ export interface MoveTowardsResult {
 }
 
 /**
+ * Breadth-First Search (BFS) pathfinder that finds the shortest route on a square grid
+ * avoiding walls, closed doors, and impassable obstacles.
+ */
+export function findPathAroundWalls(
+  from: Position,
+  to: Position,
+  walls?: MapWallsData,
+  mapSize?: MapSize
+): Position[] | null {
+  if (!walls || ((!walls.edges || walls.edges.length === 0) && (!walls.obstacleCells || Object.keys(walls.obstacleCells).length === 0))) {
+    return null;
+  }
+
+  const width = mapSize?.width || 50;
+  const height = mapSize?.height || 50;
+
+  // 8 directions (cardinals first, then diagonals)
+  const directions = [
+    { dx: 0, dy: -1 }, // N
+    { dx: 1, dy: 0 },  // E
+    { dx: 0, dy: 1 },  // S
+    { dx: -1, dy: 0 }, // W
+    { dx: 1, dy: -1 }, // NE
+    { dx: 1, dy: 1 },  // SE
+    { dx: -1, dy: 1 }, // SW
+    { dx: -1, dy: -1 } // NW
+  ];
+
+  const queue: Position[] = [from];
+  const parentMap = new Map<string, Position | null>();
+  parentMap.set(`${from.x},${from.y}`, null);
+
+  let reachedTarget = false;
+  let targetEndPos = to;
+
+  const isDestSolid = walls.obstacleCells && walls.obstacleCells[`${to.x},${to.y}`]?.type === 'full';
+
+  while (queue.length > 0) {
+    const curr = queue.shift()!;
+
+    if (curr.x === to.x && curr.y === to.y) {
+      reachedTarget = true;
+      targetEndPos = curr;
+      break;
+    }
+
+    if (isDestSolid && calculateDistance(curr, to) <= 5) {
+      reachedTarget = true;
+      targetEndPos = curr;
+      break;
+    }
+
+    for (const dir of directions) {
+      const nx = curr.x + dir.dx;
+      const ny = curr.y + dir.dy;
+
+      if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+
+      const nKey = `${nx},${ny}`;
+      if (parentMap.has(nKey)) continue;
+
+      const nextPos: Position = { x: nx, y: ny };
+
+      // Cardinal movement check
+      if (dir.dx === 0 || dir.dy === 0) {
+        const block = isStepBlockedByWall(curr, nextPos, walls);
+        if (block.blocked) continue;
+      } else {
+        // Diagonal movement check: prevent corner cutting through wall corners
+        const step1: Position = { x: curr.x + dir.dx, y: curr.y };
+        const step2: Position = { x: curr.x, y: curr.y + dir.dy };
+
+        const block1 = isStepBlockedByWall(curr, step1, walls);
+        const block2 = isStepBlockedByWall(curr, step2, walls);
+
+        if (block1.blocked && block2.blocked) continue;
+
+        // Destination obstacle check
+        if (walls.obstacleCells) {
+          const obs = walls.obstacleCells[`${nx},${ny}`];
+          if (obs && (obs.type === 'full' || obs.type === 'three_quarters')) continue;
+        }
+
+        // Direct diagonal intersection with wall edges
+        let diagonalWallBlocked = false;
+        if (walls.edges) {
+          for (const edge of walls.edges) {
+            if (edge.type === 'door_open') continue;
+            const seg = wallEdgeToSegment(edge);
+            if (lineSegmentsIntersect(curr, nextPos, seg.p1, seg.p2)) {
+              diagonalWallBlocked = true;
+              break;
+            }
+          }
+        }
+        if (diagonalWallBlocked) continue;
+      }
+
+      parentMap.set(nKey, curr);
+      queue.push(nextPos);
+    }
+  }
+
+  if (!reachedTarget) {
+    // Find closest visited position to target
+    let closestPos: Position = from;
+    let minDistance = Infinity;
+
+    for (const key of parentMap.keys()) {
+      const [kx, ky] = key.split(',').map(Number);
+      const d = calculateDistance({ x: kx, y: ky }, to);
+      if (d < minDistance) {
+        minDistance = d;
+        closestPos = { x: kx, y: ky };
+      }
+    }
+    targetEndPos = closestPos;
+  }
+
+  // Reconstruct path
+  const path: Position[] = [];
+  let curr: Position | null = targetEndPos;
+  while (curr !== null) {
+    path.unshift(curr);
+    curr = parentMap.get(`${curr.x},${curr.y}`) || null;
+  }
+
+  // Exclude start position
+  if (path.length > 0 && path[0].x === from.x && path[0].y === from.y) {
+    path.shift();
+  }
+
+  return path;
+}
+
+/**
  * Calculates a new position moving from 'from' towards 'to' by up to 'feet'.
  * Prevents ending movement on an occupied cell (such as the target's square).
+ * When walls are provided, uses BFS pathfinding around walls and obstacles.
  */
 export function calculateMoveTowards(
   from: Position,
   to: Position,
   feet: number,
-  occupied?: Set<string>
+  occupied?: Set<string>,
+  walls?: MapWallsData,
+  mapSize?: MapSize
 ): MoveTowardsResult {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
@@ -275,14 +415,24 @@ export function calculateMoveTowards(
   }
 
   const requestedCells = Math.floor(feet / 5);
-  const maxStep = Math.min(totalCells, requestedCells);
 
-  // Compute points along path
-  const path: Position[] = [];
-  for (let i = 1; i <= maxStep; i++) {
-    const x = from.x + Math.round((i * dx) / totalCells);
-    const y = from.y + Math.round((i * dy) / totalCells);
-    path.push({ x, y });
+  // If walls are provided, use BFS pathfinder around walls
+  const wallPath = findPathAroundWalls(from, to, walls, mapSize);
+
+  let path: Position[];
+  let maxStep: number;
+
+  if (wallPath && wallPath.length > 0) {
+    maxStep = Math.min(wallPath.length, requestedCells);
+    path = wallPath.slice(0, maxStep);
+  } else {
+    maxStep = Math.min(totalCells, requestedCells);
+    path = [];
+    for (let i = 1; i <= maxStep; i++) {
+      const x = from.x + Math.round((i * dx) / totalCells);
+      const y = from.y + Math.round((i * dy) / totalCells);
+      path.push({ x, y });
+    }
   }
 
   // Find furthest step that is NOT in occupied set

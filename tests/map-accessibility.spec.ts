@@ -601,5 +601,104 @@ test.describe('Combat Map Accessibility Suite', () => {
 
     await encounterPage.close();
   });
+
+  test('UnitActionModal arrow navigation (Down/Up) and tactical grid ejection', async ({ page, context }) => {
+    const encounterPage = await setupEncounterPage(page, context);
+
+    // Jump to monster on the board to focus its cell
+    const jumpButton = encounterPage.getByRole('button', { name: 'Jump to Creature (Alt+J)' });
+    await jumpButton.click();
+    const monsterOption = encounterPage.locator('[role="dialog"] button').filter({ hasText: /Monster/ }).first();
+    await monsterOption.click();
+
+    // Verify cell is focused and press Enter
+    const monsterCell = encounterPage.locator('td[tabindex="0"]');
+    await expect(monsterCell).toBeFocused();
+    await encounterPage.keyboard.press('Enter');
+
+    // Verify Unit Action Modal opens and heading is focused
+    const menuHeading = encounterPage.getByRole('heading', { name: /Options$/ });
+    await expect(menuHeading).toBeVisible();
+    await expect(menuHeading).toBeFocused();
+
+    // Verify tactical grid is ejected (role="application" stripped, aria-hidden set)
+    const appContainer = encounterPage.getByRole('application', { name: 'Combat Map Tactical Grid' });
+    await expect(appContainer).not.toBeAttached();
+
+    // Press ArrowDown to focus first option (Move on Map)
+    await encounterPage.keyboard.press('ArrowDown');
+    const moveBtn = encounterPage.getByRole('button', { name: /Move on Map/ });
+    await expect(moveBtn).toBeFocused();
+
+    // Press ArrowDown to focus second option (Actions & Attacks)
+    await encounterPage.keyboard.press('ArrowDown');
+    const actionsBtn = encounterPage.getByRole('button', { name: /Actions & Attacks/ });
+    await expect(actionsBtn).toBeFocused();
+
+    // Press ArrowDown to focus third option (View Details & Stats)
+    await encounterPage.keyboard.press('ArrowDown');
+    const detailsBtn = encounterPage.getByRole('button', { name: /View Details & Stats/ });
+    await expect(detailsBtn).toBeFocused();
+
+    // Press ArrowUp to move back up to Actions & Attacks
+    await encounterPage.keyboard.press('ArrowUp');
+    await expect(actionsBtn).toBeFocused();
+
+    // Press Escape: Unit Action Modal closes and focus restores to the cell
+    await encounterPage.keyboard.press('Escape');
+    await expect(menuHeading).not.toBeVisible();
+    await expect(monsterCell).toBeFocused();
+
+    // Verify tactical grid role="application" is restored
+    const restoredAppContainer = encounterPage.getByRole('application', { name: 'Combat Map Tactical Grid' });
+    await expect(restoredAppContainer).toBeVisible();
+
+    await encounterPage.close();
+  });
+
+  test('CreatureJumpModal arrow navigation (Down/Up) when opened via Alt+J from map cell', async ({ page, context }) => {
+    const encounterPage = await setupEncounterPage(page, context);
+
+    // Focus on the board using Alt+B
+    await encounterPage.keyboard.press('Alt+b');
+    const initialCell = encounterPage.locator('[data-cell="0-0"]');
+    await expect(initialCell).toBeFocused();
+
+    // Press Alt+J from the board to open Creature Jump Modal
+    await encounterPage.keyboard.press('Alt+j');
+
+    // Verify modal is open and heading is focused
+    const jumpHeading = encounterPage.getByRole('heading', { name: 'Jump to Creature' });
+    await expect(jumpHeading).toBeVisible();
+    await expect(jumpHeading).toBeFocused();
+
+    // Verify tactical grid is ejected (aria-hidden set, role="application" stripped)
+    const appContainer = encounterPage.getByRole('application', { name: 'Combat Map Tactical Grid' });
+    await expect(appContainer).not.toBeAttached();
+
+    // Press ArrowDown to move to first creature option
+    await encounterPage.keyboard.press('ArrowDown');
+    const creatureButtons = encounterPage.locator('[role="dialog"] ul button');
+    await expect(creatureButtons.first()).toBeFocused();
+
+    // Press ArrowDown to move to second creature option
+    await encounterPage.keyboard.press('ArrowDown');
+    await expect(creatureButtons.nth(1)).toBeFocused();
+
+    // Press ArrowUp to move back to first creature option
+    await encounterPage.keyboard.press('ArrowUp');
+    await expect(creatureButtons.first()).toBeFocused();
+
+    // Press Escape to cancel jump: modal closes and focus returns to the originating cell (0-0)
+    await encounterPage.keyboard.press('Escape');
+    await expect(jumpHeading).not.toBeVisible();
+    await expect(initialCell).toBeFocused();
+
+    // Tactical grid container is restored
+    const restoredAppContainer = encounterPage.getByRole('application', { name: 'Combat Map Tactical Grid' });
+    await expect(restoredAppContainer).toBeVisible();
+
+    await encounterPage.close();
+  });
 });
 

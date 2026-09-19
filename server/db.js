@@ -146,6 +146,7 @@ export function initDb() {
       isPlayer INTEGER NOT NULL,
       position_x INTEGER,
       position_y INTEGER,
+      phase INTEGER DEFAULT 1,
       FOREIGN KEY (encounter_id, campaign_id) REFERENCES encounters(id, campaign_id) ON DELETE CASCADE
     );
   `);
@@ -201,6 +202,12 @@ export function initDb() {
 
   try {
     db.exec('ALTER TABLE encounter_units ADD COLUMN position_y INTEGER;');
+  } catch (e) {
+    // Column already exists, ignore
+  }
+
+  try {
+    db.exec('ALTER TABLE encounter_units ADD COLUMN phase INTEGER DEFAULT 1;');
   } catch (e) {
     // Column already exists, ignore
   }

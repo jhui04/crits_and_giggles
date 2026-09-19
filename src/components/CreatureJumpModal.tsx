@@ -23,9 +23,11 @@ export function CreatureJumpModal({
 
   useEffect(() => {
     if (isOpen) {
-      setTimeout(() => {
+      headingRef.current?.focus();
+      const timer = setTimeout(() => {
         headingRef.current?.focus();
       }, 0);
+      return () => clearTimeout(timer);
     }
   }, [isOpen]);
 
@@ -73,6 +75,40 @@ export function CreatureJumpModal({
           }
         }
       }
+      return;
+    }
+
+    // Arrow Key navigation between jump options
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') {
+      if (modalContentRef.current) {
+        const focusable = Array.from(modalContentRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        ));
+        if (focusable.length > 0) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.key === 'Home') {
+            focusable[0].focus();
+          } else if (e.key === 'End') {
+            focusable[focusable.length - 1].focus();
+          } else if (e.key === 'ArrowDown') {
+            const curIdx = focusable.indexOf(document.activeElement as HTMLElement);
+            if (curIdx === -1 || curIdx === focusable.length - 1) {
+              focusable[0].focus();
+            } else {
+              focusable[curIdx + 1].focus();
+            }
+          } else if (e.key === 'ArrowUp') {
+            const curIdx = focusable.indexOf(document.activeElement as HTMLElement);
+            if (curIdx <= 0) {
+              focusable[focusable.length - 1].focus();
+            } else {
+              focusable[curIdx - 1].focus();
+            }
+          }
+        }
+      }
+      return;
     }
   };
 
@@ -93,12 +129,14 @@ export function CreatureJumpModal({
     >
       <div
         ref={modalContentRef}
+        role="document"
+        tabIndex={-1}
         className="modal-content"
         style={{
           backgroundColor: '#fff', color: '#111', padding: '1.5rem',
           borderRadius: '8px', width: '90%', maxWidth: '500px',
           maxHeight: '85vh', display: 'flex', flexDirection: 'column',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.5)'
+          boxShadow: '0 4px 20px rgba(0,0,0,0.5)', outline: 'none'
         }}
       >
         <h2 id="jump-modal-title" ref={headingRef} tabIndex={-1} style={{ outline: 'none', marginTop: 0 }}>

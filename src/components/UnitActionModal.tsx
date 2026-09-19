@@ -31,12 +31,12 @@ export function UnitActionModal({
       headingRef.current?.focus();
       const timer = setTimeout(() => {
         headingRef.current?.focus();
-      }, 50);
+      }, 30);
       return () => clearTimeout(timer);
     }
   }, [isOpen]);
 
-  // Global window listener for Escape, shortcuts, and focus trap
+  // Global window listener for Escape, shortcuts, arrow navigation, and focus trap
   useEffect(() => {
     if (!isOpen || !unit) return;
 
@@ -48,7 +48,7 @@ export function UnitActionModal({
         return;
       }
 
-      // Focus trap
+      // Modal focus trap
       if (e.key === 'Tab' && modalContentRef.current) {
         const focusable = modalContentRef.current.querySelectorAll<HTMLElement>(
           'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -66,6 +66,39 @@ export function UnitActionModal({
             if (document.activeElement === last || !modalContentRef.current.contains(document.activeElement)) {
               e.preventDefault();
               first.focus();
+            }
+          }
+        }
+        return;
+      }
+
+      // Arrow Key navigation between menu options
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') {
+        if (modalContentRef.current) {
+          const focusable = Array.from(modalContentRef.current.querySelectorAll<HTMLElement>(
+            'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+          ));
+          if (focusable.length > 0) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.key === 'Home') {
+              focusable[0].focus();
+            } else if (e.key === 'End') {
+              focusable[focusable.length - 1].focus();
+            } else if (e.key === 'ArrowDown') {
+              const curIdx = focusable.indexOf(document.activeElement as HTMLElement);
+              if (curIdx === -1 || curIdx === focusable.length - 1) {
+                focusable[0].focus();
+              } else {
+                focusable[curIdx + 1].focus();
+              }
+            } else if (e.key === 'ArrowUp') {
+              const curIdx = focusable.indexOf(document.activeElement as HTMLElement);
+              if (curIdx <= 0) {
+                focusable[focusable.length - 1].focus();
+              } else {
+                focusable[curIdx - 1].focus();
+              }
             }
           }
         }
@@ -123,11 +156,13 @@ export function UnitActionModal({
     >
       <div
         ref={modalContentRef}
+        role="document"
+        tabIndex={-1}
         className="modal-content"
         style={{
           backgroundColor: '#fff', color: '#111', padding: '1.5rem',
           borderRadius: '8px', width: '90%', maxWidth: '450px',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.5)'
+          boxShadow: '0 4px 20px rgba(0,0,0,0.5)', outline: 'none'
         }}
       >
         <h2 id="unit-action-title" ref={headingRef} tabIndex={-1} style={{ outline: 'none', marginTop: 0 }}>

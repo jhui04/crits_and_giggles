@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import type { EncounterUnit, Position, MapSize } from '../types';
 import { calculateDistance, calculateDirection, coordinateToLabel } from '../utils/mapUtils';
+import { calculateCover } from '../utils/coverCalculation';
 import { MoveTowardsModal } from './MoveTowardsModal';
 
 interface NearbyEntitiesModalProps {
@@ -118,6 +119,38 @@ export function NearbyEntitiesModal({
           }
         }
       }
+      // Arrow Key navigation between radar controls (only when not focused on a select dropdown)
+      if ((e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') && document.activeElement?.tagName !== 'SELECT') {
+        if (modalContentRef.current) {
+          const focusable = Array.from(modalContentRef.current.querySelectorAll<HTMLElement>(
+            'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+          ));
+          if (focusable.length > 0) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.key === 'Home') {
+              focusable[0].focus();
+            } else if (e.key === 'End') {
+              focusable[focusable.length - 1].focus();
+            } else if (e.key === 'ArrowDown') {
+              const curIdx = focusable.indexOf(document.activeElement as HTMLElement);
+              if (curIdx === -1 || curIdx === focusable.length - 1) {
+                focusable[0].focus();
+              } else {
+                focusable[curIdx + 1].focus();
+              }
+            } else if (e.key === 'ArrowUp') {
+              const curIdx = focusable.indexOf(document.activeElement as HTMLElement);
+              if (curIdx <= 0) {
+                focusable[focusable.length - 1].focus();
+              } else {
+                focusable[curIdx - 1].focus();
+              }
+            }
+          }
+        }
+        return;
+      }
     };
 
     window.addEventListener('keydown', handleWindowKeyDown);
@@ -149,11 +182,13 @@ export function NearbyEntitiesModal({
       const direction = calculateDirection(activeOriginPos, pos);
       const regionName = regionByCoord.get(`${pos.x},${pos.y}`);
       const locLabel = regionName ? `${coordinateToLabel(pos)} (${regionName})` : coordinateToLabel(pos);
+      const cover = calculateCover(activeOriginPos, pos, mapSize?.walls);
       return {
         unit: u,
         distance,
         direction,
-        coordLabel: locLabel
+        coordLabel: locLabel,
+        cover
       };
     })
     .sort((a, b) => a.distance - b.distance);
@@ -184,12 +219,14 @@ export function NearbyEntitiesModal({
       >
         <div
           ref={modalContentRef}
+          role="document"
+          tabIndex={-1}
           className="modal-content"
           style={{
             backgroundColor: '#fff', color: '#111', padding: '1.5rem',
             borderRadius: '8px', width: '90%', maxWidth: '640px',
             maxHeight: '85vh', display: 'flex', flexDirection: 'column',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.5)'
+            boxShadow: '0 4px 20px rgba(0,0,0,0.5)', outline: 'none'
           }}
         >
           <h2 id="radar-title" ref={headingRef} tabIndex={-1} style={{ outline: 'none', marginTop: 0 }}>
@@ -244,7 +281,7 @@ export function NearbyEntitiesModal({
               <p>No other entities detected on the map.</p>
             ) : (
               <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                {otherEntities.map(({ unit, distance, direction, coordLabel }) => {
+                {otherEntities.map(({ unit, distance, direction, coordLabel, cover }) => {
                   const roleText = unit.isPlayer ? 'Ally/Player' : 'Enemy/Monster';
                   const hpText = unit.currentHp !== undefined ? `${unit.currentHp}/${unit.maxHp ?? '?'} HP` : '';
                   return (
@@ -261,8 +298,20 @@ export function NearbyEntitiesModal({
                       }}
                     >
                       <div style={{ flex: '1 1 200px' }}>
-                        <strong>{unit.name}</strong> <span style={{ fontSize: '0.85em', color: '#666' }}>({roleText})</span>
+                        <strong>{unit.name}</strong> <span style={{ fontSize: '0.85em', color: '#555' }}>({roleText})</span>
                         {hpText && <div style={{ fontSize: '0.85em', color: '#444' }}>{hpText}</div>}
+                        {cover && cover.type !== 'none' && (
+                          <div
+                            style={{
+                              fontSize: '0.85em',
+                              fontWeight: 'bold',
+                              color: cover.type === 'total' ? '#b02a37' : cover.type === 'three_quarters' ? '#b45309' : '#0b5ed7',
+                              marginTop: '0.2rem'
+                            }}
+                          >
+                            Cover: {cover.description}
+                          </div>
+                        )}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                         <div style={{ textAlign: 'right', fontWeight: 'bold' }}>
@@ -278,7 +327,7 @@ export function NearbyEntitiesModal({
                               lastMoveTargetIdRef.current = unit.instanceId;
                               setMoveTarget(unit);
                             }}
-                            aria-label={`Move towards ${unit.name}`}
+                            aria-label={`Move towards ${unit.name}${cover && cover.type !== 'none' ? ` (${cover.description})` : ''}`}
                             style={{
                               padding: '0.4rem 0.8rem',
                               backgroundColor: '#198754',

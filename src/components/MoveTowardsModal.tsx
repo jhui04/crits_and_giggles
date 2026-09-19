@@ -124,7 +124,7 @@ export function MoveTowardsModal({
 
   if (!isOpen || !fromPos || !toPos) return null;
 
-  const preview = calculateMoveTowards(fromPos, toPos, moveAmount, occupiedSet);
+  const preview = calculateMoveTowards(fromPos, toPos, moveAmount, occupiedSet, mapSize?.walls, mapSize);
   const effectivePos = manualPos || preview.newPos;
   const effectiveMovedFeet = manualPos ? calculateDistance(fromPos, manualPos) : preview.movedFeet;
   const fromCoord = coordinateToLabel(fromPos);

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import type { EncounterUnit } from '../types';
 import { DiceService } from '../services/DiceService';
+import { diceLogService } from '../services/DiceLogService';
 import { getSaveModifier, getSkillModifier, DND_SKILLS_BY_ABILITY } from '../utils/dnd';
 
 interface MonsterOperationsModalProps {
@@ -20,6 +21,7 @@ export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, on
   const headingRef = useRef<HTMLHeadingElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const firstButtonRef = useRef<HTMLButtonElement>(null);
+  const modalContentRef = useRef<HTMLDivElement>(null);
 
   // Fallback for custom monsters or missing data
   const monster = unit.fullData || {
@@ -70,13 +72,27 @@ export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, on
     }
   };
 
-  const getD20Details = (mod: number) => {
-    const result = DiceService.roll(`1d20${mod >= 0 ? '+' : ''}${mod}`);
+  const getD20Details = (mod: number, purpose: string) => {
+    const formula = `1d20${mod >= 0 ? '+' : ''}${mod}`;
+    const result = DiceService.roll(formula);
     const base = result.rolls[0];
     let announceStr = result.total.toString();
+    const critStatus = base === 20 ? 'crit' : base === 1 ? 'fumble' : 'normal';
     if (base === 1) announceStr = `natural 1 (total ${result.total})`;
     if (base === 20) announceStr = `natural 20 (total ${result.total})`;
     const visualStr = `${result.total}, ${base}${mod >= 0 ? '+' : ''}${mod}`;
+
+    diceLogService.logRoll({
+      source: unit.name,
+      purpose,
+      formula,
+      rolls: result.rolls,
+      modifier: mod,
+      total: result.total,
+      critStatus,
+      details: critStatus === 'crit' ? 'Natural 20!' : critStatus === 'fumble' ? 'Natural 1!' : undefined
+    });
+
     return { announceStr, visualStr };
   };
 
@@ -86,7 +102,7 @@ export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, on
     const announceParts = [];
 
     if (bonus !== undefined) {
-      const { announceStr, visualStr } = getD20Details(bonus);
+      const { announceStr, visualStr } = getD20Details(bonus, `${actionName} (Attack to hit)`);
       hitVisual = visualStr;
       announceParts.push(`${announceStr} to hit`);
     }
@@ -94,6 +110,15 @@ export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, on
     if (damageDice && damageDice.length > 0) {
       const results = damageDice.map(d => {
          const res = DiceService.roll(d.dice);
+         diceLogService.logRoll({
+           source: unit.name,
+           purpose: `${actionName} (${d.type} damage)`,
+           formula: d.dice,
+           rolls: res.rolls,
+           modifier: res.modifier,
+           total: res.total,
+           details: `${d.type} damage`
+         });
          return `${res.total} ${d.type}`;
       });
       damageResultString = results.join(' and ');
@@ -106,7 +131,7 @@ export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, on
   };
 
   const rollSimple = (title: string, mod: number) => {
-    const { announceStr, visualStr } = getD20Details(mod);
+    const { announceStr, visualStr } = getD20Details(mod, title);
     onAnnounce(`${unit.name} rolled ${title}: ${announceStr}`);
     onRoll(title, visualStr);
   };
@@ -216,19 +241,58 @@ export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, on
     </div>
   );
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') && document.activeElement?.tagName !== 'INPUT') {
+      if (modalContentRef.current) {
+        const focusable = Array.from(modalContentRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        ));
+        if (focusable.length > 0) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.key === 'Home') {
+            focusable[0].focus();
+          } else if (e.key === 'End') {
+            focusable[focusable.length - 1].focus();
+          } else if (e.key === 'ArrowDown') {
+            const curIdx = focusable.indexOf(document.activeElement as HTMLElement);
+            if (curIdx === -1 || curIdx === focusable.length - 1) {
+              focusable[0].focus();
+            } else {
+              focusable[curIdx + 1].focus();
+            }
+          } else if (e.key === 'ArrowUp') {
+            const curIdx = focusable.indexOf(document.activeElement as HTMLElement);
+            if (curIdx <= 0) {
+              focusable[focusable.length - 1].focus();
+            } else {
+              focusable[curIdx - 1].focus();
+            }
+          }
+        }
+      }
+    }
+  };
+
   return (
     <div 
       className="monster-operations-modal" 
       role="dialog" 
       aria-modal="true" 
       aria-labelledby="ops-modal-title"
+      onKeyDown={handleKeyDown}
       style={{
         position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, 
         backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', 
         alignItems: 'center', justifyContent: 'center', zIndex: 1100
       }}
     >
-      <div style={{ backgroundColor: 'white', padding: '1.5rem', borderRadius: '8px', maxWidth: '400px', width: '90%' }}>
+      <div
+        ref={modalContentRef}
+        role="document"
+        tabIndex={-1}
+        style={{ backgroundColor: 'white', padding: '1.5rem', borderRadius: '8px', maxWidth: '400px', width: '90%', outline: 'none' }}
+      >
         <h3 id="ops-modal-title" ref={headingRef} tabIndex={-1} style={{ outline: 'none', marginTop: 0 }}>
           {unit.name} Actions
         </h3>

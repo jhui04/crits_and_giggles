@@ -15,7 +15,7 @@ To build a lightweight, high-performance, and maximally accessible web applicati
 - **Framework:** React 19 (TypeScript)
 - **Build Tool:** Vite
 - **Testing:** Vitest (Unit testing for logic) and Playwright (E2E & accessibility testing)
-- **Persistence:** LocalStorage via `CampaignContext` (Offline-first, no backend required)
+- **Persistence:** SQLite Database via an Express Backend (Node.js with `better-sqlite3`)
 - **Styling:** Vanilla CSS (Focus on high-contrast, clean layout, and semantic landmarks)
 
 ## Architecture & Workflows
@@ -53,7 +53,7 @@ The application leverages static JSON files (in `public/data/`) for standard D&D
 ## Testing Strategy
 - Run `npm run test` (which executes Vitest and Playwright) frequently during development to ensure core functionality is intact and accessibility standards are met.
 - **Explicit Accessibility Testing:** We have migrated from fuzzer-based testing to deterministic, explicit Playwright tests (e.g., `tests/modal-accessibility.spec.ts`).
-  - **Seed State:** Tests inject predefined JSON data into `localStorage` (`crits_campaigns`) via `page.addInitScript` to immediately set up complex application states without brittle UI setup.
+  - **Seed State:** Tests seed data via the Express API (e.g., using test-only reset and POST endpoints) to immediately set up complex application states without brittle UI setup.
   - **Axe Scans:** We run Axe accessibility scans using `checkA11y(page, 'Context Name')` at every distinct visual state or modal.
   - **Strict Focus Verification:** Tests explicitly verify focus management. When a modal or view opens, tests assert `toBeFocused()` on the appropriate heading. When closed (via 'Escape' or cancel buttons), tests assert `toBeFocused()` on the original triggering button.
 - **Agent Mandate for New Features:** When you add new functionality (especially modals, forms, or entirely new views), you **MUST** add corresponding explicit Playwright tests.

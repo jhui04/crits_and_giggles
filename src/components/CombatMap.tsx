@@ -10,6 +10,7 @@ import { CreatureJumpModal } from './CreatureJumpModal';
 import { RegionJumpModal } from './RegionJumpModal';
 import { UnitActionModal } from './UnitActionModal';
 import { mapGridService } from '../services/MapGridService';
+import { isStepBlockedByWall } from '../utils/coverCalculation';
 
 interface CombatMapProps {
   units: EncounterUnit[];
@@ -23,6 +24,7 @@ interface CombatMapProps {
   dmMapUrl?: string;
   playerMapUrl?: string;
   mapName?: string;
+  isExternalModalOpen?: boolean;
 }
 
 const DEFAULT_MAP_SIZE: MapSize = { width: 20, height: 20 };
@@ -127,7 +129,8 @@ export function CombatMap({
   externalRadarUnit,
   onResetExternalRadarUnit,
   dmMapUrl,
-  playerMapUrl
+  playerMapUrl,
+  isExternalModalOpen
 }: CombatMapProps) {
   const [focusedCell, setFocusedCell] = useState<Position>({ x: 0, y: 0 });
   const [moveModeUnit, setMoveModeUnit] = useState<EncounterUnit | null>(null);
@@ -166,7 +169,8 @@ export function CombatMap({
         cellPitch: currentGrid.cellPitch,
         offsetX: currentGrid.offsetX,
         offsetY: currentGrid.offsetY,
-        regions: currentGrid.regions || mapSize?.regions
+        regions: currentGrid.regions || mapSize?.regions,
+        walls: currentGrid.walls || mapSize?.walls
       };
     }
     return mapSize || DEFAULT_MAP_SIZE;
@@ -204,6 +208,7 @@ export function CombatMap({
   const [actionModalUnit, setActionModalUnit] = useState<EncounterUnit | null>(null);
   const [actionModalPos, setActionModalPos] = useState<Position | null>(null);
   const [isActionModalOpen, setIsActionModalOpen] = useState(false);
+  const [isRegionJumpOpen, setIsRegionJumpOpen] = useState(false);
 
   const tableRef = useRef<HTMLTableElement>(null);
   const mapSectionRef = useRef<HTMLElement>(null);
@@ -214,7 +219,11 @@ export function CombatMap({
   const isInternalFocusChange = useRef(false);
   const radarOpenedFromCellRef = useRef(false);
   const radarReturnCellRef = useRef<Position | null>(null);
-  const [isRegionJumpOpen, setIsRegionJumpOpen] = useState(false);
+  const jumpOpenedFromCellRef = useRef<Position | null>(null);
+  const regionJumpOpenedFromCellRef = useRef<Position | null>(null);
+
+  const isAnyModalOpen = isActionModalOpen || isJumpOpen || isRegionJumpOpen || isRadarOpen;
+  const isModalActive = isAnyModalOpen || Boolean(isExternalModalOpen);
 
   // Fast coordinate lookup for units: `${x},${y}` -> EncounterUnit
   const unitByCoord = useMemo(() => {
@@ -304,13 +313,27 @@ export function CombatMap({
         setLiveAnnouncement(`Combat Map board focused at cell ${coordinateToLabel(focusedCell)}${regionTag}. Use arrow keys to navigate, Escape to exit.`);
       } else if (e.altKey && e.key.toLowerCase() === 'e') {
         e.preventDefault();
-        openRadarForUnit();
+        const isFromCell = document.activeElement?.getAttribute('role') === 'gridcell';
+        if (isFromCell && document.activeElement instanceof HTMLElement) {
+          document.activeElement.blur();
+        }
+        openRadarForUnit(undefined, isFromCell, focusedCell);
       } else if (e.altKey && e.key.toLowerCase() === 'j') {
         e.preventDefault();
+        const isFromCell = document.activeElement?.getAttribute('role') === 'gridcell';
+        jumpOpenedFromCellRef.current = isFromCell ? focusedCell : null;
+        if (isFromCell && document.activeElement instanceof HTMLElement) {
+          document.activeElement.blur();
+        }
         setIsJumpOpen(prev => !prev);
       } else if (e.altKey && e.key.toLowerCase() === 'l') {
         e.preventDefault();
         if (effectiveMapSize.regions && effectiveMapSize.regions.length > 0) {
+          const isFromCell = document.activeElement?.getAttribute('role') === 'gridcell';
+          regionJumpOpenedFromCellRef.current = isFromCell ? focusedCell : null;
+          if (isFromCell && document.activeElement instanceof HTMLElement) {
+            document.activeElement.blur();
+          }
           setIsRegionJumpOpen(prev => !prev);
         }
       }
@@ -377,7 +400,7 @@ export function CombatMap({
     isInternalFocusChange.current = true;
     const regionTag = getRegionLabel(unit.position);
     setLiveAnnouncement(
-      `Move mode started for ${unit.name} at ${coordinateToLabel(unit.position)}${regionTag}. Use arrow keys to navigate around the board, Enter to confirm, Escape to cancel.`
+      `Move mode started for ${unit.name} at ${coordinateToLabel(unit.position)}${regionTag}. Use arrow keys to navigate around the board (hold Ctrl to pass through walls), Enter to confirm, Escape to cancel.`
     );
   };
 
@@ -418,6 +441,9 @@ export function CombatMap({
 
   // Opens action menu for a given unit
   const openUnitActionMenu = (unit: EncounterUnit, pos: Position) => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
     setActionModalUnit(unit);
     setActionModalPos(pos);
     setIsActionModalOpen(true);
@@ -437,27 +463,65 @@ export function CombatMap({
     }
   };
 
+  const handleArrowMove = useCallback((fromPos: Position, targetPos: Position, isCtrlHeld: boolean) => {
+    // If moving a unit in Move Mode
+    if (moveModeUnit) {
+      // Bounds check
+      if (
+        targetPos.x < 0 || targetPos.x >= effectiveMapSize.width ||
+        targetPos.y < 0 || targetPos.y >= effectiveMapSize.height
+      ) {
+        setLiveAnnouncement('Cannot move outside map boundary.');
+        return;
+      }
+
+      // Check wall blocking
+      const block = isStepBlockedByWall(fromPos, targetPos, effectiveMapSize.walls);
+      if (block.blocked && !isCtrlHeld) {
+        const wallDesc = block.wallName || (block.wallType === 'door_closed' ? 'Closed Door' : 'Wall');
+        setLiveAnnouncement(`Cannot move through ${wallDesc}. Hold Ctrl while pressing arrow keys to pass through.`);
+        return;
+      }
+
+      if (block.blocked && isCtrlHeld) {
+        const wallDesc = block.wallName || 'wall';
+        const dist = calculateDistance(moveOrigin || fromPos, targetPos);
+        const coord = coordinateToLabel(targetPos);
+        const regionTag = getRegionLabel(targetPos);
+        moveFocusTo(targetPos);
+        setLiveAnnouncement(`Moved ${moveModeUnit.name} through ${wallDesc} (Ctrl bypass) to ${coord}${regionTag}. ${dist} ft from start. Press Enter to place.`);
+        return;
+      }
+
+      moveFocusTo(targetPos);
+      return;
+    }
+
+    // Standard cursor navigation
+    moveFocusTo(targetPos);
+  }, [moveModeUnit, moveOrigin, effectiveMapSize.width, effectiveMapSize.height, effectiveMapSize.walls, moveFocusTo, getRegionLabel]);
+
   // Cell keyboard listener
   const handleCellKeyDown = (e: React.KeyboardEvent<HTMLElement>, pos: Position) => {
     // Arrow Navigation around board
     if (e.key === 'ArrowUp') {
       e.preventDefault();
-      moveFocusTo({ x: pos.x, y: pos.y - 1 });
+      handleArrowMove(pos, { x: pos.x, y: pos.y - 1 }, e.ctrlKey);
       return;
     }
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      moveFocusTo({ x: pos.x, y: pos.y + 1 });
+      handleArrowMove(pos, { x: pos.x, y: pos.y + 1 }, e.ctrlKey);
       return;
     }
     if (e.key === 'ArrowLeft') {
       e.preventDefault();
-      moveFocusTo({ x: pos.x - 1, y: pos.y });
+      handleArrowMove(pos, { x: pos.x - 1, y: pos.y }, e.ctrlKey);
       return;
     }
     if (e.key === 'ArrowRight') {
       e.preventDefault();
-      moveFocusTo({ x: pos.x + 1, y: pos.y });
+      handleArrowMove(pos, { x: pos.x + 1, y: pos.y }, e.ctrlKey);
       return;
     }
 
@@ -614,7 +678,10 @@ export function CombatMap({
           <button
             ref={jumpTriggerRef}
             type="button"
-            onClick={() => setIsJumpOpen(true)}
+            onClick={() => {
+              jumpOpenedFromCellRef.current = null;
+              setIsJumpOpen(true);
+            }}
             style={{ padding: '0.4rem 0.8rem', cursor: 'pointer', backgroundColor: '#495057', color: '#fff', border: '1px solid #6c757d', borderRadius: '4px' }}
           >
             Jump to Creature (Alt+J)
@@ -623,7 +690,10 @@ export function CombatMap({
             <button
               ref={regionJumpTriggerRef}
               type="button"
-              onClick={() => setIsRegionJumpOpen(true)}
+              onClick={() => {
+                regionJumpOpenedFromCellRef.current = null;
+                setIsRegionJumpOpen(true);
+              }}
               style={{ padding: '0.4rem 0.8rem', cursor: 'pointer', backgroundColor: '#495057', color: '#fff', border: '1px solid #6c757d', borderRadius: '4px' }}
             >
               Jump to Region (Alt+L)
@@ -777,8 +847,9 @@ export function CombatMap({
 
       {/* Tactical Combat Grid Container (role="application" signals screen readers like JAWS/NVDA to delegate arrow navigation without manual virtual cursor toggle) */}
       <div
-        role="application"
-        aria-label="Combat Map Tactical Grid"
+        role={isModalActive ? undefined : "application"}
+        aria-label={isModalActive ? undefined : "Combat Map Tactical Grid"}
+        aria-hidden={isModalActive ? true : undefined}
         style={{ overflowX: 'auto', border: '2px solid #495057', borderRadius: '6px', backgroundColor: '#121416', position: 'relative' }}
       >
         <div style={{ display: 'inline-block', position: 'relative', minWidth: '100%' }}>
@@ -1012,8 +1083,18 @@ export function CombatMap({
         }}
         onClose={() => {
           setIsJumpOpen(false);
-          // Restore focus to jump trigger button
-          setTimeout(() => jumpTriggerRef.current?.focus(), 0);
+          if (jumpOpenedFromCellRef.current) {
+            const returnCell = jumpOpenedFromCellRef.current;
+            jumpOpenedFromCellRef.current = null;
+            setTimeout(() => {
+              const row = tableRef.current?.rows[returnCell.y + 1];
+              const cell = row?.cells[returnCell.x + 1];
+              cell?.focus();
+            }, 50);
+          } else {
+            // Restore focus to jump trigger button
+            setTimeout(() => jumpTriggerRef.current?.focus(), 0);
+          }
         }}
       />
 
@@ -1030,8 +1111,18 @@ export function CombatMap({
         }}
         onClose={() => {
           setIsRegionJumpOpen(false);
-          // Restore focus to region jump trigger button
-          setTimeout(() => regionJumpTriggerRef.current?.focus(), 0);
+          if (regionJumpOpenedFromCellRef.current) {
+            const returnCell = regionJumpOpenedFromCellRef.current;
+            regionJumpOpenedFromCellRef.current = null;
+            setTimeout(() => {
+              const row = tableRef.current?.rows[returnCell.y + 1];
+              const cell = row?.cells[returnCell.x + 1];
+              cell?.focus();
+            }, 50);
+          } else {
+            // Restore focus to region jump trigger button
+            setTimeout(() => regionJumpTriggerRef.current?.focus(), 0);
+          }
         }}
       />
     </section>

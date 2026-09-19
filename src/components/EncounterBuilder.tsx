@@ -92,10 +92,15 @@ export function EncounterBuilder({ initialEncounter, chapterId, onClose }: Encou
       dexMod: dex,
       passivePerception: pp,
       isPlayer: false,
-      fullData: monster
+      fullData: monster,
+      phase: 1
     };
     setUnits([...units, newUnit]);
     closeModal();
+  };
+
+  const updateUnitPhase = (instanceId: string, phase: number) => {
+    setUnits(prev => prev.map(u => u.instanceId === instanceId ? { ...u, phase } : u));
   };
 
   const removeUnit = (instanceId: string) => {
@@ -207,13 +212,31 @@ export function EncounterBuilder({ initialEncounter, chapterId, onClose }: Encou
         ) : (
           <ul style={{ listStyle: 'none', padding: 0 }}>
             {units.map((unit) => (
-              <li key={unit.instanceId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem', borderBottom: '1px solid #ccc' }}>
+              <li key={unit.instanceId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem', borderBottom: '1px solid #ccc', flexWrap: 'wrap', gap: '0.5rem' }}>
                 <span>
-                  <strong>{unit.name}</strong> {unit.isPlayer ? '(Player)' : `(CR ${unit.fullData?.cr})`}
+                  <strong>{unit.name}</strong> {unit.isPlayer ? '(Player)' : `(CR ${unit.fullData?.cr || 'N/A'})`}
                 </span>
-                <button type="button" onClick={() => removeUnit(unit.instanceId)} aria-label={`Remove ${unit.name}`}>
-                  Remove
-                </button>
+                <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                  <label htmlFor={`unit-phase-${unit.instanceId}`} style={{ fontSize: '0.9rem' }}>
+                    Phase:
+                  </label>
+                  <select
+                    id={`unit-phase-${unit.instanceId}`}
+                    value={unit.phase ?? 1}
+                    onChange={(e) => updateUnitPhase(unit.instanceId, parseInt(e.target.value, 10))}
+                    aria-label={`Phase for ${unit.name}`}
+                    style={{ padding: '0.25rem 0.5rem' }}
+                  >
+                    <option value={1}>Phase 1</option>
+                    <option value={2}>Phase 2</option>
+                    <option value={3}>Phase 3</option>
+                    <option value={4}>Phase 4</option>
+                    <option value={5}>Phase 5</option>
+                  </select>
+                  <button type="button" onClick={() => removeUnit(unit.instanceId)} aria-label={`Remove ${unit.name}`}>
+                    Remove
+                  </button>
+                </div>
               </li>
             ))}
           </ul>

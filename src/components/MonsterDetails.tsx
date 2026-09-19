@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import type { Monster, Spell, LoreItem } from '../types';
 import { DiceService } from '../services/DiceService';
+import { diceLogService } from '../services/DiceLogService';
 import { QuickRoller } from './QuickRoller';
 import { wrapSpells } from '../utils/spellUtils';
 import { Markdown } from './Markdown';
@@ -83,13 +84,27 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
     }
   };
 
-  const getD20Details = (mod: number) => {
-    const result = DiceService.roll(`1d20${mod >= 0 ? '+' : ''}${mod}`);
+  const getD20Details = (mod: number, purpose: string) => {
+    const formula = `1d20${mod >= 0 ? '+' : ''}${mod}`;
+    const result = DiceService.roll(formula);
     const base = result.rolls[0];
     let announceStr = result.total.toString();
+    const critStatus = base === 20 ? 'crit' : base === 1 ? 'fumble' : 'normal';
     if (base === 1) announceStr = `natural 1 (total ${result.total})`;
     if (base === 20) announceStr = `natural 20 (total ${result.total})`;
     const visualStr = `${result.total}, ${base}${mod >= 0 ? '+' : ''}${mod}`;
+
+    diceLogService.logRoll({
+      source: monster.name,
+      purpose,
+      formula,
+      rolls: result.rolls,
+      modifier: mod,
+      total: result.total,
+      critStatus,
+      details: critStatus === 'crit' ? 'Natural 20!' : critStatus === 'fumble' ? 'Natural 1!' : undefined
+    });
+
     return { announceStr, visualStr };
   };
 
@@ -101,7 +116,7 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
     const announceParts = [];
 
     if (bonus !== undefined) {
-      const { announceStr, visualStr } = getD20Details(bonus);
+      const { announceStr, visualStr } = getD20Details(bonus, `${actionName} (Attack to hit)`);
       hitVisual = visualStr;
       announceParts.push(`${announceStr} to hit`);
     }
@@ -111,6 +126,17 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
          const res = DiceService.roll(d.dice);
          const rollsSum = res.rolls.reduce((sum, val) => sum + val, 0);
          const modStr = res.modifier !== 0 ? (res.modifier > 0 ? `+${res.modifier}` : `${res.modifier}`) : '';
+
+         diceLogService.logRoll({
+           source: monster.name,
+           purpose: `${actionName} (${d.type} damage)`,
+           formula: d.dice,
+           rolls: res.rolls,
+           modifier: res.modifier,
+           total: res.total,
+           details: `${d.type} damage`
+         });
+
          return `${res.total} ${d.type}, ${rollsSum}${modStr}`;
       });
       damageResultString = results.join(' and ');

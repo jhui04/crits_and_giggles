@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import type { Monster } from '../types';
 import { getSkillModifier, getSaveModifier, DND_SKILLS, DND_SAVES, formatD20Roll } from '../utils/dnd';
+import { diceLogService } from '../services/DiceLogService';
 
 interface QuickRollerProps {
   monster: Monster;
@@ -51,7 +52,17 @@ export function QuickRoller({ monster, onRoll, triggerId }: QuickRollerProps) {
 
   const rollSave = (stat: keyof Monster['stats']) => {
     const mod = getSaveModifier(monster, stat);
-    const { visualStr } = formatD20Roll(mod);
+    const { visualStr, total, base } = formatD20Roll(mod);
+    diceLogService.logRoll({
+      source: monster.name,
+      purpose: `${stat} Saving Throw`,
+      formula: `1d20${mod >= 0 ? '+' : ''}${mod}`,
+      rolls: [base],
+      modifier: mod,
+      total,
+      critStatus: base === 20 ? 'crit' : base === 1 ? 'fumble' : 'normal',
+      details: base === 20 ? 'Natural 20!' : base === 1 ? 'Natural 1!' : undefined
+    });
     onRoll(`${stat} Save`, visualStr);
     wasOpenRef.current = false;
     openButtonRef.current?.focus();
@@ -60,7 +71,17 @@ export function QuickRoller({ monster, onRoll, triggerId }: QuickRollerProps) {
 
   const rollSkill = (skill: string) => {
     const mod = getSkillModifier(monster, skill);
-    const { visualStr } = formatD20Roll(mod);
+    const { visualStr, total, base } = formatD20Roll(mod);
+    diceLogService.logRoll({
+      source: monster.name,
+      purpose: `${skill} Check`,
+      formula: `1d20${mod >= 0 ? '+' : ''}${mod}`,
+      rolls: [base],
+      modifier: mod,
+      total,
+      critStatus: base === 20 ? 'crit' : base === 1 ? 'fumble' : 'normal',
+      details: base === 20 ? 'Natural 20!' : base === 1 ? 'Natural 1!' : undefined
+    });
     onRoll(`${skill} Check`, visualStr);
     wasOpenRef.current = false;
     openButtonRef.current?.focus();
@@ -69,7 +90,17 @@ export function QuickRoller({ monster, onRoll, triggerId }: QuickRollerProps) {
 
   const rollStat = (stat: keyof Monster['stats']) => {
     const mod = monster.stats[stat]?.modifier || 0;
-    const { visualStr } = formatD20Roll(mod);
+    const { visualStr, total, base } = formatD20Roll(mod);
+    diceLogService.logRoll({
+      source: monster.name,
+      purpose: `${stat} Ability Check`,
+      formula: `1d20${mod >= 0 ? '+' : ''}${mod}`,
+      rolls: [base],
+      modifier: mod,
+      total,
+      critStatus: base === 20 ? 'crit' : base === 1 ? 'fumble' : 'normal',
+      details: base === 20 ? 'Natural 20!' : base === 1 ? 'Natural 1!' : undefined
+    });
     onRoll(`${stat} Check`, visualStr);
     wasOpenRef.current = false;
     openButtonRef.current?.focus();

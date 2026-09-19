@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import * as fs from 'fs';
+import * as path from 'path';
 import {
   calculateDistance,
   calculateDirection,
@@ -6,7 +8,8 @@ import {
   coordinateToLabel,
   autoDeployUnits,
   getCreatureSpeed,
-  calculateMoveTowards
+  calculateMoveTowards,
+  findPathAroundWalls
 } from './mapUtils';
 import type { EncounterUnit, MapSize, Position } from '../types';
 
@@ -179,5 +182,113 @@ describe('mapUtils', () => {
       expect(res.newPos).toEqual({ x: 3, y: 3 });
       expect(res.movedFeet).toBe(10);
     });
+
+    it('navigates around a wall barrier when walls are provided', () => {
+      // Wall between y=1 and y=2 at x=2
+      const walls = {
+        edges: [
+          { id: 'w1', c1: [2, 1] as [number, number], c2: [2, 2] as [number, number], type: 'full' as const, name: 'Stone Wall' }
+        ]
+      };
+      const mapSize: MapSize = { width: 10, height: 10 };
+
+      // From (2, 1) towards (2, 3). Direct South crosses the wall edge between (2,1) and (2,2).
+      // With walls, 5 ft movement (1 step) cannot step directly to (2,2).
+      const res = calculateMoveTowards({ x: 2, y: 1 }, { x: 2, y: 3 }, 5, undefined, walls, mapSize);
+      expect(res.movedFeet).toBe(5);
+      expect(res.newPos).not.toEqual({ x: 2, y: 2 });
+      expect(res.newPos.x).not.toBe(2); // Routed laterally around x=2
+    });
+  });
+
+  describe('findPathAroundWalls', () => {
+    const mapSize: MapSize = { width: 10, height: 10 };
+
+    it('returns null when walls data is empty or undefined', () => {
+      expect(findPathAroundWalls({ x: 0, y: 0 }, { x: 2, y: 2 })).toBeNull();
+      expect(findPathAroundWalls({ x: 0, y: 0 }, { x: 2, y: 2 }, { edges: [] })).toBeNull();
+    });
+
+    it('routes around a wall edge', () => {
+      // Horizontal wall between y=1 and y=2 at column 2
+      const walls = {
+        edges: [
+          { id: 'w1', c1: [2, 1] as [number, number], c2: [2, 2] as [number, number], type: 'full' as const }
+        ]
+      };
+
+      const path = findPathAroundWalls({ x: 2, y: 1 }, { x: 2, y: 3 }, walls, mapSize);
+      expect(path).not.toBeNull();
+      expect(path!.length).toBeGreaterThanOrEqual(2);
+      // First step should not be (2, 2) because crossing directly South from (2, 1) to (2, 2) is blocked by the wall
+      expect(path![0]).not.toEqual({ x: 2, y: 2 });
+      // The destination must be reached
+      expect(path![path!.length - 1]).toEqual({ x: 2, y: 3 });
+    });
+
+    it('allows passing through open doors but blocks closed doors', () => {
+      const closedDoorWalls = {
+        edges: [
+          { id: 'd1', c1: [2, 1] as [number, number], c2: [2, 2] as [number, number], type: 'door_closed' as const }
+        ]
+      };
+      const openDoorWalls = {
+        edges: [
+          { id: 'd2', c1: [2, 1] as [number, number], c2: [2, 2] as [number, number], type: 'door_open' as const }
+        ]
+      };
+
+      const closedPath = findPathAroundWalls({ x: 2, y: 1 }, { x: 2, y: 3 }, closedDoorWalls, mapSize);
+      expect(closedPath).not.toBeNull();
+      // Closed door forces path around
+      expect(closedPath![0]).not.toEqual({ x: 2, y: 2 });
+
+      const openPath = findPathAroundWalls({ x: 2, y: 1 }, { x: 2, y: 3 }, openDoorWalls, mapSize);
+      expect(openPath).not.toBeNull();
+      // Open door allows direct step through
+      expect(openPath![0]).toEqual({ x: 2, y: 2 });
+    });
+
+    it('routes around solid obstacle cells', () => {
+      const walls = {
+        obstacleCells: {
+          '2,2': { type: 'full' as const, name: 'Pillar' }
+        }
+      };
+
+      const path = findPathAroundWalls({ x: 2, y: 1 }, { x: 2, y: 3 }, walls, mapSize);
+      expect(path).not.toBeNull();
+      // Cannot step on (2,2)
+      expect(path!.some(p => p.x === 2 && p.y === 2)).toBe(false);
+      expect(path![path!.length - 1]).toEqual({ x: 2, y: 3 });
+    });
+
+    it('multimodal check: routes around Palma Flora Manor Stone Fence from (22, 1) to (22, 4)', () => {
+      const cachePath = path.resolve(process.cwd(), 'public/data/map_grids.json');
+      const cacheData = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
+      const palmaGrid = cacheData['/maps/5.1-palma-flora-player.png'];
+      const palmaWalls = palmaGrid.walls;
+      const palmaMapSize: MapSize = { width: palmaGrid.columns, height: palmaGrid.rows };
+
+      const pathResult = findPathAroundWalls({ x: 22, y: 1 }, { x: 22, y: 4 }, palmaWalls, palmaMapSize);
+      expect(pathResult).not.toBeNull();
+      // Directly going through (22, 2) -> (22, 3) crosses Manor Stone Fence.
+      // Therefore, the path must NOT cross [22, 2] -> [22, 3].
+      const crossedFenceDirectly = pathResult!.some((p, i) => {
+        if (i === 0) return false;
+        const prev = pathResult![i - 1];
+        return (prev.x === 22 && prev.y === 2 && p.x === 22 && p.y === 3);
+      });
+      expect(crossedFenceDirectly).toBe(false);
+      // Destination should be reached
+      expect(pathResult![pathResult!.length - 1]).toEqual({ x: 22, y: 4 });
+
+      // Moving towards (22, 4) from (22, 1) by 10 ft:
+      const moveRes = calculateMoveTowards({ x: 22, y: 1 }, { x: 22, y: 4 }, 10, new Set(['22,4']), palmaWalls, palmaMapSize);
+      expect(moveRes.movedFeet).toBe(10);
+      // It should not end up at (22, 3) (which is blocked by the fence)
+      expect(moveRes.newPos).not.toEqual({ x: 22, y: 3 });
+    });
   });
 });
+

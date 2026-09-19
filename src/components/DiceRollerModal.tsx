@@ -1,24 +1,18 @@
 import { useState, useRef, useEffect } from 'react';
 import { DiceService } from '../services/DiceService';
 import type { DiceResult } from '../services/DiceService';
+import { useDiceLog, diceLogService } from '../services/DiceLogService';
 
 interface DiceRollerModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-interface RollHistoryItem {
-  id: string;
-  notation: string;
-  result: DiceResult;
-  timestamp: string;
-}
-
 export function DiceRollerModal({ isOpen, onClose }: DiceRollerModalProps) {
   const [notation, setNotation] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [currentResult, setCurrentResult] = useState<DiceResult | null>(null);
-  const [history, setHistory] = useState<RollHistoryItem[]>([]);
+  const { entries: history, clearLog } = useDiceLog();
   const [announcement, setAnnouncement] = useState('');
 
   const modalHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -75,14 +69,19 @@ export function DiceRollerModal({ isOpen, onClose }: DiceRollerModalProps) {
       const res = DiceService.roll(notation);
       setCurrentResult(res);
 
-      // Create history item
-      const newItem: RollHistoryItem = {
-        id: Math.random().toString(36).substring(2, 9),
-        notation,
-        result: res,
-        timestamp: new Date().toLocaleTimeString(),
-      };
-      setHistory(prev => [newItem, ...prev].slice(0, 20)); // Limit to 20 items
+      const isD20 = notation.toLowerCase().includes('d20') && res.rolls.length === 1;
+      const critStatus = isD20 ? (res.rolls[0] === 20 ? 'crit' : res.rolls[0] === 1 ? 'fumble' : 'normal') : 'normal';
+
+      // Log to persistent global dice log with metadata
+      diceLogService.logRoll({
+        source: 'Dice Roller',
+        purpose: 'Manual Roll',
+        formula: notation,
+        rolls: res.rolls,
+        modifier: res.modifier,
+        total: res.total,
+        critStatus
+      });
 
       // Formulate screen reader announcement
       const rollsStr = res.rolls.length > 0 ? `Rolls: ${res.rolls.join(', ')}.` : '';
@@ -241,11 +240,23 @@ export function DiceRollerModal({ isOpen, onClose }: DiceRollerModalProps) {
 
         {history.length > 0 && (
           <div>
-            <h3 style={{ borderBottom: '1px solid #444', paddingBottom: '0.5rem', margin: '1.5rem 0 0.5rem 0' }}>
-              Roll History
-            </h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #444', paddingBottom: '0.5rem', margin: '1.5rem 0 0.5rem 0' }}>
+              <h3 style={{ margin: 0 }}>
+                Recent Dice Log
+              </h3>
+              <button
+                type="button"
+                onClick={clearLog}
+                style={{
+                  background: 'none', border: 'none', color: '#ff8a80',
+                  cursor: 'pointer', fontSize: '0.85rem', textDecoration: 'underline'
+                }}
+              >
+                Clear Log
+              </button>
+            </div>
             <ul style={{ listStyle: 'none', padding: 0, margin: 0, maxHeight: '200px', overflowY: 'auto' }}>
-              {history.map(item => (
+              {history.slice(0, 15).map(item => (
                 <li
                   key={item.id}
                   style={{
@@ -255,11 +266,13 @@ export function DiceRollerModal({ isOpen, onClose }: DiceRollerModalProps) {
                 >
                   <span>
                     <span style={{ color: '#aaa' }}>[{item.timestamp}]</span>{' '}
-                    <strong>{item.notation}</strong>
+                    <strong style={{ color: '#90caf9' }}>{item.source}:</strong>{' '}
+                    <span>{item.purpose}</span>{' '}
+                    <code>({item.formula})</code>
                   </span>
                   <span>
-                    Total: <strong style={{ color: '#4caf50' }}>{item.result.total}</strong>{' '}
-                    <span style={{ color: '#aaa' }}>({item.result.rolls.join(', ')})</span>
+                    Total: <strong style={{ color: item.critStatus === 'crit' ? '#ffc107' : item.critStatus === 'fumble' ? '#ff5252' : '#4caf50' }}>{item.total}</strong>{' '}
+                    <span style={{ color: '#aaa' }}>({item.rolls?.join(', ') || ''})</span>
                   </span>
                 </li>
               ))}
