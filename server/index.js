@@ -2,6 +2,17 @@ import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
 import { db, initDb } from './db.js';
+import { getConfig, setConfig } from './assistant/config.js';
+import { handleAssistantChat } from './assistant/orchestrator.js';
+import { searchVectorStore, indexSrdAndJsonData, indexCampaignLore, invalidateVectorCache } from './assistant/vectorStore.js';
+import { getToolAuditLog } from './assistant/toolController.js';
+import {
+  recordTelemetryAsync,
+  getLlmMetrics,
+  getLlmMetricsSummary,
+  recordLlmMetric,
+  clearLlmMetrics,
+} from './assistant/telemetry.js';
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -11,6 +22,10 @@ app.use(express.json({ limit: '50mb' }));
 app.use(morgan('dev'));
 
 initDb();
+indexSrdAndJsonData().catch((err) => {
+  console.warn('[Startup] Initial SRD vector indexing warning:', err.message);
+});
+
 
 // Helper to get full world
 function getFullWorld(id) {
@@ -265,6 +280,7 @@ app.post('/api/campaigns', (req, res) => {
 
   try {
     insertCampaign(req.body);
+    indexCampaignLore(id);
     const result = getFullCampaign(id);
     res.status(201).json(result);
   } catch (err) {
@@ -346,6 +362,7 @@ app.put('/api/campaigns/:id', (req, res) => {
 
   try {
     updateCampaign(req.body);
+    indexCampaignLore(campaignId);
     const result = getFullCampaign(campaignId);
     res.json(result);
   } catch (err) {
@@ -367,15 +384,164 @@ app.delete('/api/campaigns/:id', (req, res) => {
   }
 });
 
+// --- Assistant Oracle API Endpoints ---
+
+// GET /api/assistant/config
+app.get('/api/assistant/config', (req, res) => {
+  res.json(getConfig());
+});
+
+// PUT /api/assistant/config
+app.put('/api/assistant/config', (req, res) => {
+  try {
+    const updated = setConfig(req.body);
+    res.json(updated);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// POST /api/assistant/chat
+app.post('/api/assistant/chat', async (req, res) => {
+  try {
+    const { query, campaignId, encounterId, model, mockResponse } = req.body;
+    if (!query) {
+      return res.status(400).json({ error: 'Missing query parameter' });
+    }
+    const result = await handleAssistantChat({
+      query,
+      campaignId,
+      encounterId,
+      model,
+      mockResponse: mockResponse ?? (process.env.NODE_ENV === 'test' && req.body.mock !== false),
+    });
+
+    // Send response immediately to frontend so DM is not delayed
+    res.json(result);
+
+    // Asynchronously capture memory footprint via /api/ps and record telemetry metrics
+    if (result.metrics) {
+      recordTelemetryAsync({
+        model: result.modelUsed,
+        rawMetrics: result.metrics,
+      }).catch((telemetryErr) => {
+        console.warn('[Telemetry] Error recording asynchronous metric:', telemetryErr.message);
+      });
+    }
+  } catch (err) {
+    res.status(500).json({ error: 'Assistant processing failed', details: err.message });
+  }
+});
+
+// GET /api/assistant/metrics
+app.get('/api/assistant/metrics', (req, res) => {
+  try {
+    const model = req.query.model || null;
+    const limit = parseInt(req.query.limit || '50', 10);
+    const metrics = getLlmMetrics({ model, limit });
+    res.json(metrics);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to retrieve metrics', details: err.message });
+  }
+});
+
+// GET /api/assistant/metrics/summary
+app.get('/api/assistant/metrics/summary', (req, res) => {
+  try {
+    const summary = getLlmMetricsSummary();
+    res.json(summary);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to retrieve metrics summary', details: err.message });
+  }
+});
+
+// POST /api/assistant/metrics
+app.post('/api/assistant/metrics', (req, res) => {
+  try {
+    const {
+      modelName,
+      loadDuration,
+      evalDuration,
+      evalCount,
+      totalDuration,
+      vramBytes,
+      totalBytes,
+      timestamp,
+    } = req.body;
+
+    if (!modelName) {
+      return res.status(400).json({ error: 'Missing required field: modelName' });
+    }
+
+    const record = recordLlmMetric({
+      modelName,
+      loadDuration,
+      evalDuration,
+      evalCount,
+      totalDuration,
+      vramBytes,
+      totalBytes,
+      timestamp,
+    });
+
+    res.status(201).json(record);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to record metric', details: err.message });
+  }
+});
+
+// GET /api/assistant/search
+app.get('/api/assistant/search', async (req, res) => {
+  try {
+    const query = req.query.q;
+    const campaignId = req.query.campaignId || null;
+    const limit = parseInt(req.query.limit || '3', 10);
+    if (!query) {
+      return res.status(400).json({ error: 'Missing query parameter "q"' });
+    }
+    const passages = await searchVectorStore(query, { campaignId, limit });
+    res.json(passages);
+  } catch (err) {
+    res.status(500).json({ error: 'Search failed', details: err.message });
+  }
+});
+
+// POST /api/assistant/index
+app.post('/api/assistant/index', async (req, res) => {
+  try {
+    const srdCount = await indexSrdAndJsonData();
+    let campaignCount = 0;
+    if (req.body.campaignId) {
+      campaignCount = await indexCampaignLore(req.body.campaignId);
+    }
+    res.json({ success: true, indexed: { srdAndJsons: srdCount, campaignLore: campaignCount } });
+  } catch (err) {
+    res.status(500).json({ error: 'Indexing failed', details: err.message });
+  }
+});
+
+// GET /api/assistant/tools/log
+app.get('/api/assistant/tools/log', (req, res) => {
+  res.json(getToolAuditLog());
+});
+
 // DANGER: Reset database (test only)
-app.delete('/api/danger/reset', (req, res) => {
+app.delete('/api/danger/reset', async (req, res) => {
   if (process.env.NODE_ENV !== 'test') {
     return res.status(403).json({ error: 'Reset only allowed in test mode' });
   }
   try {
     db.prepare('DELETE FROM campaigns').run();
     db.prepare('DELETE FROM worlds').run();
-    // CASCADE will handle the rest
+    db.prepare('DELETE FROM vector_chunks').run();
+    try {
+      db.prepare('DELETE FROM llm_metrics').run();
+    } catch {
+      // Table might not exist in uninitialized test db
+    }
+    clearLlmMetrics();
+    invalidateVectorCache();
+    await indexSrdAndJsonData();
     res.status(204).send();
   } catch (err) {
     res.status(500).json({ error: 'Reset failed', details: err.message });

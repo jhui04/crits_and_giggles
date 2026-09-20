@@ -52,6 +52,7 @@ export function ShortcutsHelp({ isOpen, onClose }: ShortcutsHelpProps) {
 
   const shortcuts = [
     { key: 'Alt + O', description: 'Open/Close The Oracle (Search Monsters, Spells, Magic Items, and World Assets)' },
+    { key: 'Alt + A', description: 'Open Assistant Oracle & focus chat input (Rules, Spells, Game State)' },
     { key: 'Alt + R', description: 'Open/Close Quick Dice Roller' },
     { key: 'Alt + D', description: 'Open/Close DM Dice Roll Log' },
     { key: 'Alt + M', description: 'Toggle between Create Mode and Run Mode' },

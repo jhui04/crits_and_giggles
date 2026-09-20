@@ -29,71 +29,65 @@ export function UnitActionModal({
   useEffect(() => {
     if (isOpen) {
       headingRef.current?.focus();
-      const timer = setTimeout(() => {
-        headingRef.current?.focus();
-      }, 30);
-      return () => clearTimeout(timer);
     }
   }, [isOpen]);
 
-  // Global window listener for Escape, shortcuts, arrow navigation, and focus trap
-  useEffect(() => {
-    if (!isOpen || !unit) return;
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (!unit) return;
 
-    const handleWindowKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        onClose();
-        return;
-      }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      onClose();
+      return;
+    }
 
-      // Modal focus trap
-      if (e.key === 'Tab' && modalContentRef.current) {
-        const focusable = modalContentRef.current.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-        );
-        if (focusable.length > 0) {
-          const first = focusable[0];
-          const last = focusable[focusable.length - 1];
+    // Modal focus trap
+    if (e.key === 'Tab' && modalContentRef.current) {
+      const focusable = modalContentRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      if (focusable.length > 0) {
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
 
-          if (e.shiftKey) {
-            if (document.activeElement === first || document.activeElement === headingRef.current || !modalContentRef.current.contains(document.activeElement)) {
-              e.preventDefault();
-              last.focus();
-            }
-          } else {
-            if (document.activeElement === last || !modalContentRef.current.contains(document.activeElement)) {
-              e.preventDefault();
-              first.focus();
-            }
+        if (e.shiftKey) {
+          if (document.activeElement === first || document.activeElement === headingRef.current || !modalContentRef.current.contains(document.activeElement)) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (document.activeElement === last || !modalContentRef.current.contains(document.activeElement)) {
+            e.preventDefault();
+            first.focus();
           }
         }
-        return;
       }
+      return;
+    }
 
-      // Arrow Key navigation between menu options
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') {
-        if (modalContentRef.current) {
-          const focusable = Array.from(modalContentRef.current.querySelectorAll<HTMLElement>(
-            'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-          ));
-          if (focusable.length > 0) {
-            e.preventDefault();
-            e.stopPropagation();
-            if (e.key === 'Home') {
-              focusable[0].focus();
-            } else if (e.key === 'End') {
-              focusable[focusable.length - 1].focus();
-            } else if (e.key === 'ArrowDown') {
-              const curIdx = focusable.indexOf(document.activeElement as HTMLElement);
+    // Arrow Key navigation between menu options
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') {
+      if (modalContentRef.current) {
+        const focusable = Array.from(modalContentRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        ));
+        if (focusable.length > 0) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.key === 'Home') {
+            focusable[0].focus();
+          } else if (e.key === 'End') {
+            focusable[focusable.length - 1].focus();
+          } else {
+            const curIdx = focusable.indexOf(document.activeElement as HTMLElement);
+            if (e.key === 'ArrowDown') {
               if (curIdx === -1 || curIdx === focusable.length - 1) {
                 focusable[0].focus();
               } else {
                 focusable[curIdx + 1].focus();
               }
             } else if (e.key === 'ArrowUp') {
-              const curIdx = focusable.indexOf(document.activeElement as HTMLElement);
               if (curIdx <= 0) {
                 focusable[focusable.length - 1].focus();
               } else {
@@ -102,39 +96,36 @@ export function UnitActionModal({
             }
           }
         }
-        return;
       }
+      return;
+    }
 
-      const key = e.key.toLowerCase();
-      if (key === 'm') {
-        e.preventDefault();
-        e.stopPropagation();
-        onStartMove(unit);
-        return;
-      }
-      if (key === 'a' && onOpenOperations && !unit.isPlayer) {
-        e.preventDefault();
-        e.stopPropagation();
-        onOpenOperations(unit);
-        return;
-      }
-      if (key === 'd' && onOpenDetails) {
-        e.preventDefault();
-        e.stopPropagation();
-        onOpenDetails(unit);
-        return;
-      }
-      if (key === 'r') {
-        e.preventDefault();
-        e.stopPropagation();
-        onOpenRadar(unit);
-        return;
-      }
-    };
-
-    window.addEventListener('keydown', handleWindowKeyDown);
-    return () => window.removeEventListener('keydown', handleWindowKeyDown);
-  }, [isOpen, unit, onClose, onStartMove, onOpenOperations, onOpenDetails, onOpenRadar]);
+    const key = e.key.toLowerCase();
+    if (key === 'm') {
+      e.preventDefault();
+      e.stopPropagation();
+      onStartMove(unit);
+      return;
+    }
+    if (key === 'a' && onOpenOperations && !unit.isPlayer) {
+      e.preventDefault();
+      e.stopPropagation();
+      onOpenOperations(unit);
+      return;
+    }
+    if (key === 'd' && onOpenDetails) {
+      e.preventDefault();
+      e.stopPropagation();
+      onOpenDetails(unit);
+      return;
+    }
+    if (key === 'r') {
+      e.preventDefault();
+      e.stopPropagation();
+      onOpenRadar(unit);
+      return;
+    }
+  };
 
   if (!isOpen || !unit || !position) return null;
 
@@ -148,6 +139,7 @@ export function UnitActionModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="unit-action-title"
+      onKeyDown={handleKeyDown}
       style={{
         position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
         backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 3100,

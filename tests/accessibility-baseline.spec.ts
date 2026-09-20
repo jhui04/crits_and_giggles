@@ -43,6 +43,7 @@ test.describe('Accessibility Baseline Scans', () => {
       page.getByRole('link', { name: /Run Test Encounter/ }).click()
     ]);
     await encounterPage.waitForLoadState();
+    await encounterPage.waitForSelector('h1');
     await checkA11y(encounterPage, 'Run Mode - Encounter Runner');
     await encounterPage.close();
   });

@@ -294,12 +294,14 @@ export function CombatMap({
   // Direct O(1) focus dispatch: Indexed row and cell access avoids O(N) querySelector scanning
   useEffect(() => {
     if (isInternalFocusChange.current) {
-      const row = tableRef.current?.rows[focusedCell.y + 1];
-      const cell = row?.cells[focusedCell.x + 1];
-      cell?.focus();
+      if (!isAnyModalOpen) {
+        const row = tableRef.current?.rows[focusedCell.y + 1];
+        const cell = row?.cells[focusedCell.x + 1];
+        cell?.focus();
+      }
       isInternalFocusChange.current = false;
     }
-  }, [focusedCell]);
+  }, [focusedCell, isAnyModalOpen]);
 
   // Global keyboard shortcuts: Alt+B (Focus Board), Alt+E (Radar), Alt+J (Jump)
   useEffect(() => {
@@ -455,10 +457,12 @@ export function CombatMap({
       moveFocusTo(pos);
       handleConfirmMove(pos);
     } else {
-      moveFocusTo(pos);
       const occupant = unitByCoord.get(`${pos.x},${pos.y}`);
       if (occupant) {
+        setFocusedCell(pos);
         openUnitActionMenu(occupant, pos);
+      } else {
+        moveFocusTo(pos);
       }
     }
   };

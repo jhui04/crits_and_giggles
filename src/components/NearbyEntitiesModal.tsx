@@ -74,11 +74,7 @@ export function NearbyEntitiesModal({
   useEffect(() => {
     if (isOpen && !wasOpenRef.current) {
       headingRef.current?.focus();
-      const timer = setTimeout(() => {
-        headingRef.current?.focus();
-      }, 50);
       wasOpenRef.current = true;
-      return () => clearTimeout(timer);
     }
     if (!isOpen) {
       wasOpenRef.current = false;

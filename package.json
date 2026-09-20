@@ -9,6 +9,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "benchmark": "node scripts/benchmark-llm.js",
     "test": "npm run build && npx vitest run && npx playwright test"
   },
   "dependencies": {
@@ -16,6 +17,7 @@
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "morgan": "^1.11.0",
+    "openai": "^7.19.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5"
   },

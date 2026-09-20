@@ -3,6 +3,7 @@ import { CampaignBuilder } from './components/CampaignBuilder';
 import { CampaignRunner } from './components/CampaignRunner';
 import { EncounterRunner } from './components/EncounterRunner';
 import { Oracle } from './components/Oracle';
+import { AssistantOracleModal } from './components/AssistantOracleModal';
 import { ShortcutsHelp } from './components/ShortcutsHelp';
 import { DiceRollerModal } from './components/DiceRollerModal';
 import { DiceLogModal } from './components/DiceLogModal';
@@ -20,6 +21,8 @@ function App() {
   const [isCampaignModalOpen, setIsCampaignModalOpen] = useState(false);
   const [isCampaignSettingsOpen, setIsCampaignSettingsOpen] = useState(false);
   const [isOracleOpen, setIsOracleOpen] = useState(false);
+  const [isAssistantOpen, setIsAssistantOpen] = useState(false);
+  const [isAssistantFocusInput, setIsAssistantFocusInput] = useState(false);
   const [isShortcutsHelpOpen, setIsShortcutsHelpOpen] = useState(false);
   const [isDiceRollerOpen, setIsDiceRollerOpen] = useState(false);
   const [isDiceLogOpen, setIsDiceLogOpen] = useState(false);
@@ -54,6 +57,7 @@ function App() {
   const mainMenuHeadingRef = useRef<HTMLHeadingElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
   const lastFocusedBeforeOracle = useRef<HTMLElement | null>(null);
+  const lastFocusedBeforeAssistant = useRef<HTMLElement | null>(null);
   const lastFocusedBeforeHelp = useRef<HTMLElement | null>(null);
   const lastFocusedBeforeDiceRoller = useRef<HTMLElement | null>(null);
   const lastFocusedBeforeDiceLog = useRef<HTMLElement | null>(null);
@@ -105,6 +109,23 @@ function App() {
     setTimeout(() => {
       if (lastFocusedBeforeOracle.current && lastFocusedBeforeOracle.current !== document.body && document.body.contains(lastFocusedBeforeOracle.current)) {
         lastFocusedBeforeOracle.current.focus();
+      } else {
+        mainMenuBtnRef.current?.focus();
+      }
+    }, 0);
+  };
+
+  const openAssistant = (focusInput = false) => {
+    lastFocusedBeforeAssistant.current = document.activeElement as HTMLElement;
+    setIsAssistantFocusInput(focusInput);
+    setIsAssistantOpen(true);
+  };
+
+  const closeAssistant = () => {
+    setIsAssistantOpen(false);
+    setTimeout(() => {
+      if (lastFocusedBeforeAssistant.current && lastFocusedBeforeAssistant.current !== document.body && document.body.contains(lastFocusedBeforeAssistant.current)) {
+        lastFocusedBeforeAssistant.current.focus();
       } else {
         mainMenuBtnRef.current?.focus();
       }
@@ -204,6 +225,12 @@ function App() {
           else openOracle();
           return;
         }
+        if (key === 'a') {
+          e.preventDefault();
+          if (isAssistantOpen) closeAssistant();
+          else openAssistant(true);
+          return;
+        }
         if (key === 'h') {
           e.preventDefault();
           if (isShortcutsHelpOpen) closeShortcutsHelp();
@@ -241,7 +268,9 @@ function App() {
       }
 
       if (e.key === 'Escape' && !e.defaultPrevented) {
-        if (isDiceLogOpen) {
+        if (isAssistantOpen) {
+          closeAssistant();
+        } else if (isDiceLogOpen) {
           closeDiceLog();
         } else if (isCampaignModalOpen) {
           closeCampaignModal();
@@ -254,20 +283,35 @@ function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isCampaignModalOpen, isOracleOpen, isShortcutsHelpOpen, isDiceRollerOpen, isDiceLogOpen, isMainMenuOpen, isCampaignSettingsOpen, mode]);
+  }, [isCampaignModalOpen, isOracleOpen, isAssistantOpen, isShortcutsHelpOpen, isDiceRollerOpen, isDiceLogOpen, isMainMenuOpen, isCampaignSettingsOpen, mode]);
 
   if (targetEncounterId) {
     return (
-      <main>
-        <h1 className="sr-only">Encounter Runner</h1>
-        <EncounterRunner targetEncounterId={targetEncounterId} />
-      </main>
+      <React.Fragment>
+        <div aria-hidden={isAssistantOpen || isOracleOpen || isShortcutsHelpOpen || isDiceRollerOpen || isDiceLogOpen}>
+          <main>
+            <h1 className="sr-only">Encounter Runner</h1>
+            <EncounterRunner targetEncounterId={targetEncounterId} />
+          </main>
+        </div>
+        <AssistantOracleModal
+          isOpen={isAssistantOpen}
+          onClose={closeAssistant}
+          campaignId={activeCampaign?.id}
+          encounterId={targetEncounterId}
+          initialFocusOnInput={isAssistantFocusInput}
+        />
+        <Oracle isOpen={isOracleOpen} onClose={closeOracle} />
+        <ShortcutsHelp isOpen={isShortcutsHelpOpen} onClose={closeShortcutsHelp} />
+        <DiceRollerModal isOpen={isDiceRollerOpen} onClose={closeDiceRoller} />
+        <DiceLogModal isOpen={isDiceLogOpen} onClose={closeDiceLog} />
+      </React.Fragment>
     );
   }
 
   return (
     <React.Fragment>
-      <div className="app-container" aria-hidden={isMainMenuOpen || isCampaignModalOpen || isOracleOpen || isShortcutsHelpOpen || isDiceRollerOpen || isDiceLogOpen}>  
+      <div className="app-container" aria-hidden={isMainMenuOpen || isCampaignModalOpen || isOracleOpen || isAssistantOpen || isShortcutsHelpOpen || isDiceRollerOpen || isDiceLogOpen}>  
         <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h1 style={{ margin: 0 }}>
             <button
@@ -287,6 +331,23 @@ function App() {
             <span style={{ marginRight: '1rem' }}>
               <strong>Campaign:</strong> {activeCampaign ? activeCampaign.name : 'None Selected'}
             </span>
+            <button
+              type="button"
+              onClick={() => openAssistant(true)}
+              aria-label="Open Assistant Oracle (Alt+A)"
+              style={{
+                background: '#0066cc',
+                color: 'white',
+                border: 'none',
+                padding: '0.4rem 0.8rem',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontWeight: 'bold',
+                fontSize: '0.9rem',
+              }}
+            >
+              Assistant Oracle (Alt+A)
+            </button>
           </div>
         </header>
 
@@ -322,6 +383,13 @@ function App() {
       </div>
 
       <Oracle isOpen={isOracleOpen} onClose={closeOracle} />
+      <AssistantOracleModal
+        isOpen={isAssistantOpen}
+        onClose={closeAssistant}
+        campaignId={activeCampaign?.id}
+        encounterId={targetEncounterId}
+        initialFocusOnInput={isAssistantFocusInput}
+      />
       <ShortcutsHelp isOpen={isShortcutsHelpOpen} onClose={closeShortcutsHelp} />
       <DiceRollerModal isOpen={isDiceRollerOpen} onClose={closeDiceRoller} />
       <DiceLogModal isOpen={isDiceLogOpen} onClose={closeDiceLog} />
@@ -339,6 +407,13 @@ function App() {
           }}>
             <h2 id="main-menu-title" ref={mainMenuHeadingRef} tabIndex={-1} style={{ outline: 'none', marginTop: 0 }}>Main Menu</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1.5rem' }}>
+              <button
+                type="button"
+                onClick={() => { closeMainMenu(false); openAssistant(); }}
+                style={{ padding: '0.75rem', fontSize: '1.1rem', backgroundColor: '#e6f2ff', fontWeight: 'bold' }}
+              >
+                Assistant Oracle (Alt+A)
+              </button>
               <button
                 type="button"
                 onClick={() => { closeMainMenu(false); openOracle(); }}

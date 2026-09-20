@@ -64,10 +64,6 @@ export function MoveTowardsModal({
   useEffect(() => {
     if (isOpen) {
       headingRef.current?.focus();
-      const timer = setTimeout(() => {
-        headingRef.current?.focus();
-      }, 50);
-      return () => clearTimeout(timer);
     }
   }, [isOpen]);
 
