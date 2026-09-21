@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
-import type { Campaign } from '../types';
+import type { Campaign, Encounter, EncounterUnit } from '../types';
 import { CampaignContext } from './CampaignContext';
 import { CampaignApiService } from '../services/CampaignApiService';
 import { ensureEncountersForCampaign } from '../utils/encounterGenerator';
@@ -36,7 +36,10 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
               ...template,
               id: newId,
               players: template.players || [],
-              encounters: template.encounters || []
+              encounters: ((template.encounters || []) as Encounter[]).map((e: Encounter) => ({
+                ...e,
+                units: (e.units || []).map((u: EncounterUnit) => ({ ...u, instanceId: crypto.randomUUID() }))
+              }))
             });
 
             // If template has no encounters, add a sample one to the first chapter
@@ -144,7 +147,10 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
       chapters: template?.chapters || [],
       assets: template?.assets || [],
       players: template?.players || [],
-      encounters: template?.encounters || []
+      encounters: (template?.encounters || []).map(e => ({
+        ...e,
+        units: (e.units || []).map(u => ({ ...u, instanceId: crypto.randomUUID() }))
+      }))
     };
     newCamp = ensureEncountersForCampaign(newCamp);
     

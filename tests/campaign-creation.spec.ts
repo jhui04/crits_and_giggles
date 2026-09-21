@@ -95,4 +95,54 @@ test.describe('Campaign Creation Flow', () => {
     const chapterOptions = await chapterSelect.locator('option').allInnerTexts();
     expect(chapterOptions.length).toBeGreaterThan(0);
   });
+
+  test('should render asset links in default adventure chapters with proper whitespace and separation', async ({ page }) => {
+    // 1. Ensure we are on a Tide of Retribution campaign
+    const headerText = await page.locator('header').innerText();
+    if (!headerText.includes('Tide of Retribution')) {
+      await page.getByRole('button', { name: 'Open Main Menu' }).click();
+      await page.getByRole('button', { name: /Switch Campaign/i }).click();
+      const campaignBtn = page.getByRole('button', { name: /Tide of Retribution/i }).first();
+      await campaignBtn.click();
+    }
+
+    // 2. Select "Hunger of the Deep" chapter which contains monster and item links
+    const chapterSelect = page.getByLabel(/Current Chapter:/i);
+    await expect(chapterSelect).toBeVisible();
+    await chapterSelect.selectOption({ label: 'Hunger of the Deep' });
+
+    // 3. Verify chapter heading is visible
+    const chapterHeading = page.getByRole('heading', { name: 'Hunger of the Deep', level: 3 });
+    await expect(chapterHeading).toBeVisible();
+
+    // 4. Verify asset buttons exist in the chapter content
+    const assetBtns = page.locator('button.asset-link-btn');
+    const count = await assetBtns.count();
+    expect(count).toBeGreaterThan(0);
+
+    // 5. Verify the full paragraph text around druid and Three Earrings has spaces
+    const paragraphs = page.locator('p');
+    const pCount = await paragraphs.count();
+    let foundApothecary = false;
+
+    for (let i = 0; i < pCount; i++) {
+      const pText = await paragraphs.nth(i).innerText();
+      if (pText.includes('Aldageam')) {
+        foundApothecary = true;
+        // Verify "female sea elf druid named Aldageam." has space before and after "druid"
+        expect(pText).toContain('sea elf druid named');
+        // Verify "Three Earrings saved Aldageam" has space before and after "Three Earrings"
+        expect(pText).toContain('named Aldageam. Three Earrings saved');
+        // Verify no smooshing into druid or Three Earrings
+        expect(pText).not.toContain('elfdruid');
+        expect(pText).not.toContain('druidnamed');
+        expect(pText).not.toContain('Aldageam.Three');
+        expect(pText).not.toContain('Earringssaved');
+      }
+    }
+    expect(foundApothecary).toBe(true);
+
+    // 6. Check Axe accessibility scan of the view with links
+    await checkA11y(page, 'Create Mode Chapter Content with Asset Links');
+  });
 });

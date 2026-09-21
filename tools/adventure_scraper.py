@@ -44,17 +44,23 @@ def slugify(text):
     return re.sub(r'[\s_]+', '-', text.lower()).strip('-')
 
 def clean_text(text):
-    text = re.sub(r'\s+', ' ', text)
-    return text.strip()
+    if not text:
+        return ""
+    # Split by empty lines to preserve paragraph separation if present in raw text
+    paragraphs = re.split(r'\n\s*\n', text)
+    cleaned_paras = [re.sub(r'\s+', ' ', p).strip() for p in paragraphs if p.strip()]
+    return '\n\n'.join(cleaned_paras)
 
-def replace_world_references(text, wildemount_asset_ids, world_assets_by_id, campaign, current_chapter):
+def replace_world_references(text, wildemount_asset_ids, world_assets_by_id=None, campaign=None, current_chapter=None):
     # Split text by existing @Spell/Monster/Item/World/Campaign/Asset tags to avoid nested links
     pattern = r'(@(?:Spell|Monster|Item|World|Campaign|Asset|Encounter)\[[^\]]+\]\{[^}]+\})'
     parts = re.split(pattern, text)
     
+    sorted_assets = sorted(wildemount_asset_ids.items(), key=lambda x: len(x[0]), reverse=True)
+    
     for i in range(len(parts)):
         if i % 2 == 0: # Non-tag segment
-            for name_lower, world_id in wildemount_asset_ids.items():
+            for name_lower, world_id in sorted_assets:
                 if len(name_lower) < 3:
                     continue
                 
@@ -68,6 +74,61 @@ def replace_world_references(text, wildemount_asset_ids, world_assets_by_id, cam
                 parts[i] = re.sub(word_pattern, replacer, parts[i], flags=re.IGNORECASE)
                 
     return "".join(parts)
+
+def process_element_content(elem, current_encounter, monsters_by_id, wildemount_asset_ids, world_assets_by_id, campaign, current_chapter):
+    for a in elem.find_all('a', class_='tooltip-hover'):
+        href = a.get('data-tooltip-href', '') or a.get('href', '')
+        if '/monsters/' not in href and '/spells/' not in href and '/magic-items/' not in href:
+            continue
+
+        item_name = clean_text(a.get_text())
+        if not item_name:
+            continue
+
+        asset_id = str(uuid.uuid4())
+        id_match = re.search(r'/(?:monsters|spells|magic-items)/(\d+)', href)
+        if id_match:
+            asset_id = id_match.group(1)
+
+        if '/monsters/' in href:
+            tag_type = 'Monster'
+            if current_encounter is not None:
+                existing_units = [u for u in current_encounter["units"] if u.get("monsterId") == asset_id]
+                if len(existing_units) < 3:
+                    monster_data = monsters_by_id.get(asset_id)
+                    dex_mod = monster_data.get('stats', {}).get('DEX', {}).get('modifier', 0) if monster_data else 0
+                    hp_dice = monster_data.get('attributes', {}).get('hp', {}).get('dice', '1d1') if monster_data else '1d1'
+                    max_hp = monster_data.get('attributes', {}).get('hp', {}).get('value', 10) if monster_data else 10
+                    unit_idx = len(current_encounter["units"])
+                    unit_name = f"{item_name} {len(existing_units) + 1}" if existing_units else item_name
+                    current_encounter["units"].append({
+                        "instanceId": str(uuid.uuid4()),
+                        "monsterId": asset_id,
+                        "name": unit_name,
+                        "hpDice": hp_dice,
+                        "maxHp": max_hp,
+                        "dexMod": dex_mod,
+                        "isPlayer": False,
+                        "position": {
+                            "x": min(18, 2 + (unit_idx % 6) * 2),
+                            "y": min(18, 2 + (unit_idx // 6) * 2)
+                        }
+                    })
+        elif '/spells/' in href:
+            tag_type = 'Spell'
+        else:
+            tag_type = 'Item'
+
+        a.replace_with(f"@{tag_type}[{asset_id}]{{{item_name}}}")
+
+    text = clean_text(elem.get_text())
+    if not text:
+        return ""
+
+    if wildemount_asset_ids and world_assets_by_id:
+        text = replace_world_references(text, wildemount_asset_ids, world_assets_by_id, campaign, current_chapter)
+
+    return text
 
 def main():
     parser = argparse.ArgumentParser()
@@ -233,7 +294,7 @@ def main():
 
                 # Try to find a good name for the campaign
                 title_elem = adv_soup.select_one('h1.page-title') or adv_soup.select_one('h1')
-                camp_name = clean_text(title_elem.get_text(strip=True)) if title_elem else adv_slug.replace('-', ' ').title()
+                camp_name = clean_text(title_elem.get_text()) if title_elem else adv_slug.replace('-', ' ').title()
 
                 campaign = {
                     "id": str(uuid.uuid4()),
@@ -251,7 +312,7 @@ def main():
                 for elem in content_area.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'p', 'ul', 'figure', 'div']):
                     if elem.name == 'figure':
                         caption = elem.find('figcaption')
-                        cap_text = caption.get_text(' ', strip=True) if caption else ''
+                        cap_text = clean_text(caption.get_text(' ')) if caption else ''
                         fid = elem.get('id', '')
                         map_key = fid or cap_text
                         if ('map' in cap_text.lower() or 'map' in fid.lower()) and map_key and map_key not in seen_map_ids:
@@ -304,54 +365,18 @@ def main():
                             current_encounter = encounter
                         continue
 
-                    text = clean_text(elem.get_text(strip=True))
-                    if not text: continue
+                    if elem.name == 'ul':
+                        if current_chapter:
+                            for li in elem.find_all('li'):
+                                li_text = process_element_content(li, current_encounter, monsters_by_id, wildemount_asset_ids, world_assets_by_id, campaign, current_chapter)
+                                if li_text:
+                                    current_chapter['content'] += f"- {li_text}\n"
+                            current_chapter['content'] += "\n"
+                        continue
 
-                    for a in elem.find_all('a', class_='tooltip-hover'):
-                        href = a.get('data-tooltip-href', '')
-                        if '/monsters/' not in href and '/spells/' not in href and '/magic-items/' not in href:
-                            continue
-
-                        item_name = clean_text(a.get_text(strip=True))
-                        asset_id = str(uuid.uuid4())
-                        id_match = re.search(r'/(?:monsters|spells|magic-items)/(\d+)', href)
-                        if id_match:
-                            asset_id = id_match.group(1)
-
-                        if '/monsters/' in href:
-                            tag_type = 'Monster'
-                            if current_encounter is not None:
-                                existing_units = [u for u in current_encounter["units"] if u.get("monsterId") == asset_id]
-                                if len(existing_units) < 3:
-                                    monster_data = monsters_by_id.get(asset_id)
-                                    dex_mod = monster_data.get('stats', {}).get('DEX', {}).get('modifier', 0) if monster_data else 0
-                                    hp_dice = monster_data.get('attributes', {}).get('hp', {}).get('dice', '1d1') if monster_data else '1d1'
-                                    max_hp = monster_data.get('attributes', {}).get('hp', {}).get('value', 10) if monster_data else 10
-                                    unit_idx = len(current_encounter["units"])
-                                    unit_name = f"{item_name} {len(existing_units) + 1}" if existing_units else item_name
-                                    current_encounter["units"].append({
-                                        "instanceId": str(uuid.uuid4()),
-                                        "monsterId": asset_id,
-                                        "name": unit_name,
-                                        "hpDice": hp_dice,
-                                        "maxHp": max_hp,
-                                        "dexMod": dex_mod,
-                                        "isPlayer": False,
-                                        "position": {
-                                            "x": min(18, 2 + (unit_idx % 6) * 2),
-                                            "y": min(18, 2 + (unit_idx // 6) * 2)
-                                        }
-                                    })
-                        elif '/spells/' in href:
-                            tag_type = 'Spell'
-                        else:
-                            tag_type = 'Item'
-
-                        text = text.replace(item_name, f"@{tag_type}[{asset_id}]{{{item_name}}}")
-                    
-                    # Replace references to Wildemount World Assets
-                    if wildemount_asset_ids and world_assets_by_id:
-                        text = replace_world_references(text, wildemount_asset_ids, world_assets_by_id, campaign, current_chapter)
+                    text = process_element_content(elem, current_encounter, monsters_by_id, wildemount_asset_ids, world_assets_by_id, campaign, current_chapter)
+                    if not text:
+                        continue
 
                     if elem.name in ['h1', 'h2']:
                         if current_chapter:
@@ -365,16 +390,11 @@ def main():
                         }
                         current_encounter = None
                     elif current_chapter and elem.name == 'h3':
-                        current_chapter['content'] += f"## {text}\n\n"
+                        current_chapter['content'] += f"# {text}\n\n"
                     elif current_chapter and elem.name in ['h4', 'h5']:
-                        current_chapter['content'] += f"### {text}\n\n"
+                        current_chapter['content'] += f"## {text}\n\n"
                     elif current_chapter and elem.name == 'p':
                         current_chapter['content'] += f"{text}\n\n"
-                    elif current_chapter and elem.name == 'ul':
-                        for li in elem.find_all('li'):
-                            li_text = clean_text(li.get_text(strip=True))
-                            current_chapter['content'] += f"- {li_text}\n"
-                        current_chapter['content'] += "\n"
 
                 if current_chapter:
                     campaign['chapters'].append(current_chapter)
