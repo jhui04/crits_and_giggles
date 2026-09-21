@@ -1023,7 +1023,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
                       <Markdown
                         content={chapter.content}
                         onAssetClick={handleAssetLinkClick}
-                        baseHeadingLevel={3}
+                        baseHeadingLevel={4}
                       />
                     </div>
                   </div>

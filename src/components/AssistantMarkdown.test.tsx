@@ -153,7 +153,6 @@ describe('AssistantMarkdown Component', () => {
     expect(html).toContain('<strong>bold</strong>');
     expect(html).toContain('<em>italic</em>');
     expect(html).toContain('<del');
-    expect(html).toContain('color:#a0a0a0'); // Contrast ratio >= 4.5:1
     expect(html).toContain('<span class="sr-only">[deleted: </span>');
     expect(html).toContain('<span class="sr-only">]</span>');
     expect(html).toContain('strikethrough');
@@ -168,8 +167,6 @@ describe('AssistantMarkdown Component', () => {
     expect(html).toContain('aria-label="Code block"');
     expect(html).toContain('class="language-python"');
     expect(html).toContain('print(&quot;hello&quot;)');
-    // Inline code should have background color #2a2a2a
-    expect(html).toContain('background-color:#2a2a2a');
     expect(html).toContain('dice_roll');
   });
 
@@ -178,9 +175,9 @@ describe('AssistantMarkdown Component', () => {
     const html = renderToStaticMarkup(<AssistantMarkdown content={markdown} />);
 
     expect(html).toContain('<hr');
-    expect(html).toContain('border-color:#444');
     expect(html).toContain('<img');
     expect(html).toContain('alt="Map"');
     expect(html).toContain('src="https://example.com/map.png"');
   });
 });
+

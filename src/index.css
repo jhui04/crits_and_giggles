@@ -92,3 +92,261 @@ main {
   border: 3px solid #ffc107 !important;
 }
 
+/* Markdown Body & Asset Link Focus */
+.markdown-body {
+  line-height: 1.6;
+  --md-heading-color: inherit;
+  --md-code-bg: #f0f0f0;
+  --md-code-color: #0055aa;
+  --md-pre-bg: #f5f5f5;
+  --md-pre-border: #ddd;
+  --md-blockquote-bg: #f8f9fa;
+  --md-blockquote-border: #0066cc;
+  --md-blockquote-color: #555;
+  --md-link-color: #0066cc;
+  --md-table-border: #ccc;
+  --md-table-row-border: #eee;
+  --md-thead-bg: #f2f2f2;
+  --md-thead-border: #bbb;
+  --md-th-color: #111111;
+  --md-td-color: #222222;
+  --md-del-color: #666666;
+  --md-hr-border: #ccc;
+}
+
+/* Dark mode overrides for Markdown Body:
+   1. Descendant of .dark-theme (unless explicitly .markdown-body--light)
+   2. Explicitly .markdown-body--dark
+*/
+.dark-theme .markdown-body:not(.markdown-body--light),
+.markdown-body--dark {
+  --md-heading-color: #ffffff;
+  --md-code-bg: #2a2a2a;
+  --md-code-color: #4da6ff;
+  --md-pre-bg: #111;
+  --md-pre-border: #333;
+  --md-blockquote-bg: #161616;
+  --md-blockquote-border: #0066cc;
+  --md-blockquote-color: #ccc;
+  --md-link-color: #4da6ff;
+  --md-table-border: #444;
+  --md-table-row-border: #333;
+  --md-thead-bg: #222;
+  --md-thead-border: #555;
+  --md-th-color: #ffffff;
+  --md-td-color: #dddddd;
+  --md-del-color: #a0a0a0;
+  --md-hr-border: #444;
+}
+
+/* Auto theme handling system preference */
+@media (prefers-color-scheme: dark) {
+  .markdown-body--auto {
+    --md-heading-color: #ffffff;
+    --md-code-bg: #2a2a2a;
+    --md-code-color: #4da6ff;
+    --md-pre-bg: #111;
+    --md-pre-border: #333;
+    --md-blockquote-bg: #161616;
+    --md-blockquote-border: #0066cc;
+    --md-blockquote-color: #ccc;
+    --md-link-color: #4da6ff;
+    --md-table-border: #444;
+    --md-table-row-border: #333;
+    --md-thead-bg: #222;
+    --md-thead-border: #555;
+    --md-th-color: #ffffff;
+    --md-td-color: #dddddd;
+    --md-del-color: #a0a0a0;
+    --md-hr-border: #444;
+  }
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  color: var(--md-heading-color);
+}
+
+.markdown-body blockquote {
+  border-left: 4px solid var(--md-blockquote-border);
+  padding-left: 0.8rem;
+  margin: 0.5rem 0;
+  color: var(--md-blockquote-color);
+  font-style: italic;
+  background-color: var(--md-blockquote-bg);
+  padding-top: 0.2rem;
+  padding-bottom: 0.2rem;
+}
+
+.markdown-body pre {
+  background-color: var(--md-pre-bg);
+  border: 1px solid var(--md-pre-border);
+  border-radius: 4px;
+  padding: 0.6rem;
+  overflow-x: auto;
+  font-family: monospace;
+  font-size: 0.85rem;
+  margin: 0.5rem 0;
+}
+
+.markdown-body code {
+  font-family: monospace;
+}
+
+.markdown-body :not(pre) > code {
+  background-color: var(--md-code-bg);
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  color: var(--md-code-color);
+}
+
+.markdown-body a:not(.asset-link-btn):not(.encounter-link) {
+  color: var(--md-link-color);
+  text-decoration: underline;
+}
+
+.markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--md-table-border);
+  font-size: 0.9rem;
+}
+
+.markdown-body thead {
+  background-color: var(--md-thead-bg);
+  border-bottom: 2px solid var(--md-thead-border);
+}
+
+.markdown-body tr {
+  border-bottom: 1px solid var(--md-table-row-border);
+}
+
+.markdown-body th {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--md-table-border);
+  text-align: left;
+  font-weight: bold;
+  color: var(--md-th-color);
+}
+
+.markdown-body td {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--md-table-border);
+  color: var(--md-td-color);
+}
+
+.markdown-body del {
+  text-decoration: line-through;
+  color: var(--md-del-color);
+}
+
+.markdown-body hr {
+  border-color: var(--md-hr-border);
+  border-style: solid;
+  border-width: 1px 0 0 0;
+  margin: 0.8rem 0;
+}
+
+.markdown-body img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+
+.asset-link-btn {
+  background: none;
+  border: none;
+  color: #0066cc;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  font-weight: bold;
+  display: inline;
+}
+
+.asset-link-btn:hover {
+  color: #004499;
+}
+
+.asset-link-btn:focus-visible {
+  outline: 2px solid #0066cc;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.encounter-link {
+  color: #cc0000;
+  text-decoration: underline;
+  cursor: pointer;
+  font-weight: bold;
+  display: inline;
+}
+
+.encounter-link:hover {
+  color: #990000;
+}
+
+.encounter-link:focus-visible {
+  outline: 2px solid #cc0000;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.dark-theme .asset-link-btn:not(.markdown-body--light .asset-link-btn),
+.markdown-body--dark .asset-link-btn {
+  color: #4da6ff;
+}
+
+.dark-theme .asset-link-btn:hover:not(.markdown-body--light .asset-link-btn:hover),
+.markdown-body--dark .asset-link-btn:hover {
+  color: #80bfff;
+}
+
+.dark-theme .asset-link-btn:focus-visible:not(.markdown-body--light .asset-link-btn:focus-visible),
+.markdown-body--dark .asset-link-btn:focus-visible {
+  outline-color: #4da6ff;
+}
+
+.dark-theme .encounter-link:not(.markdown-body--light .encounter-link),
+.markdown-body--dark .encounter-link {
+  color: #ff4d4d;
+}
+
+.dark-theme .encounter-link:hover:not(.markdown-body--light .encounter-link:hover),
+.markdown-body--dark .encounter-link:hover {
+  color: #ff8080;
+}
+
+.dark-theme .encounter-link:focus-visible:not(.markdown-body--light .encounter-link:focus-visible),
+.markdown-body--dark .encounter-link:focus-visible {
+  outline-color: #ff4d4d;
+}
+
+@media (prefers-color-scheme: dark) {
+  .markdown-body--auto .asset-link-btn {
+    color: #4da6ff;
+  }
+  .markdown-body--auto .asset-link-btn:hover {
+    color: #80bfff;
+  }
+  .markdown-body--auto .asset-link-btn:focus-visible {
+    outline-color: #4da6ff;
+  }
+  .markdown-body--auto .encounter-link {
+    color: #ff4d4d;
+  }
+  .markdown-body--auto .encounter-link:hover {
+    color: #ff8080;
+  }
+  .markdown-body--auto .encounter-link:focus-visible {
+    outline-color: #ff4d4d;
+  }
+}
+
+
+

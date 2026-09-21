@@ -1,167 +1,364 @@
-import React from 'react';
-import type { ReactNode } from 'react';
+import { useMemo } from 'react';
+import type { ComponentPropsWithoutRef } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import type { Components } from 'react-markdown';
+import {
+  remarkAssetTags,
+  customUrlTransform,
+  getPlainText,
+} from '../utils/markdownUtils';
 
-interface MarkdownProps {
+export interface MarkdownProps {
+  /** The markdown or entity-tagged text content */
   content: string;
-  onAssetClick: (id: string, tagType: string) => void;
+  /** Callback triggered when a D&D asset button is clicked */
+  onAssetClick?: (id: string, tagType: string) => void;
+  /** The target heading level (1-6) for the highest-level heading in content (default: 3) */
   baseHeadingLevel?: number;
+  /** Color theme variant (default: 'auto') */
+  theme?: 'auto' | 'light' | 'dark';
+  /** Optional additional CSS class name */
+  className?: string;
 }
 
-/**
- * Normalizes spacing around asset tags to handle any lingering legacy or pasted formatting:
- * 1. Unwraps accidental duplicate nesting: @Tag[id]{@Tag[id]{name}} -> @Tag[id]{name}
- * 2. Adds whitespace before tags if directly preceded by alphanumeric chars or sentence punctuation without space.
- * 3. Adds whitespace after tags if directly followed by alphanumeric chars or opening parenthesis.
- */
-export function normalizeTagSpacing(text: string): string {
-  if (!text) return text;
-  
-  // 1. Unwrap accidental double-nested tags
-  let normalized = text.replace(
-    /@(Spell|Monster|Item|World|Campaign|Encounter)\[([^\]]+)\]\{@(Spell|Monster|Item|World|Campaign|Encounter)\[\2\]\{([^}]+)\}\}/g,
-    '@$1[$2]{$4}'
-  );
+// Hoist plugins array to module scope to avoid re-instantiating the unified pipeline on every render
+const REMARK_PLUGINS = [remarkGfm, remarkAssetTags];
 
-  // 2. Add space before tag if preceded by alphanumeric char or sentence punctuation (,.!?;:)
-  normalized = normalized.replace(/([a-zA-Z0-9,.:;?!])(@(?:Spell|Monster|Item|World|Campaign|Encounter)\[)/g, '$1 $2');
-
-  // 3. Add space after tag if followed by alphanumeric char or opening parenthesis
-  normalized = normalized.replace(/(@(?:Spell|Monster|Item|World|Campaign|Encounter)\[[^\]]+\]\{[^}]+\})([a-zA-Z0-9(])/g, '$1 $2');
-
-  return normalized;
-}
-
-/**
- * A component wrapper for the custom markdown parser to avoid ref-related lint issues.
- */
-export function Markdown({ 
-  content, 
-  onAssetClick, 
-  baseHeadingLevel = 3 
-}: MarkdownProps) {
-  if (!content) return null;
-
-  const normalizedContent = normalizeTagSpacing(content);
-
-  // Split into paragraphs/blocks based on double newlines
-  const blocks = normalizedContent.split(/\n\s*\n/).map(b => b.trim()).filter(b => b);
-
-  const renderInline = (text: string, keyPrefix: string): ReactNode[] => {
-    const inlineElements: ReactNode[] = [];
-    const linkRegex = /@(Spell|Monster|Item|World|Campaign|Encounter)\[([^\]]+)\](?:\{([^}]+)\})?/g;
-    
-    let lastIndex = 0;
-    let match: RegExpExecArray | null;
-
-    while ((match = linkRegex.exec(text)) !== null) {
-      if (match.index > lastIndex) {
-        inlineElements.push(
-          <span key={`${keyPrefix}-text-${lastIndex}`}>
-            {text.slice(lastIndex, match.index)}
-          </span>
-        );
-      }
-
-      const type = match[1];
-      const entityId = match[2];
-      const displayName = match[3] || entityId;
-
-      if (type !== 'Encounter') {
-        inlineElements.push(
-          <button 
-            type="button"
-            key={`${keyPrefix}-${type}-${entityId}-${match.index}`}
-            onClick={() => onAssetClick(entityId, type)}
-            className="asset-link-btn"
-            style={{
-              background: 'none',
-              border: 'none',
-              color: '#0066cc',
-              textDecoration: 'underline',
-              cursor: 'pointer',
-              padding: 0,
-              font: 'inherit',
-              fontWeight: 'bold',
-              display: 'inline'
-            }}
-            aria-label={`Open asset: ${displayName}`}
-          >
-            {displayName}
-          </button>
-        );
-      } else {
-        inlineElements.push(
-          <a 
-            key={`${keyPrefix}-${type}-${entityId}-${match.index}`}
-            href={`/?encounter=${entityId}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="encounter-link"
-            style={{
-              color: '#cc0000',
-              textDecoration: 'underline',
-              cursor: 'pointer',
-              fontWeight: 'bold',
-              display: 'inline'
-            }}
-            aria-label={`Run encounter: ${displayName} (opens in new tab)`}
-          >
-            {displayName}
-          </a>
-        );
-      }
-
-      lastIndex = linkRegex.lastIndex;
-    }
-
-    if (lastIndex < text.length) {
-      inlineElements.push(
-        <span key={`${keyPrefix}-text-${lastIndex}`}>
-          {text.slice(lastIndex)}
-        </span>
-      );
-    }
-
-    return inlineElements;
-  };
-
+function CodeComponent({
+  className,
+  children,
+  style,
+  node,
+  ...props
+}: ComponentPropsWithoutRef<'code'> & { node?: unknown }) {
+  void node;
   return (
-    <>
-      {blocks.map((block, blockIndex) => {
-        // Check if it's a heading
-        const headingMatch = block.match(/^(#+)\s+(.*)$/);
-        if (headingMatch) {
-          const level = Math.min(headingMatch[1].length + baseHeadingLevel, 6);
-          const text = headingMatch[2];
-          const HeadingTag = `h${level}` as 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6';
-          return React.createElement(HeadingTag, { key: blockIndex }, text);
+    <code className={className} style={style} {...props}>
+      {children}
+    </code>
+  );
+}
+
+/**
+ * Unified Markdown renderer across Crits & Giggles.
+ * Combines full GFM table support, keyboard-accessible scroll regions, dynamic heading normalization,
+ * and seamless D&D asset tag interaction (@Spell, @Monster, @Item, @World, @Campaign, @Encounter) via remark AST.
+ */
+export function Markdown({
+  content,
+  onAssetClick,
+  baseHeadingLevel = 3,
+  theme = 'auto',
+  className,
+}: MarkdownProps) {
+  // Determine minimum markdown heading depth in content to guarantee no skipped heading levels
+  const minDepth = useMemo(() => {
+    if (!content) return 1;
+    const textWithoutCode = content.replace(/(```[\s\S]*?```|`[^`]+`)/g, '');
+    const matches = textWithoutCode.match(/^#{1,6}(?=\s)/gm);
+    if (!matches || matches.length === 0) return 1;
+    return Math.min(...matches.map((m) => m.length));
+  }, [content]);
+
+  const components = useMemo<Partial<Components>>(() => {
+    const createHeading = (markdownDepth: number) => {
+      const relativeOffset = Math.max(0, markdownDepth - minDepth);
+      const level = Math.max(1, Math.min(6, baseHeadingLevel + relativeOffset));
+      const HeadingTag = `h${level}` as 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6';
+      const fontSize =
+        level === 1
+          ? '1.6rem'
+          : level === 2
+          ? '1.4rem'
+          : level === 3
+          ? '1.25rem'
+          : level === 4
+          ? '1.1rem'
+          : '1rem';
+
+      return ({
+        node,
+        children,
+        style,
+        ...props
+      }: ComponentPropsWithoutRef<'h1'> & { node?: unknown }) => {
+        void node;
+        return (
+          <HeadingTag
+            {...props}
+            style={{
+              marginTop: '0.8rem',
+              marginBottom: '0.4rem',
+              fontSize,
+              fontWeight: 'bold',
+              ...style,
+            }}
+          >
+            {children}
+          </HeadingTag>
+        );
+      };
+    };
+
+    return {
+      p: ({ node, children, style, ...props }) => {
+        void node;
+        return (
+          <p style={{ margin: '0.4rem 0', ...style }} {...props}>
+            {children}
+          </p>
+        );
+      },
+
+      ul: ({ node, children, style, ...props }) => {
+        void node;
+        return (
+          <ul
+            style={{
+              paddingLeft: '1.5rem',
+              margin: '0.4rem 0',
+              listStyleType: 'disc',
+              ...style,
+            }}
+            {...props}
+          >
+            {children}
+          </ul>
+        );
+      },
+
+      ol: ({ node, children, style, ...props }) => {
+        void node;
+        return (
+          <ol
+            style={{
+              paddingLeft: '1.5rem',
+              margin: '0.4rem 0',
+              listStyleType: 'decimal',
+              ...style,
+            }}
+            {...props}
+          >
+            {children}
+          </ol>
+        );
+      },
+
+      li: ({ node, children, style, ...props }) => {
+        void node;
+        return (
+          <li style={{ marginBottom: '0.2rem', ...style }} {...props}>
+            {children}
+          </li>
+        );
+      },
+
+      blockquote: ({ node, children, style, ...props }) => {
+        void node;
+        return (
+          <blockquote style={style} {...props}>
+            {children}
+          </blockquote>
+        );
+      },
+
+      pre: ({ node, children, style, ...props }) => {
+        void node;
+        return (
+          <pre
+            tabIndex={0}
+            aria-label="Code block"
+            style={style}
+            {...props}
+          >
+            {children}
+          </pre>
+        );
+      },
+
+      code: CodeComponent,
+
+      a: ({ node, href, children, style, ...props }) => {
+        void node;
+        if (href?.startsWith('asset://')) {
+          const match = href.match(/^asset:\/\/([^/]+)\/(.+)$/);
+          if (match) {
+            const tagType = match[1];
+            const entityId = decodeURIComponent(match[2]);
+            const label = getPlainText(children);
+            return (
+              <button
+                type="button"
+                className="asset-link-btn"
+                onClick={() => onAssetClick?.(entityId, tagType)}
+                aria-label={`Open asset: ${label}`}
+                style={style}
+              >
+                {children}
+              </button>
+            );
+          }
         }
 
-        // Check if it's a list (all non-empty lines start with - or *)
-        const lines = block.split('\n').map(l => l.trim()).filter(l => l);
-        const isList = lines.length > 0 && lines.every(l => /^[-*]\s+/.test(l));
-
-        if (isList) {
+        if (href?.startsWith('/?encounter=')) {
           return (
-            <ul key={blockIndex} style={{ marginBottom: '1rem', paddingLeft: '1.5rem' }}>
-              {lines.map((line, lineIndex) => {
-                const itemContent = line.replace(/^[-*]\s+/, '');
-                return (
-                  <li key={lineIndex}>
-                    {renderInline(itemContent, `${blockIndex}-${lineIndex}`)}
-                  </li>
-                );
-              })}
-            </ul>
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="encounter-link"
+              style={style}
+            >
+              {children}
+              <span className="sr-only"> (opens in a new tab)</span>
+            </a>
           );
         }
 
         return (
-          <p key={blockIndex} style={{ marginBottom: '1rem' }}>
-            {renderInline(block, `${blockIndex}`)}
-          </p>
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={style}
+            {...props}
+          >
+            {children}
+            <span className="sr-only"> (opens in a new tab)</span>
+          </a>
         );
-      })}
-    </>
+      },
+
+      table: ({ node, children, style, ...props }) => {
+        void node;
+        return (
+          <div
+            tabIndex={0}
+            role="region"
+            aria-label="Table data"
+            style={{ overflowX: 'auto', margin: '0.6rem 0', maxWidth: '100%' }}
+          >
+            <table style={style} {...props}>
+              {children}
+            </table>
+          </div>
+        );
+      },
+
+      thead: ({ node, children, style, ...props }) => {
+        void node;
+        return (
+          <thead style={style} {...props}>
+            {children}
+          </thead>
+        );
+      },
+
+      tbody: ({ node, children, ...props }) => {
+        void node;
+        return <tbody {...props}>{children}</tbody>;
+      },
+
+      tr: ({ node, children, style, ...props }) => {
+        void node;
+        return (
+          <tr style={style} {...props}>
+            {children}
+          </tr>
+        );
+      },
+
+      th: ({ node, children, style, scope = 'col', ...props }) => {
+        void node;
+        return (
+          <th
+            scope={scope}
+            style={style}
+            {...props}
+          >
+            {children}
+          </th>
+        );
+      },
+
+      td: ({ node, children, style, ...props }) => {
+        void node;
+        return (
+          <td style={style} {...props}>
+            {children}
+          </td>
+        );
+      },
+
+      del: ({ node, children, style, ...props }) => {
+        void node;
+        return (
+          <del style={style} {...props}>
+            <span className="sr-only">[deleted: </span>
+            {children}
+            <span className="sr-only">]</span>
+          </del>
+        );
+      },
+
+      input: ({ node, type, checked, disabled: _disabled, ...props }) => {
+        void node;
+        void _disabled;
+        if (type === 'checkbox') {
+          return (
+            <input
+              type="checkbox"
+              checked={checked}
+              disabled
+              tabIndex={-1}
+              aria-label={checked ? 'Completed item' : 'Incomplete item'}
+              style={{ marginRight: '0.4rem', verticalAlign: 'middle', cursor: 'default' }}
+              {...props}
+            />
+          );
+        }
+        return <input type={type} checked={checked} {...props} />;
+      },
+
+      hr: ({ node, style, ...props }) => {
+        void node;
+        return <hr style={style} {...props} />;
+      },
+
+      img: ({ node, alt, style, ...props }) => {
+        void node;
+        return (
+          <img
+            alt={alt || ''}
+            style={style}
+            {...props}
+          />
+        );
+      },
+
+      h1: createHeading(1),
+      h2: createHeading(2),
+      h3: createHeading(3),
+      h4: createHeading(4),
+      h5: createHeading(5),
+      h6: createHeading(6),
+    };
+  }, [baseHeadingLevel, minDepth, onAssetClick]);
+
+  if (!content || !content.trim()) return null;
+
+  const classNameCombined = `markdown-body markdown-body--${theme} ${className || ''}`.trim();
+
+  return (
+    <div className={classNameCombined}>
+      <ReactMarkdown
+        remarkPlugins={REMARK_PLUGINS}
+        urlTransform={customUrlTransform}
+        components={components}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
   );
 }

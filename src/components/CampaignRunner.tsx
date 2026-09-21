@@ -154,7 +154,7 @@ export function CampaignRunner() {
                 <Markdown 
                   content={activeChapter.content} 
                   onAssetClick={handleAssetClick} 
-                  baseHeadingLevel={3} 
+                  baseHeadingLevel={4} 
                 />
               </div>
 
