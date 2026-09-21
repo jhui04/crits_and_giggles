@@ -87,8 +87,9 @@ export async function upsertVectorChunk({
 export async function indexSrdAndJsonData(force = false) {
   if (!force) {
     try {
-      const existing = db.prepare("SELECT COUNT(*) as count FROM vector_chunks WHERE source IN ('srd', 'spell', 'monster')").get();
-      if (existing && existing.count > 0) {
+      const existing = db.prepare("SELECT COUNT(*) as count FROM vector_chunks WHERE source IN ('srd', 'spell', 'monster', 'magic_item')").get();
+      const existingMagic = db.prepare("SELECT COUNT(*) as count FROM vector_chunks WHERE source = 'magic_item'").get();
+      if (existing && existing.count > 0 && existingMagic && existingMagic.count > 0) {
         return existing.count;
       }
     } catch {
@@ -180,6 +181,43 @@ export async function indexSrdAndJsonData(force = false) {
     }
   }
 
+  // 4. Magic Items
+  const magicItemsPath = path.join(PUBLIC_DATA_DIR, 'magic_items.json');
+  if (fs.existsSync(magicItemsPath)) {
+    try {
+      const magicItems = JSON.parse(fs.readFileSync(magicItemsPath, 'utf-8'));
+      for (const item of magicItems) {
+        let descText = '';
+        if (typeof item.description === 'string') {
+          descText = item.description;
+        } else if (Array.isArray(item.description)) {
+          descText = item.description
+            .map((d) => (typeof d === 'string' ? d : (d.content || (d.items ? d.items.join(', ') : ''))))
+            .join('\n');
+        }
+
+        const title = `Magic Item: ${item.name} (${item.rarity || 'Common'} ${item.type || 'Item'})`;
+        const details = [
+          `Type: ${item.type || 'Item'} ${item.subtype ? `(${item.subtype})` : ''}`,
+          `Rarity: ${item.rarity || 'Common'}${item.requires_attunement ? ' (Requires Attunement)' : ''}`,
+          item.notes ? `Notes: ${item.notes}` : '',
+          descText,
+        ];
+
+        chunks.push({
+          id: `magic-item-${item.id || item.name.toLowerCase().replace(/\s+/g, '-')}`,
+          source: 'magic_item',
+          entityId: item.id || item.name,
+          title,
+          content: details.filter(Boolean).join('\n'),
+          metadata: { name: item.name, rarity: item.rarity, type: item.type },
+        });
+      }
+    } catch (err) {
+      console.warn('Failed to load magic_items.json:', err.message);
+    }
+  }
+
   if (chunks.length > 0) {
     const embeddings = await computeSemanticEmbeddingsBatch(chunks);
     for (let i = 0; i < chunks.length; i++) {
@@ -192,23 +230,145 @@ export async function indexSrdAndJsonData(force = false) {
 }
 
 /**
+ * Splits a chapter's markdown content into semantically coherent vector chunks
+ * based on headings (#, ##, ###) and paragraph boundaries, preserving breadcrumbs.
+ */
+export function chunkMarkdownChapter(title, content, maxChunkChars = 1500) {
+  if (!content || !content.trim()) {
+    return [{
+      sectionTitle: null,
+      content: `[Chapter: ${title}]\n\n(No content)`,
+    }];
+  }
+
+  const headingRegex = /^(#{1,6})\s+(.+)$/gm;
+  const headings = [];
+  let match;
+  while ((match = headingRegex.exec(content)) !== null) {
+    headings.push({
+      level: match[1].length,
+      heading: match[2].trim(),
+      startIndex: match.index,
+      contentStartIndex: match.index + match[0].length,
+    });
+  }
+
+  const rawSections = [];
+
+  if (headings.length === 0) {
+    rawSections.push({
+      sectionTitle: null,
+      text: content.trim(),
+    });
+  } else {
+    // Introduction before the first heading if non-empty
+    if (headings[0].startIndex > 0) {
+      const preText = content.slice(0, headings[0].startIndex).trim();
+      if (preText.length > 0) {
+        rawSections.push({
+          sectionTitle: 'Introduction',
+          text: preText,
+        });
+      }
+    }
+
+    for (let i = 0; i < headings.length; i++) {
+      const h = headings[i];
+      const startPos = h.contentStartIndex;
+      const endPos = (i + 1 < headings.length) ? headings[i + 1].startIndex : content.length;
+      const bodyText = content.slice(startPos, endPos).trim();
+      rawSections.push({
+        sectionTitle: h.heading,
+        level: h.level,
+        text: bodyText,
+      });
+    }
+  }
+
+  const chunks = [];
+
+  for (const sec of rawSections) {
+    const breadcrumb = sec.sectionTitle
+      ? `[Chapter: ${title} > Section: ${sec.sectionTitle}]`
+      : `[Chapter: ${title}]`;
+
+    const fullSectionText = sec.text;
+    if (fullSectionText.length <= maxChunkChars) {
+      chunks.push({
+        sectionTitle: sec.sectionTitle,
+        content: fullSectionText ? `${breadcrumb}\n\n${fullSectionText}` : breadcrumb,
+      });
+    } else {
+      // Split by double-newlines (paragraphs)
+      const paragraphs = fullSectionText.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+      let currentSubChunk = '';
+
+      for (const para of paragraphs) {
+        if (!currentSubChunk) {
+          currentSubChunk = para;
+        } else if ((currentSubChunk.length + para.length + 2) <= maxChunkChars) {
+          currentSubChunk += '\n\n' + para;
+        } else {
+          chunks.push({
+            sectionTitle: sec.sectionTitle,
+            content: `${breadcrumb}\n\n${currentSubChunk}`,
+          });
+          currentSubChunk = para;
+        }
+      }
+
+      if (currentSubChunk) {
+        chunks.push({
+          sectionTitle: sec.sectionTitle,
+          content: `${breadcrumb}\n\n${currentSubChunk}`,
+        });
+      }
+    }
+  }
+
+  return chunks;
+}
+
+/**
  * Indexes custom campaign lore, notes, and chapters from SQLite
  */
 export async function indexCampaignLore(campaignId) {
   if (!campaignId) return 0;
+
+  // Wipe existing dynamic chunks for this campaign to ensure a clean slate and avoid staleness/orphaned chunks
+  try {
+    db.prepare(`
+      DELETE FROM vector_chunks 
+      WHERE campaign_id = ? 
+      AND source IN ('campaign_chapter', 'campaign_asset', 'world_asset')
+    `).run(campaignId);
+    invalidateVectorCache();
+  } catch {}
+
   const chunks = [];
 
-  // Chapters
+  // Chapters: chunked by heading and paragraph with breadcrumbs
   const chapters = db.prepare('SELECT id, title, content FROM chapters WHERE campaign_id = ?').all(campaignId);
   for (const chap of chapters) {
-    chunks.push({
-      id: `camp-${campaignId}-chap-${chap.id}`,
-      source: 'campaign_chapter',
-      campaignId,
-      entityId: chap.id,
-      title: `Campaign Note: ${chap.title}`,
-      content: chap.content || '',
-      metadata: { chapterId: chap.id, title: chap.title },
+    const chapterChunks = chunkMarkdownChapter(chap.title, chap.content || '', 1500);
+    chapterChunks.forEach((cChunk, cIdx) => {
+      const chunkTitle = cChunk.sectionTitle
+        ? `Campaign Note: ${chap.title} > ${cChunk.sectionTitle}`
+        : `Campaign Note: ${chap.title}`;
+      chunks.push({
+        id: `camp-${campaignId}-chap-${chap.id}-sec-${cIdx}`,
+        source: 'campaign_chapter',
+        campaignId,
+        entityId: chap.id,
+        title: chunkTitle,
+        content: cChunk.content,
+        metadata: {
+          chapterId: chap.id,
+          title: chap.title,
+          section: cChunk.sectionTitle || null,
+          partIndex: cIdx,
+        },
+      });
     });
   }
 
@@ -249,6 +409,8 @@ export async function indexCampaignLore(campaignId) {
       chunks[i].embedding = embeddings[i];
     }
     batchUpsertVectorChunks(chunks);
+  } else {
+    invalidateVectorCache();
   }
 
   return chunks.length;
@@ -262,9 +424,10 @@ function getOrLoadVectorIndex() {
   if (cachedVectorIndex) return cachedVectorIndex;
 
   try {
-    const rows = db.prepare('SELECT id, campaign_id, title, embedding FROM vector_chunks').all();
+    const rows = db.prepare('SELECT id, source, campaign_id, title, embedding FROM vector_chunks').all();
     cachedVectorIndex = rows.map((row) => ({
       id: row.id,
+      source: row.source,
       campaignId: row.campaign_id,
       title: row.title,
       embedding: JSON.parse(row.embedding),
@@ -281,7 +444,7 @@ function getOrLoadVectorIndex() {
  * Uses real semantic embeddings when available, calculates Top-K IDs from memory,
  * and fetches full text payloads on-demand from SQLite to eliminate heap bloat.
  */
-export async function searchVectorStore(query, { campaignId = null, limit = 3, forceLocal = false } = {}) {
+export async function searchVectorStore(query, { campaignId = null, limit = 3, forceLocal = false, sourceFilter = null } = {}) {
   if (!query || typeof query !== 'string') return [];
 
   let index = getOrLoadVectorIndex();
@@ -309,6 +472,15 @@ export async function searchVectorStore(query, { campaignId = null, limit = 3, f
     }
     if (!campaignId && item.campaignId !== null) {
       continue;
+    }
+    if (sourceFilter) {
+      if (typeof sourceFilter === 'string' && item.source !== sourceFilter) {
+        continue;
+      } else if (Array.isArray(sourceFilter) && !sourceFilter.includes(item.source)) {
+        continue;
+      } else if (sourceFilter instanceof Set && !sourceFilter.has(item.source)) {
+        continue;
+      }
     }
 
     let score = cosineSimilarity(queryVec, item.embedding);

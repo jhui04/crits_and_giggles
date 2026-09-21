@@ -11,6 +11,10 @@ export async function handleAssistantChat({
   query,
   campaignId = null,
   encounterId = null,
+  chapterId = null,
+  chapterName = null,
+  worldId = null,
+  worldName = null,
   model = null,
   mockResponse = false,
 }) {
@@ -28,7 +32,14 @@ export async function handleAssistantChat({
   });
 
   // 2. Fetch Authoritative Game State
-  const gameState = getAuthoritativeGameState({ campaignId, encounterId });
+  const gameState = getAuthoritativeGameState({
+    campaignId,
+    encounterId,
+    chapterId,
+    chapterName,
+    worldId,
+    worldName,
+  });
 
   // 3. Build Prompt Messages with Context
   const { messages, estimatedTokens } = buildChatMessages({
@@ -41,6 +52,9 @@ export async function handleAssistantChat({
   if (mockResponse) {
     // Deterministic mock generation for unit tests / offline verification
     let answer = `[Oracle Answer for "${query}"]\n`;
+    if (gameState && gameState.activeChapter) {
+      answer += `Active Chapter: ${gameState.activeChapter.title} (ID: ${gameState.activeChapter.id})\n`;
+    }
     if (gameState && gameState.combatants && gameState.combatants.length > 0) {
       const top = gameState.combatants[0];
       answer += `Currently in ${gameState.activeEncounter || 'combat'}: ${top.name} has ${top.currentHp}/${top.maxHp} HP.\n`;
@@ -80,7 +94,7 @@ export async function handleAssistantChat({
 
     // 5. Handle structured tool calls if the model invoked any
     let iterations = 0;
-    const maxToolIterations = 3;
+    const maxToolIterations = config.maxToolIterations || 20;
 
     while (assistantMessage?.tool_calls && assistantMessage.tool_calls.length > 0 && iterations < maxToolIterations) {
       iterations++;
@@ -91,7 +105,14 @@ export async function handleAssistantChat({
         const fnArgs = toolCall.function?.arguments;
 
         try {
-          const toolResult = await executeTool(fnName, fnArgs, { campaignId, encounterId });
+          const toolResult = await executeTool(fnName, fnArgs, {
+            campaignId,
+            encounterId,
+            chapterId,
+            chapterName,
+            worldId,
+            worldName,
+          });
           executedToolCalls.push({
             toolName: fnName,
             args: fnArgs,
@@ -128,7 +149,19 @@ export async function handleAssistantChat({
       assistantMessage = completionResult.response.choices[0]?.message;
     }
 
-    const finalAnswer = assistantMessage?.content || 'I could not generate a response.';
+    let finalAnswer = assistantMessage?.content;
+    if (!finalAnswer) {
+      let debugInfo = `\n\n**Oracle Debug Info**:\n`;
+      debugInfo += `- Iterations: ${iterations} / ${maxToolIterations}\n`;
+      debugInfo += `- Executed Tools: ${executedToolCalls.map(tc => tc.toolName).join(', ') || 'None'}\n`;
+      debugInfo += `- Last message tool_calls: ${assistantMessage?.tool_calls ? assistantMessage.tool_calls.length : 0}\n`;
+      if (iterations >= maxToolIterations && assistantMessage?.tool_calls?.length > 0) {
+        debugInfo += `- **Reason**: Hit max tool iterations (${maxToolIterations}) and model is still trying to call tools instead of answering.\n`;
+      } else {
+        debugInfo += `- **Reason**: Model returned an empty content string or no content.\n`;
+      }
+      finalAnswer = `Oracle response: I could not generate a response.${debugInfo}`;
+    }
 
     return {
       answer: finalAnswer,

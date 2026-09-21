@@ -15,8 +15,9 @@ type AppMode = 'create' | 'run';
 
 function App() {
   const [mode, setMode] = useState<AppMode>('create');
-  const { campaigns, activeCampaign, setActiveCampaignId, createCampaign, deleteCampaign } = useCampaigns();
+  const { campaigns, activeCampaign, setActiveCampaignId, createCampaign, deleteCampaign, activeChapterId } = useCampaigns();
   const { activeWorld } = useWorlds();
+  const activeChapter = activeCampaign?.chapters?.find((c) => c.id === activeChapterId);
   
   const [isCampaignModalOpen, setIsCampaignModalOpen] = useState(false);
   const [isCampaignSettingsOpen, setIsCampaignSettingsOpen] = useState(false);
@@ -299,6 +300,10 @@ function App() {
           onClose={closeAssistant}
           campaignId={activeCampaign?.id}
           encounterId={targetEncounterId}
+          chapterId={activeChapterId}
+          chapterName={activeChapter?.title}
+          worldId={activeWorld?.id}
+          worldName={activeWorld?.name}
           initialFocusOnInput={isAssistantFocusInput}
         />
         <Oracle isOpen={isOracleOpen} onClose={closeOracle} />
@@ -388,6 +393,10 @@ function App() {
         onClose={closeAssistant}
         campaignId={activeCampaign?.id}
         encounterId={targetEncounterId}
+        chapterId={activeChapterId}
+        chapterName={activeChapter?.title}
+        worldId={activeWorld?.id}
+        worldName={activeWorld?.name}
         initialFocusOnInput={isAssistantFocusInput}
       />
       <ShortcutsHelp isOpen={isShortcutsHelpOpen} onClose={closeShortcutsHelp} />

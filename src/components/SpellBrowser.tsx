@@ -366,7 +366,7 @@ export function SpellDetail({ spell, onAnnounce, id }: { spell: Spell, onAnnounc
   };
 
   return (
-    <div style={{ padding: '1.5rem', border: '1px solid #ccc', borderRadius: '8px', backgroundColor: '#fff' }} >
+    <div style={{ padding: '1.5rem', border: '1px solid #ccc', borderRadius: '8px', backgroundColor: '#fff', color: '#111' }} >
       <h3 id={id} ref={detailHeadingRef} tabIndex={-1} style={{ marginTop: 0, borderBottom: '2px solid #333', paddingBottom: '0.5rem', outline: 'none' }}>
         {spell.name}
       </h3>

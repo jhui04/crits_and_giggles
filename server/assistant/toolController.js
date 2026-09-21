@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { db } from '../db.js';
+import { searchVectorStore } from './vectorStore.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -10,6 +11,7 @@ const PUBLIC_DATA_DIR = path.resolve(__dirname, '../../public/data');
 // Cache static datasets
 let cachedSpells = null;
 let cachedMonsters = null;
+let cachedMagicItems = null;
 
 function getSpells() {
   if (!cachedSpells) {
@@ -36,6 +38,123 @@ function getMonsters() {
   return cachedMonsters;
 }
 
+function getMagicItems() {
+  if (!cachedMagicItems) {
+    const p = path.join(PUBLIC_DATA_DIR, 'magic_items.json');
+    if (fs.existsSync(p)) {
+      cachedMagicItems = JSON.parse(fs.readFileSync(p, 'utf-8'));
+    } else {
+      cachedMagicItems = [];
+    }
+  }
+  return cachedMagicItems;
+}
+
+/**
+ * Levenshtein distance with 1D row memory optimization.
+ */
+export function levenshteinDistance(s1, s2) {
+  const a = (s1 || '').toLowerCase().trim();
+  const b = (s2 || '').toLowerCase().trim();
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+
+  let str1 = a;
+  let str2 = b;
+  if (str1.length < str2.length) {
+    str1 = b;
+    str2 = a;
+  }
+
+  const len1 = str1.length;
+  const len2 = str2.length;
+  let prevRow = new Int32Array(len2 + 1);
+  let currRow = new Int32Array(len2 + 1);
+
+  for (let j = 0; j <= len2; j++) prevRow[j] = j;
+
+  for (let i = 1; i <= len1; i++) {
+    currRow[0] = i;
+    const c1 = str1.charCodeAt(i - 1);
+    for (let j = 1; j <= len2; j++) {
+      const cost = c1 === str2.charCodeAt(j - 1) ? 0 : 1;
+      currRow[j] = Math.min(
+        prevRow[j] + 1,       // deletion
+        currRow[j - 1] + 1,   // insertion
+        prevRow[j - 1] + cost // substitution
+      );
+    }
+    const temp = prevRow;
+    prevRow = currRow;
+    currRow = temp;
+  }
+  return prevRow[len2];
+}
+
+/**
+ * Normalized string similarity score between 0.0 and 1.0.
+ */
+export function stringSimilarity(s1, s2) {
+  const a = (s1 || '').toLowerCase().trim();
+  const b = (s2 || '').toLowerCase().trim();
+  if (a === b) return 1.0;
+  const maxLen = Math.max(a.length, b.length);
+  if (maxLen === 0) return 1.0;
+
+  // Short-circuit if length difference already precludes high similarity
+  const lenDiff = Math.abs(a.length - b.length);
+  if (lenDiff / maxLen > 0.65) {
+    return (maxLen - lenDiff) / maxLen * 0.5;
+  }
+
+  const dist = levenshteinDistance(a, b);
+  return (maxLen - dist) / maxLen;
+}
+
+/**
+ * Name similarity that compares both full strings and individual words within a multi-word name.
+ */
+export function nameSimilarity(query, targetName) {
+  const q = (query || '').toLowerCase().trim();
+  const target = (targetName || '').toLowerCase().trim();
+  if (!q || !target) return 0;
+  if (q === target) return 1.0;
+
+  let best = stringSimilarity(q, target);
+  const words = target.split(/\s+/);
+  for (const w of words) {
+    if (w.length > 2) {
+      const sim = stringSimilarity(q, w);
+      if (sim > best) best = sim;
+    }
+  }
+
+  // Slight length-difference penalty so closer-length matches win over verbose names
+  const lengthPenalty = Math.min(0.15, Math.abs(target.length - q.length) * 0.005);
+  return Math.max(0, best - lengthPenalty);
+}
+
+export function tokenizeQuery(query) {
+  if (!query) return [];
+  return query.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter((w) => w.length > 2);
+}
+
+/**
+ * Token overlap ratio between query (or pre-tokenized query array) and target text.
+ */
+export function matchTokens(queryOrTokens, text) {
+  if (!queryOrTokens || !text) return 0;
+  const qTokens = Array.isArray(queryOrTokens) ? queryOrTokens : tokenizeQuery(queryOrTokens);
+  if (qTokens.length === 0) return 0;
+  const lowerText = text.toLowerCase();
+  let matches = 0;
+  for (const tok of qTokens) {
+    if (lowerText.includes(tok)) matches++;
+  }
+  return matches / qTokens.length;
+}
+
 // In-memory audit log for executed tool calls
 export const toolAuditLog = [];
 
@@ -45,6 +164,96 @@ export function clearToolAuditLog() {
 
 export function getToolAuditLog() {
   return [...toolAuditLog];
+}
+
+/**
+ * Extracts all markdown headings (#, ##, ###) from a chapter text.
+ */
+export function parseChapterOutline(content) {
+  if (!content || typeof content !== 'string') return [];
+  const headingRegex = /^(#{1,6})\s+(.+)$/gm;
+  const headings = [];
+  let match;
+  while ((match = headingRegex.exec(content)) !== null) {
+    headings.push({
+      level: match[1].length,
+      heading: match[2].trim(),
+      startIndex: match.index,
+      contentStartIndex: match.index + match[0].length,
+    });
+  }
+  return headings;
+}
+
+/**
+ * Resolves a chapter from SQLite based on explicit name/ID or context.
+ */
+export function resolveChapter(chapterIdentifier, context = {}) {
+  const { campaignId, chapterId, chapterName } = context;
+
+  // 1. If explicit identifier provided
+  if (chapterIdentifier && typeof chapterIdentifier === 'string' && chapterIdentifier.trim()) {
+    const raw = chapterIdentifier.trim();
+    // Try exact ID match
+    let ch = db.prepare('SELECT id, campaign_id, title, content FROM chapters WHERE id = ?').get(raw);
+    if (ch) return ch;
+
+    // Try case-insensitive title match within campaign
+    if (campaignId) {
+      ch = db.prepare('SELECT id, campaign_id, title, content FROM chapters WHERE campaign_id = ? AND LOWER(title) = ?').get(campaignId, raw.toLowerCase());
+      if (ch) return ch;
+      ch = db.prepare('SELECT id, campaign_id, title, content FROM chapters WHERE campaign_id = ? AND LOWER(title) LIKE ?').get(campaignId, `%${raw.toLowerCase()}%`);
+      if (ch) return ch;
+    }
+
+    // Try case-insensitive title match across all campaigns
+    ch = db.prepare('SELECT id, campaign_id, title, content FROM chapters WHERE LOWER(title) = ?').get(raw.toLowerCase());
+    if (ch) return ch;
+    ch = db.prepare('SELECT id, campaign_id, title, content FROM chapters WHERE LOWER(title) LIKE ?').get(`%${raw.toLowerCase()}%`);
+    if (ch) return ch;
+
+    // Fuzzy title match
+    const allChaps = campaignId
+      ? db.prepare('SELECT id, campaign_id, title, content FROM chapters WHERE campaign_id = ?').all(campaignId)
+      : db.prepare('SELECT id, campaign_id, title, content FROM chapters').all();
+    let bestMatch = null;
+    let bestScore = 0;
+    for (const c of allChaps) {
+      const sim = nameSimilarity(raw, c.title);
+      if (sim > bestScore) {
+        bestScore = sim;
+        bestMatch = c;
+      }
+    }
+    if (bestMatch && bestScore >= 0.4) {
+      return bestMatch;
+    }
+  }
+
+  // 2. Fall back to context.chapterId
+  if (chapterId) {
+    const ch = db.prepare('SELECT id, campaign_id, title, content FROM chapters WHERE id = ?').get(chapterId);
+    if (ch) return ch;
+  }
+
+  // 3. Fall back to context.chapterName
+  if (chapterName) {
+    if (campaignId) {
+      const ch = db.prepare('SELECT id, campaign_id, title, content FROM chapters WHERE campaign_id = ? AND LOWER(title) = ?').get(campaignId, chapterName.toLowerCase());
+      if (ch) return ch;
+    }
+    const ch = db.prepare('SELECT id, campaign_id, title, content FROM chapters WHERE LOWER(title) = ?').get(chapterName.toLowerCase());
+    if (ch) return ch;
+  }
+
+  // 4. Fall back to first chapter of campaign
+  if (campaignId) {
+    const ch = db.prepare('SELECT id, campaign_id, title, content FROM chapters WHERE campaign_id = ? ORDER BY order_index LIMIT 1').get(campaignId);
+    if (ch) return ch;
+  }
+
+  // 5. Fall back to any chapter in database
+  return db.prepare('SELECT id, campaign_id, title, content FROM chapters ORDER BY id LIMIT 1').get() || null;
 }
 
 /**
@@ -151,16 +360,124 @@ export const ASSISTANT_TOOLS = [
     type: 'function',
     function: {
       name: 'get_campaign_asset',
-      description: 'Look up a specific NPC, item, or location asset from the active campaign or world lore.',
+      description: 'Look up a specific NPC, item, location, or lore asset from the active campaign, world lore, or chapters with typo tolerance.',
       parameters: {
         type: 'object',
         properties: {
           name_or_id: {
             type: 'string',
-            description: 'The name or ID of the asset.',
+            description: 'The name or ID of the asset (e.g. "Elminster", "Sunless Citadel", "Goblin Chief").',
           },
         },
         required: ['name_or_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'lookup_magic_item',
+      description: 'Look up official D&D magic item properties, rarity, attunement, notes, and rules description by name or fuzzy keywords.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: {
+            type: 'string',
+            description: 'Name of the magic item (e.g. "Amulet of Health", "Bag of Holding", "Vorpal Sword")',
+          },
+        },
+        required: ['name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_assets_and_lore',
+      description: 'Fuzzy search across campaign assets, world lore, chapter notes, monsters, spells, and magic items. Resolves typos (e.g. "gobln", "fierball") and finds entities matching character sheet abilities, traits, or descriptions (e.g. "telepathic monster with tentacles", "staff of power", "healing tavern keeper").',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'Search text, name typo, or descriptive character sheet keywords.',
+          },
+          category: {
+            type: 'string',
+            enum: ['all', 'monster', 'spell', 'magic_item', 'campaign_asset', 'world_asset', 'chapter'],
+            description: 'Optional category filter to restrict search scope.',
+          },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'semantic_search',
+      description:
+        'Search the D&D knowledge base (monsters, spells, magic items, SRD rules, campaign lore) using vector semantic similarity. Ideal for conceptual, thematic, biome-based, or descriptive queries (e.g. "burrowing desert monsters", "fiery escape spells", "rules for underwater combat", "undead swamp ambushers").',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description:
+              'The conceptual, thematic, or descriptive search query (e.g. "desert monster that burrows into sand", "spells to slow down enemies").',
+          },
+          category: {
+            type: 'string',
+            enum: ['all', 'monster', 'spell', 'magic_item', 'srd', 'campaign_asset', 'world_asset', 'chapter'],
+            description: 'Optional category filter to restrict search scope to a specific type of content.',
+          },
+          limit: {
+            type: 'number',
+            description: 'Maximum number of results to return (default: 5, max: 10).',
+          },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_chapter_outline',
+      description:
+        'Extract and return the structural markdown outline (headings #, ##, ###) of a campaign chapter. Useful for exploring chapter sections and discovering maps, room keys, encounters, or notes.',
+      parameters: {
+        type: 'object',
+        properties: {
+          chapter_name_or_id: {
+            type: 'string',
+            description:
+              'Optional chapter name or ID. If omitted, defaults to the active chapter in the current campaign context.',
+          },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'read_chapter_section',
+      description:
+        'Read the specific text content under a chapter heading until the next heading of equal or higher level. Use this to read specific rooms, encounters, maps, or lore sections from a chapter.',
+      parameters: {
+        type: 'object',
+        properties: {
+          headingName: {
+            type: 'string',
+            description: 'Name of the heading/section to read (e.g. "Area 1: Entrance", "Tactical Map", "Boss Encounter").',
+          },
+          chapter_name_or_id: {
+            type: 'string',
+            description:
+              'Optional chapter name or ID. If omitted, defaults to the active chapter in the current campaign context.',
+          },
+        },
+        required: ['headingName'],
       },
     },
   },
@@ -206,10 +523,56 @@ export async function executeTool(toolName, rawArgs, context = {}) {
   try {
     switch (toolName) {
       case 'lookup_spell': {
-        const query = (args.name || '').toLowerCase().trim();
+        const rawName = (args.name || '').trim();
+        const query = rawName.toLowerCase();
         const spells = getSpells();
-        const found = spells.find((s) => s.name.toLowerCase() === query) ||
-                      spells.find((s) => s.name.toLowerCase().includes(query));
+
+        // 1. Exact match
+        let found = spells.find((s) => s.name && s.name.toLowerCase() === query);
+
+        // 2. Prefix or substring match (spell name starts with or contains query)
+        if (!found && query.length >= 3) {
+          found = spells.find((s) => s.name && s.name.toLowerCase().startsWith(query));
+          if (!found) {
+            found = spells.find((s) => s.name && s.name.toLowerCase().includes(query));
+          }
+        }
+
+        // 3. Fuzzy name match (typo resolution, e.g. "fierball" -> Fireball, "lightning blt" -> Lightning Bolt)
+        if (!found && query.length > 2) {
+          let bestScore = 0;
+          let bestCandidate = null;
+          for (const s of spells) {
+            if (!s.name) continue;
+            const sim = nameSimilarity(query, s.name);
+            if (sim > bestScore) {
+              bestScore = sim;
+              bestCandidate = s;
+            }
+          }
+          if (bestCandidate && bestScore >= 0.55) {
+            found = bestCandidate;
+          }
+        }
+
+        // 4. Description keyword search fallback
+        if (!found && query.length > 3) {
+          const qTokens = tokenizeQuery(query);
+          let bestScore = 0;
+          let bestCandidate = null;
+          for (const s of spells) {
+            const desc = s.description || s.desc || '';
+            const matchRatio = matchTokens(qTokens, desc);
+            if (matchRatio > bestScore) {
+              bestScore = matchRatio;
+              bestCandidate = s;
+            }
+          }
+          if (bestCandidate && bestScore >= 0.6) {
+            found = bestCandidate;
+          }
+        }
+
         result = found ? {
           name: found.name,
           level: found.level,
@@ -219,15 +582,68 @@ export async function executeTool(toolName, rawArgs, context = {}) {
           components: found.components,
           duration: found.duration,
           description: found.description || found.desc,
-        } : { error: `Spell "${args.name}" not found.` };
+        } : {
+          error: `Spell "${args.name}" not found.`,
+          hint: 'No exact spell name match found. If you are looking for spells matching a description, effect, or tactical purpose, use the semantic_search tool with category "spell".',
+        };
         break;
       }
 
       case 'lookup_monster': {
-        const query = (args.name || '').toLowerCase().trim();
+        const rawName = (args.name || '').trim();
+        const query = rawName.toLowerCase();
         const monsters = getMonsters();
-        const found = monsters.find((m) => m.name.toLowerCase() === query) ||
-                      monsters.find((m) => m.name.toLowerCase().includes(query));
+
+        // 1. Exact match
+        let found = monsters.find((m) => m.name && m.name.toLowerCase() === query);
+
+        // 2. Prefix or substring match (monster name starts with or contains query)
+        if (!found && query.length >= 3) {
+          found = monsters.find((m) => m.name && m.name.toLowerCase().startsWith(query));
+          if (!found) {
+            found = monsters.find((m) => m.name && m.name.toLowerCase().includes(query));
+          }
+        }
+
+        // 3. Fuzzy name match (typo resolution, e.g. "abolethh" -> Aboleth, "gobln" -> Goblin)
+        if (!found && query.length > 2) {
+          let bestScore = 0;
+          let bestCandidate = null;
+          for (const m of monsters) {
+            if (!m.name) continue;
+            const sim = nameSimilarity(query, m.name);
+            if (sim > bestScore) {
+              bestScore = sim;
+              bestCandidate = m;
+            }
+          }
+          if (bestCandidate && bestScore >= 0.55) {
+            found = bestCandidate;
+          }
+        }
+
+        // 4. Character sheet abilities, actions, traits, or description keyword matching
+        if (!found && query.length > 3) {
+          const qTokens = tokenizeQuery(query);
+          let bestScore = 0;
+          let bestCandidate = null;
+          for (const m of monsters) {
+            if (!m._fullSheetText) {
+              const abilitiesText = (m.special_abilities || m.traits || []).map((a) => `${a.name || ''} ${a.desc || a.content || ''}`).join(' ');
+              const actionsText = (m.actions || []).map((a) => `${a.name || ''} ${a.desc || a.content || ''}`).join(' ');
+              m._fullSheetText = `${m.name || ''} ${m.meta?.type || m.type || ''} ${abilitiesText} ${actionsText}`;
+            }
+            const matchRatio = matchTokens(qTokens, m._fullSheetText);
+            if (matchRatio > bestScore) {
+              bestScore = matchRatio;
+              bestCandidate = m;
+            }
+          }
+          if (bestCandidate && bestScore >= 0.6) {
+            found = bestCandidate;
+          }
+        }
+
         result = found ? {
           name: found.name,
           cr: found.challenge_rating || found.cr,
@@ -237,7 +653,10 @@ export async function executeTool(toolName, rawArgs, context = {}) {
           speed: found.attributes?.speeds || found.speed,
           abilities: found.special_abilities || found.traits,
           actions: found.actions,
-        } : { error: `Monster "${args.name}" not found.` };
+        } : {
+          error: `Monster "${args.name}" not found.`,
+          hint: 'No exact monster name match found. If you are searching for monsters by theme, biome, concept, or description (e.g. "burrowing desert monster"), please use the semantic_search tool instead.',
+        };
         break;
       }
 
@@ -567,19 +986,519 @@ export async function executeTool(toolName, rawArgs, context = {}) {
         const nameOrId = (args.name_or_id || '').toLowerCase().trim();
         const campaignId = context.campaignId;
 
-        let query = 'SELECT id, type, name, description FROM assets WHERE (LOWER(name) = ? OR id = ?)';
-        const params = [nameOrId, nameOrId];
+        // 1. Search campaign assets by exact name or id
+        let asset = null;
         if (campaignId) {
-          query += ' AND campaign_id = ?';
-          params.push(campaignId);
+          asset = db.prepare('SELECT id, type, name, description FROM assets WHERE campaign_id = ? AND (LOWER(name) = ? OR id = ?)').get(campaignId, nameOrId, nameOrId);
+        } else {
+          asset = db.prepare('SELECT id, type, name, description FROM assets WHERE LOWER(name) = ? OR id = ?').get(nameOrId, nameOrId);
         }
 
-        const asset = db.prepare(query).get(...params);
+        // 2. Search world assets
+        if (!asset) {
+          let worldId = null;
+          if (campaignId) {
+            const camp = db.prepare('SELECT world_id FROM campaigns WHERE id = ?').get(campaignId);
+            worldId = camp?.world_id;
+          }
+          if (worldId) {
+            asset = db.prepare('SELECT id, type, name, description FROM world_assets WHERE world_id = ? AND (LOWER(name) = ? OR id = ?)').get(worldId, nameOrId, nameOrId);
+          }
+          if (!asset) {
+            asset = db.prepare('SELECT id, type, name, description FROM world_assets WHERE LOWER(name) = ? OR id = ?').get(nameOrId, nameOrId);
+          }
+        }
+
+        // 3. Search chapters
+        if (!asset) {
+          let chap = null;
+          if (campaignId) {
+            chap = db.prepare('SELECT id, title, content FROM chapters WHERE campaign_id = ? AND (LOWER(title) = ? OR id = ?)').get(campaignId, nameOrId, nameOrId);
+          } else {
+            chap = db.prepare('SELECT id, title, content FROM chapters WHERE LOWER(title) = ? OR id = ?').get(nameOrId, nameOrId);
+          }
+          if (chap) {
+            asset = { id: chap.id, type: 'Chapter', name: chap.title, description: chap.content };
+          }
+        }
+
+        // 4. Fuzzy search across campaign assets, world assets, and chapters
+        if (!asset && nameOrId.length > 2) {
+          const qTokens = tokenizeQuery(nameOrId);
+          const allCampaignAssets = campaignId
+            ? db.prepare('SELECT id, type, name, description FROM assets WHERE campaign_id = ?').all(campaignId)
+            : db.prepare('SELECT id, type, name, description FROM assets').all();
+          const allWorldAssets = db.prepare('SELECT id, type, name, description FROM world_assets').all();
+          const allChapters = campaignId
+            ? db.prepare('SELECT id, title, content FROM chapters WHERE campaign_id = ?').all(campaignId)
+            : db.prepare('SELECT id, title, content FROM chapters').all();
+
+          let bestMatch = null;
+          let bestScore = 0;
+
+          for (const ca of allCampaignAssets) {
+            if (!ca.name) continue;
+            const sim = nameSimilarity(nameOrId, ca.name);
+            const tokenSim = matchTokens(qTokens, ca.description || '');
+            const score = Math.max(sim, tokenSim * 0.85);
+            if (score > bestScore) {
+              bestScore = score;
+              bestMatch = { ...ca, source: 'campaign_asset', matchScore: Number(score.toFixed(3)) };
+            }
+          }
+
+          for (const wa of allWorldAssets) {
+            if (!wa.name) continue;
+            const sim = nameSimilarity(nameOrId, wa.name);
+            const tokenSim = matchTokens(qTokens, wa.description || '');
+            const score = Math.max(sim, tokenSim * 0.85);
+            if (score > bestScore) {
+              bestScore = score;
+              bestMatch = { ...wa, source: 'world_asset', matchScore: Number(score.toFixed(3)) };
+            }
+          }
+
+          for (const ch of allChapters) {
+            if (!ch.title) continue;
+            const sim = nameSimilarity(nameOrId, ch.title);
+            const tokenSim = matchTokens(qTokens, ch.content || '');
+            const score = Math.max(sim, tokenSim * 0.85);
+            if (score > bestScore) {
+              bestScore = score;
+              bestMatch = { id: ch.id, type: 'Chapter', name: ch.title, description: ch.content, source: 'chapter', matchScore: Number(score.toFixed(3)) };
+            }
+          }
+
+          if (bestMatch && bestScore >= 0.5) {
+            asset = bestMatch;
+          }
+        }
+
         if (asset) {
           result = asset;
         } else {
-          result = { error: `Asset "${args.name_or_id}" not found in campaign.` };
+          result = { error: `Asset "${args.name_or_id}" not found in campaign, world lore, or chapters.` };
         }
+        break;
+      }
+
+      case 'lookup_magic_item': {
+        const rawName = (args.name || '').trim();
+        const query = rawName.toLowerCase();
+        const items = getMagicItems();
+
+        // 1. Exact match
+        let found = items.find((i) => (i.name && i.name.toLowerCase() === query) || String(i.id) === query || i.slug === query);
+
+        // 2. Prefix or substring match (item name starts with or contains query)
+        if (!found && query.length >= 3) {
+          found = items.find((i) => i.name && i.name.toLowerCase().startsWith(query));
+          if (!found) {
+            found = items.find((i) => i.name && i.name.toLowerCase().includes(query));
+          }
+        }
+
+        // 3. Fuzzy name match
+        if (!found && query.length > 2) {
+          let bestScore = 0;
+          let bestCandidate = null;
+          for (const it of items) {
+            if (!it.name) continue;
+            const sim = nameSimilarity(query, it.name);
+            if (sim > bestScore) {
+              bestScore = sim;
+              bestCandidate = it;
+            }
+          }
+          if (bestCandidate && bestScore >= 0.55) {
+            found = bestCandidate;
+          }
+        }
+
+        // 4. Description keyword match
+        if (!found && query.length > 3) {
+          const qTokens = tokenizeQuery(query);
+          let bestScore = 0;
+          let bestCandidate = null;
+          for (const it of items) {
+            if (!it._fullSheetText) {
+              const desc = Array.isArray(it.description) ? it.description.join(' ') : (it.description || '');
+              it._fullSheetText = `${it.name || ''} ${it.type || ''} ${it.notes || ''} ${desc}`;
+            }
+            const matchRatio = matchTokens(qTokens, it._fullSheetText);
+            if (matchRatio > bestScore) {
+              bestScore = matchRatio;
+              bestCandidate = it;
+            }
+          }
+          if (bestCandidate && bestScore >= 0.6) {
+            found = bestCandidate;
+          }
+        }
+
+        if (found) {
+          result = {
+            id: found.id,
+            name: found.name,
+            type: found.type,
+            subtype: found.subtype,
+            rarity: found.rarity,
+            requires_attunement: found.requires_attunement,
+            attunement_notes: found.attunement_notes,
+            notes: found.notes,
+            description: found.description,
+            source: found.source,
+          };
+        } else {
+          result = {
+            error: `Magic item "${args.name}" not found.`,
+            hint: 'No exact magic item name match found. If you are searching by item description, theme, or properties, use the semantic_search tool with category "magic_item".',
+          };
+        }
+        break;
+      }
+
+      case 'search_assets_and_lore': {
+        const query = (args.query || '').trim().toLowerCase();
+        const category = args.category || 'all';
+        const campaignId = context.campaignId;
+
+        if (!query) {
+          result = {
+            query: args.query,
+            matchCount: 0,
+            results: [],
+          };
+          break;
+        }
+
+        const qTokens = tokenizeQuery(query);
+        const candidates = [];
+
+        // 1. Spells
+        if (category === 'all' || category === 'spell') {
+          for (const sp of getSpells()) {
+            if (!sp.name) continue;
+            const sim = nameSimilarity(query, sp.name);
+            const descMatch = matchTokens(qTokens, sp.description || sp.desc || '');
+            const score = Math.max(sim, descMatch * 0.85);
+            if (score >= 0.45) {
+              candidates.push({
+                type: 'Spell',
+                name: sp.name,
+                snippet: `${sp.level === 0 ? 'Cantrip' : `Level ${sp.level}`} ${sp.school} - ${(sp.description || sp.desc || '').slice(0, 120)}...`,
+                score,
+              });
+            }
+          }
+        }
+
+        // 2. Monsters
+        if (category === 'all' || category === 'monster') {
+          for (const mo of getMonsters()) {
+            if (!mo.name) continue;
+            const sim = nameSimilarity(query, mo.name);
+            if (!mo._searchSheetText) {
+              const abilitiesText = (mo.special_abilities || mo.traits || []).map((a) => `${a.name || ''} ${a.desc || a.content || ''}`).join(' ');
+              mo._searchSheetText = `${mo.name || ''} ${mo.meta?.type || mo.type || ''} ${abilitiesText}`;
+            }
+            const descMatch = matchTokens(qTokens, mo._searchSheetText);
+            const score = Math.max(sim, descMatch * 0.85);
+            if (score >= 0.45) {
+              candidates.push({
+                type: 'Monster',
+                name: mo.name,
+                snippet: `CR ${mo.challenge_rating || mo.cr || 'Unknown'} - HP: ${mo.attributes?.hp?.value ?? mo.hp} - AC: ${mo.attributes?.ac?.value ?? mo.ac}`,
+                score,
+              });
+            }
+          }
+        }
+
+        // 3. Magic Items
+        if (category === 'all' || category === 'magic_item') {
+          for (const mi of getMagicItems()) {
+            if (!mi.name) continue;
+            const sim = nameSimilarity(query, mi.name);
+            if (!mi._searchSheetText) {
+              const desc = Array.isArray(mi.description) ? mi.description.join(' ') : (mi.description || '');
+              mi._searchSheetText = `${mi.name || ''} ${mi.type || ''} ${desc}`;
+            }
+            const descMatch = matchTokens(qTokens, mi._searchSheetText);
+            const score = Math.max(sim, descMatch * 0.85);
+            if (score >= 0.45) {
+              candidates.push({
+                type: 'Magic Item',
+                name: mi.name,
+                snippet: `${mi.rarity || 'Common'} ${mi.type || 'Item'}: ${(Array.isArray(mi.description) ? mi.description.join(' ') : (mi.description || '')).slice(0, 120)}...`,
+                score,
+              });
+            }
+          }
+        }
+
+        // 4. Campaign Assets
+        if (category === 'all' || category === 'campaign_asset') {
+          try {
+            const cas = campaignId
+              ? db.prepare('SELECT id, type, name, description FROM assets WHERE campaign_id = ?').all(campaignId)
+              : db.prepare('SELECT id, type, name, description FROM assets').all();
+            for (const ca of cas) {
+              if (!ca.name) continue;
+              const sim = nameSimilarity(query, ca.name);
+              const descMatch = matchTokens(qTokens, ca.description || '');
+              const score = Math.max(sim, descMatch * 0.85);
+              if (score >= 0.45) {
+                candidates.push({
+                  type: `Campaign Asset (${ca.type})`,
+                  name: ca.name,
+                  snippet: (ca.description || '').slice(0, 120),
+                  score,
+                });
+              }
+            }
+          } catch {}
+        }
+
+        // 5. World Assets
+        if (category === 'all' || category === 'world_asset') {
+          try {
+            const was = db.prepare('SELECT id, type, name, description FROM world_assets').all();
+            for (const wa of was) {
+              if (!wa.name) continue;
+              const sim = nameSimilarity(query, wa.name);
+              const descMatch = matchTokens(qTokens, wa.description || '');
+              const score = Math.max(sim, descMatch * 0.85);
+              if (score >= 0.45) {
+                candidates.push({
+                  type: `World Lore (${wa.type})`,
+                  name: wa.name,
+                  snippet: (wa.description || '').slice(0, 120),
+                  score,
+                });
+              }
+            }
+          } catch {}
+        }
+
+        // 6. Chapters
+        if (category === 'all' || category === 'chapter') {
+          try {
+            const chaps = campaignId
+              ? db.prepare('SELECT id, title, content FROM chapters WHERE campaign_id = ?').all(campaignId)
+              : db.prepare('SELECT id, title, content FROM chapters').all();
+            for (const ch of chaps) {
+              if (!ch.title) continue;
+              const sim = nameSimilarity(query, ch.title);
+              const descMatch = matchTokens(qTokens, ch.content || '');
+              const score = Math.max(sim, descMatch * 0.85);
+              if (score >= 0.45) {
+                candidates.push({
+                  type: 'Chapter Note',
+                  name: ch.title,
+                  snippet: (ch.content || '').slice(0, 120),
+                  score,
+                });
+              }
+            }
+          } catch {}
+        }
+
+        candidates.sort((a, b) => b.score - a.score);
+        const topResults = candidates.slice(0, 5);
+
+        result = {
+          query: args.query,
+          matchCount: topResults.length,
+          results: topResults,
+        };
+        if (topResults.length === 0) {
+          result.hint = 'No exact keyword matches found. Since this looks like a conceptual, thematic, or descriptive query, please use the semantic_search tool.';
+        }
+        break;
+      }
+
+      case 'semantic_search': {
+        const query = (args.query || '').trim();
+        const category = args.category || 'all';
+        const limit = Math.min(Math.max(Number(args.limit) || 5, 1), 10);
+        const campaignId = context.campaignId;
+
+        if (!query) {
+          result = {
+            query: args.query,
+            category,
+            matchCount: 0,
+            results: [],
+            hint: 'Please provide a non-empty query string for semantic search.',
+          };
+          break;
+        }
+
+        const categoryToSourceMap = {
+          chapter: 'campaign_chapter',
+        };
+        const sourceFilter = category && category !== 'all' ? (categoryToSourceMap[category] || category) : null;
+
+        const topPassages = await searchVectorStore(query, {
+          campaignId,
+          limit,
+          sourceFilter,
+        });
+
+        result = {
+          query: args.query,
+          category,
+          matchCount: topPassages.length,
+          results: topPassages.map((p) => ({
+            id: p.id,
+            source: p.source,
+            title: p.title,
+            score: p.score,
+            snippet: p.content && p.content.length > 1500 ? p.content.slice(0, 1500) + '...' : p.content,
+            metadata: p.metadata,
+          })),
+        };
+
+        if (topPassages.length === 0) {
+          result.hint = 'No semantic matches found for this query. Try broadening your query terms or removing category filters.';
+        }
+        break;
+      }
+
+      case 'get_chapter_outline': {
+        const chapter = resolveChapter(args.chapter_name_or_id, context);
+        if (!chapter) {
+          result = {
+            error: 'No chapter found. Please create a chapter or specify a valid chapter name/ID.',
+          };
+          break;
+        }
+
+        const headings = parseChapterOutline(chapter.content || '');
+        result = {
+          chapterId: chapter.id,
+          chapterTitle: chapter.title,
+          headingCount: headings.length,
+          outline: headings.map((h) => ({
+            level: h.level,
+            heading: h.heading,
+          })),
+        };
+        if (headings.length === 0) {
+          result.note = 'No markdown headings (#, ##, ###) found in this chapter.';
+        }
+        break;
+      }
+
+      case 'read_chapter_section': {
+        const chapter = resolveChapter(args.chapter_name_or_id, context);
+        if (!chapter) {
+          result = {
+            error: 'No chapter found. Please create a chapter or specify a valid chapter name/ID.',
+          };
+          break;
+        }
+
+        const content = chapter.content || '';
+        const headings = parseChapterOutline(content);
+        const queryHeading = (args.headingName || '').replace(/^#+\s*/, '').toLowerCase().trim();
+
+        if (!queryHeading) {
+          result = {
+            error: 'Please provide a valid headingName to read.',
+            availableHeadings: headings.map((h) => h.heading),
+          };
+          break;
+        }
+
+        // Check for introduction / prologue if requested
+        if (
+          (queryHeading === 'introduction' || queryHeading === 'intro' || queryHeading === 'prologue') &&
+          headings.length > 0 &&
+          headings[0].startIndex > 0
+        ) {
+          const introText = content.slice(0, headings[0].startIndex).trim();
+          if (introText) {
+            result = {
+              chapterId: chapter.id,
+              chapterTitle: chapter.title,
+              matchedHeading: 'Introduction',
+              headingLevel: 1,
+              sectionContent: introText,
+            };
+            break;
+          }
+        }
+
+        if (headings.length === 0) {
+          result = {
+            error: `Chapter "${chapter.title}" contains no markdown headings.`,
+            chapterId: chapter.id,
+            chapterTitle: chapter.title,
+            fullContent: content.slice(0, 2000),
+          };
+          break;
+        }
+
+        // Find best matching heading
+        let matchedIdx = -1;
+        let bestScore = 0;
+
+        for (let i = 0; i < headings.length; i++) {
+          const h = headings[i];
+          const hLower = h.heading.toLowerCase();
+          if (hLower === queryHeading) {
+            matchedIdx = i;
+            bestScore = 1.0;
+            break;
+          }
+          if (hLower.includes(queryHeading) || queryHeading.includes(hLower)) {
+            const score = 0.85;
+            if (score > bestScore) {
+              bestScore = score;
+              matchedIdx = i;
+            }
+          } else {
+            const sim = nameSimilarity(queryHeading, h.heading);
+            if (sim > bestScore && sim >= 0.45) {
+              bestScore = sim;
+              matchedIdx = i;
+            }
+          }
+        }
+
+        if (matchedIdx === -1) {
+          result = {
+            error: `Section "${args.headingName}" not found in chapter "${chapter.title}".`,
+            chapterId: chapter.id,
+            chapterTitle: chapter.title,
+            availableHeadings: headings.map((h) => h.heading),
+          };
+          break;
+        }
+
+        const targetHeading = headings[matchedIdx];
+        const targetLevel = targetHeading.level;
+        const startPos = targetHeading.contentStartIndex;
+
+        // Find the next heading with level <= targetLevel
+        let endPos = content.length;
+        for (let j = matchedIdx + 1; j < headings.length; j++) {
+          if (headings[j].level <= targetLevel) {
+            endPos = headings[j].startIndex;
+            break;
+          }
+        }
+
+        const sectionText = content.slice(startPos, endPos).trim();
+        result = {
+          chapterId: chapter.id,
+          chapterTitle: chapter.title,
+          matchedHeading: targetHeading.heading,
+          headingLevel: targetHeading.level,
+          sectionContent: sectionText,
+        };
         break;
       }
 

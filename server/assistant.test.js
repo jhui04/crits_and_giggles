@@ -4,10 +4,11 @@ import { app } from './index.js';
 import { db } from './db.js';
 import { validateModel, getConfig, setConfig, resetConfig } from './assistant/config.js';
 import { computeLocalEmbedding, cosineSimilarity } from './assistant/embedder.js';
-import { upsertVectorChunk, searchVectorStore, indexSrdAndJsonData, indexCampaignLore, invalidateVectorCache } from './assistant/vectorStore.js';
+import { upsertVectorChunk, searchVectorStore, indexSrdAndJsonData, indexCampaignLore, invalidateVectorCache, chunkMarkdownChapter } from './assistant/vectorStore.js';
 import { computeSemanticEmbeddingsBatch } from './assistant/embedder.js';
-import { ASSISTANT_TOOLS, validateToolCall, executeTool, getToolAuditLog, clearToolAuditLog } from './assistant/toolController.js';
+import { ASSISTANT_TOOLS, validateToolCall, executeTool, getToolAuditLog, clearToolAuditLog, parseChapterOutline, resolveChapter } from './assistant/toolController.js';
 import { getAuthoritativeGameState, buildChatMessages, estimateTokenCount } from './assistant/contextBuilder.js';
+import { handleAssistantChat } from './assistant/orchestrator.js';
 import { benchmarkQuery } from './assistant/benchmark.js';
 import { recordLlmMetric, getLlmMetrics, getLlmMetricsSummary, clearLlmMetrics } from './assistant/telemetry.js';
 
@@ -31,6 +32,17 @@ describe('Epic 1: Local LLM Infrastructure & Abstraction', () => {
         .send({ baseURL: 'http://localhost:8080/v1' });
       expect(updateRes.status).toBe(200);
       expect(updateRes.body.baseURL).toBe('http://localhost:8080/v1');
+    });
+
+    it('defaults maxToolIterations to 20 and allows configuration', async () => {
+      const config = getConfig();
+      expect(config.maxToolIterations).toBe(20);
+
+      const updateRes = await request(app)
+        .put('/api/assistant/config')
+        .send({ maxToolIterations: 15 });
+      expect(updateRes.status).toBe(200);
+      expect(updateRes.body.maxToolIterations).toBe(15);
     });
   });
 
@@ -484,6 +496,560 @@ describe('Iteration 4: LLM Telemetry & Benchmarking', () => {
 
       const metrics = getLlmMetrics({ model: 'llama3' });
       expect(metrics.some((m) => m.model_name === 'llama3')).toBe(true);
+    });
+  });
+
+  describe('Fuzzy Search, Typo Resolution & Active Chapter Preloading', () => {
+    it('resolves typos in spell names using fuzzy search (e.g. fierball -> Fireball)', async () => {
+      const result = await executeTool('lookup_spell', { name: 'fierball' });
+      expect(result).toBeDefined();
+      expect(result.name).toBe('Fireball');
+      expect(result.level).toBe(3);
+    });
+
+    it('resolves typos in monster names using fuzzy search (e.g. abolethh -> Aboleth)', async () => {
+      const result = await executeTool('lookup_monster', { name: 'abolethh' });
+      expect(result).toBeDefined();
+      expect(result.name).toBe('Aboleth');
+      expect(result.cr).toBe('10');
+    });
+
+    it('looks up magic items and resolves typos (e.g. amulet of helth -> Amulet of Health)', async () => {
+      const result = await executeTool('lookup_magic_item', { name: 'amulet of helth' });
+      expect(result).toBeDefined();
+      expect(result.name).toBe('Amulet of Health');
+      expect(result.rarity).toBe('Rare');
+    });
+
+    it('searches assets and lore by descriptive keywords and character sheet abilities', async () => {
+      const result = await executeTool('search_assets_and_lore', { query: 'tentacle' });
+      expect(result).toBeDefined();
+      expect(result.results.length).toBeGreaterThan(0);
+      expect(result.results.some((r) => r.name.toLowerCase().includes('aboleth') || r.snippet.toLowerCase().includes('tentacle'))).toBe(true);
+    });
+
+    it('preloads active chapter and world information in authoritative game state', () => {
+      const state = getAuthoritativeGameState({
+        campaignId: 'c1',
+        chapterId: 'chap-101',
+        chapterName: 'The Sunless Citadel - Grove Level',
+        worldId: 'w1',
+        worldName: 'Faerun',
+      });
+
+      expect(state.activeChapter).toBeDefined();
+      expect(state.activeChapter.id).toBe('chap-101');
+      expect(state.activeChapter.title).toBe('The Sunless Citadel - Grove Level');
+      expect(state.world).toBeDefined();
+      expect(state.world.name).toBe('Faerun');
+    });
+
+    it('orchestrator threads active chapter into system prompt and mock response', async () => {
+      const res = await handleAssistantChat({
+        query: 'What chapter are we on?',
+        campaignId: 'c1',
+        chapterId: 'chap-101',
+        chapterName: 'The Sunless Citadel - Grove Level',
+        mockResponse: true,
+      });
+
+      expect(res.gameState.activeChapter.title).toBe('The Sunless Citadel - Grove Level');
+      expect(res.answer).toContain('The Sunless Citadel - Grove Level');
+    });
+
+    it('retrieves world assets and chapter assets via get_campaign_asset with typo tolerance', async () => {
+      // Seed a chapter and world asset for testing
+      db.prepare('INSERT OR REPLACE INTO worlds (id, name, description) VALUES (?, ?, ?)').run('w-test', 'Forgotten Realms', 'High fantasy world');
+      db.prepare('INSERT OR REPLACE INTO world_assets (id, world_id, type, name, description) VALUES (?, ?, ?, ?, ?)').run(
+        'wa-elminster',
+        'w-test',
+        'NPC',
+        'Archmage Elminster',
+        'Ancient sage of Shadowdale with white beard and pipe.'
+      );
+
+      // Exact match
+      const exactResult = await executeTool('get_campaign_asset', { name_or_id: 'Archmage Elminster' });
+      expect(exactResult).toBeDefined();
+      expect(exactResult.name).toBe('Archmage Elminster');
+
+      // Typo match (e.g. "elminstr")
+      const typoResult = await executeTool('get_campaign_asset', { name_or_id: 'elminstr' });
+      expect(typoResult).toBeDefined();
+      expect(typoResult.name).toBe('Archmage Elminster');
+    });
+
+    it('correctly resolves spell typos like "lightning blt" to "Lightning Bolt" and does NOT falsely match "Light"', async () => {
+      const result = await executeTool('lookup_spell', { name: 'lightning blt' });
+      expect(result).toBeDefined();
+      expect(result.name).toBe('Lightning Bolt');
+      expect(result.level).toBe(3);
+    });
+
+    it('does NOT falsely match substring entities when looking up non-existent names (e.g. porcupine does not return Orc)', async () => {
+      const result = await executeTool('lookup_monster', { name: 'porcupine' });
+      expect(result).toBeDefined();
+      expect(result.error).toMatch(/monster "porcupine" not found/i);
+    });
+
+    it('resolves monster typos like "gobln" to "Goblin"', async () => {
+      const result = await executeTool('lookup_monster', { name: 'gobln' });
+      expect(result).toBeDefined();
+      expect(result.name).toBe('Goblin');
+    });
+
+    it('resolves magic item typos like "ring of protectn" to "Ring of Protection"', async () => {
+      const result = await executeTool('lookup_magic_item', { name: 'ring of protectn' });
+      expect(result).toBeDefined();
+      expect(result.name).toBe('Ring of Protection');
+    });
+
+    it('handles empty query in search_assets_and_lore safely', async () => {
+      const result = await executeTool('search_assets_and_lore', { query: '   ' });
+      expect(result).toBeDefined();
+      expect(result.matchCount).toBe(0);
+      expect(result.results).toEqual([]);
+    });
+  });
+
+  describe('Semantic Search & Smart Fallback Guidance', () => {
+    it('defines semantic_search tool schema in ASSISTANT_TOOLS', () => {
+      const tool = ASSISTANT_TOOLS.find((t) => t.function.name === 'semantic_search');
+      expect(tool).toBeDefined();
+      expect(tool.function.description).toMatch(/semantic/i);
+      expect(tool.function.parameters.properties.query).toBeDefined();
+      expect(tool.function.parameters.properties.category).toBeDefined();
+      expect(tool.function.parameters.properties.limit).toBeDefined();
+      expect(tool.function.parameters.required).toContain('query');
+    });
+
+    it('executes semantic_search tool and retrieves relevant conceptual passages', async () => {
+      // Ensure data is indexed for semantic search
+      await indexSrdAndJsonData();
+
+      const result = await executeTool('semantic_search', {
+        query: 'desert monster that burrows under ground',
+        limit: 3,
+      });
+
+      expect(result).toBeDefined();
+      expect(result.query).toBe('desert monster that burrows under ground');
+      expect(result.results.length).toBeGreaterThan(0);
+      expect(result.matchCount).toBe(result.results.length);
+      expect(result.results[0].title).toBeDefined();
+      expect(result.results[0].score).toBeDefined();
+      expect(result.results[0].snippet).toBeDefined();
+    });
+
+    it('filters semantic_search results by category (e.g. monster, spell)', async () => {
+      await indexSrdAndJsonData();
+
+      const monsterResult = await executeTool('semantic_search', {
+        query: 'dragon breath',
+        category: 'monster',
+        limit: 3,
+      });
+
+      expect(monsterResult).toBeDefined();
+      expect(monsterResult.category).toBe('monster');
+      for (const item of monsterResult.results) {
+        expect(item.source).toBe('monster');
+      }
+
+      const spellResult = await executeTool('semantic_search', {
+        query: 'fiery blast',
+        category: 'spell',
+        limit: 3,
+      });
+
+      expect(spellResult).toBeDefined();
+      expect(spellResult.category).toBe('spell');
+      for (const item of spellResult.results) {
+        expect(item.source).toBe('spell');
+      }
+    });
+
+    it('handles empty query in semantic_search safely with hint', async () => {
+      const result = await executeTool('semantic_search', { query: '   ' });
+      expect(result).toBeDefined();
+      expect(result.matchCount).toBe(0);
+      expect(result.results).toEqual([]);
+      expect(result.hint).toMatch(/non-empty query/i);
+    });
+
+    it('returns a guidance hint suggesting semantic_search when lookup_monster fails', async () => {
+      const result = await executeTool('lookup_monster', { name: 'xyznonexistentmonster12345' });
+      expect(result).toBeDefined();
+      expect(result.error).toMatch(/not found/i);
+      expect(result.hint).toBeDefined();
+      expect(result.hint).toMatch(/semantic_search/i);
+    });
+
+    it('returns a guidance hint suggesting semantic_search when search_assets_and_lore finds 0 matches', async () => {
+      const result = await executeTool('search_assets_and_lore', { query: 'xyznonexistentterm12345' });
+      expect(result).toBeDefined();
+      expect(result.matchCount).toBe(0);
+      expect(result.results).toEqual([]);
+      expect(result.hint).toBeDefined();
+      expect(result.hint).toMatch(/semantic_search/i);
+    });
+
+    it('returns a guidance hint suggesting semantic_search when lookup_spell fails', async () => {
+      const result = await executeTool('lookup_spell', { name: 'xyznonexistentspell12345' });
+      expect(result).toBeDefined();
+      expect(result.error).toMatch(/not found/i);
+      expect(result.hint).toBeDefined();
+      expect(result.hint).toMatch(/semantic_search/i);
+    });
+
+    it('returns a guidance hint suggesting semantic_search when lookup_magic_item fails', async () => {
+      const result = await executeTool('lookup_magic_item', { name: 'nonexistent relic of darkness' });
+      expect(result).toBeDefined();
+      expect(result.error).toMatch(/not found/i);
+      expect(result.hint).toBeDefined();
+      expect(result.hint).toMatch(/semantic_search/i);
+    });
+
+    it('includes tool selection strategy and semantic_search instructions in buildChatMessages', () => {
+      const { messages } = buildChatMessages({ query: 'What monster lives in desert sand?' });
+      const systemPrompt = messages.find((m) => m.role === 'system')?.content;
+      expect(systemPrompt).toBeDefined();
+      expect(systemPrompt).toMatch(/TOOL SELECTION STRATEGY/i);
+      expect(systemPrompt).toMatch(/semantic_search/i);
+      expect(systemPrompt).toMatch(/retry loops/i);
+    });
+
+    it('pushes sourceFilter down to searchVectorStore so category searches are not starved by other types', async () => {
+      await indexSrdAndJsonData();
+
+      // "fire" has many spells (Fireball, Fire Bolt, etc.). Passing sourceFilter: 'monster'
+      // must return monsters directly from searchVectorStore without post-filter starvation.
+      const monsterPassages = await searchVectorStore('fire', {
+        limit: 5,
+        sourceFilter: 'monster',
+      });
+
+      expect(monsterPassages.length).toBeGreaterThan(0);
+      for (const p of monsterPassages) {
+        expect(p.source).toBe('monster');
+      }
+    });
+
+    it('maps category: chapter to campaign_chapter and searches chapter notes', async () => {
+      // Index a test campaign chapter
+      db.prepare('INSERT OR REPLACE INTO campaigns (id, name, description) VALUES (?, ?, ?)').run('c-gap-test', 'Gap Campaign', 'Testing gaps');
+      db.prepare('INSERT OR REPLACE INTO chapters (id, campaign_id, title, content, order_index) VALUES (?, ?, ?, ?, ?)').run(
+        'chap-volcano',
+        'c-gap-test',
+        'Volcano Caldera Descent',
+        'The party descends into the bubbling obsidian caldera where magma mephits lurk in the crevices.',
+        1
+      );
+      await indexCampaignLore('c-gap-test');
+
+      const result = await executeTool('semantic_search', {
+        query: 'magma caldera obsidian',
+        category: 'chapter',
+        limit: 3,
+      }, { campaignId: 'c-gap-test' });
+
+      expect(result).toBeDefined();
+      expect(result.category).toBe('chapter');
+      expect(result.results.length).toBeGreaterThan(0);
+      expect(result.results[0].source).toBe('campaign_chapter');
+      expect(result.results[0].title).toContain('Volcano Caldera');
+    });
+
+    it('preserves snippets up to 1500 characters without premature 300 character truncation', async () => {
+      await indexSrdAndJsonData();
+
+      const result = await executeTool('semantic_search', {
+        query: 'Adult Red Dragon',
+        category: 'monster',
+        limit: 1,
+      });
+
+      expect(result).toBeDefined();
+      expect(result.results.length).toBeGreaterThan(0);
+      const snippet = result.results[0].snippet;
+      // Adult Red Dragon stat block chunk is well over 300 characters
+      expect(snippet.length).toBeGreaterThan(300);
+      expect(snippet).toContain('AC:');
+      expect(snippet).toContain('HP:');
+      expect(snippet).toContain('Actions:');
+    });
+  });
+
+  describe('Phase 1, 2 & 3: Chapter Tools, Semantic Chunking & Failsafes (plan.md)', () => {
+    it('increases contentPreview limit from 300 to 2000 characters in gameState', () => {
+      const longContent = 'A'.repeat(1200);
+      db.prepare('INSERT OR REPLACE INTO campaigns (id, name, description) VALUES (?, ?, ?)').run('c-preview-test', 'Preview Test', 'Testing preview');
+      db.prepare('INSERT OR REPLACE INTO chapters (id, campaign_id, title, content, order_index) VALUES (?, ?, ?, ?, ?)').run(
+        'chap-preview',
+        'c-preview-test',
+        'Long Preview Chapter',
+        longContent,
+        1
+      );
+
+      const state = getAuthoritativeGameState({ campaignId: 'c-preview-test', chapterId: 'chap-preview' });
+      expect(state.activeChapter).toBeDefined();
+      expect(state.activeChapter.contentPreview).toBe(longContent);
+      expect(state.activeChapter.contentPreview.length).toBe(1200);
+    });
+
+    it('enforces strict empty-response failsafe rule in system prompt', () => {
+      const promptObj = buildChatMessages({ query: 'Where is the hidden map?' });
+      const systemMessage = promptObj.messages.find((m) => m.role === 'system');
+      expect(systemMessage).toBeDefined();
+      expect(systemMessage.content).toContain('If you cannot answer a question based on the available context or tools, you MUST reply with a textual explanation of what information is missing. NEVER return an empty response.');
+    });
+
+    it('parses markdown headings correctly into an ordered outline', () => {
+      const markdown = [
+        'Prologue text before heading.',
+        '# Chapter 1: The Dark Forest',
+        'Introductory forest description.',
+        '## Area 1: The Overgrown Trail',
+        'Watch out for snaring vines.',
+        '### Area 1A: Hidden Stash',
+        'A hollow tree trunk with 20 gp.',
+        '## Area 2: Witch Cottage',
+        'A sinister chimney smoking purple fumes.',
+      ].join('\n');
+
+      const outline = parseChapterOutline(markdown);
+      expect(outline).toHaveLength(4);
+      expect(outline[0]).toEqual(expect.objectContaining({ level: 1, heading: 'Chapter 1: The Dark Forest' }));
+      expect(outline[1]).toEqual(expect.objectContaining({ level: 2, heading: 'Area 1: The Overgrown Trail' }));
+      expect(outline[2]).toEqual(expect.objectContaining({ level: 3, heading: 'Area 1A: Hidden Stash' }));
+      expect(outline[3]).toEqual(expect.objectContaining({ level: 2, heading: 'Area 2: Witch Cottage' }));
+    });
+
+    it('executes get_chapter_outline tool and returns structured outline for active chapter', async () => {
+      const chapMarkdown = [
+        '# Sunless Citadel Ground Level',
+        'Overview of the fortress descent.',
+        '## 1. Ledge and Switchback Stairs',
+        'A crumbled masonry stair descending 50 feet.',
+        '## 2. Dragon Door',
+        'A locked stone door carved with dragon motifs.',
+      ].join('\n');
+
+      db.prepare('INSERT OR REPLACE INTO campaigns (id, name, description) VALUES (?, ?, ?)').run('c-tool-test', 'Tool Test Campaign', 'Testing tools');
+      db.prepare('INSERT OR REPLACE INTO chapters (id, campaign_id, title, content, order_index) VALUES (?, ?, ?, ?, ?)').run(
+        'chap-citadel',
+        'c-tool-test',
+        'Sunless Citadel',
+        chapMarkdown,
+        1
+      );
+
+      const outlineResult = await executeTool('get_chapter_outline', {}, { campaignId: 'c-tool-test', chapterId: 'chap-citadel' });
+      expect(outlineResult).toBeDefined();
+      expect(outlineResult.chapterId).toBe('chap-citadel');
+      expect(outlineResult.chapterTitle).toBe('Sunless Citadel');
+      expect(outlineResult.headingCount).toBe(3);
+      expect(outlineResult.outline).toEqual([
+        { level: 1, heading: 'Sunless Citadel Ground Level' },
+        { level: 2, heading: '1. Ledge and Switchback Stairs' },
+        { level: 2, heading: '2. Dragon Door' },
+      ]);
+    });
+
+    it('executes read_chapter_section and extracts text until the next same or higher level heading', async () => {
+      const chapMarkdown = [
+        '# Fortress Ruins',
+        'Initial greeting notes.',
+        '## Room 1: Entrance',
+        'Cobwebs line the pillars. A goblin patrol stands guard.',
+        '### Secret Chest',
+        'Behind the pillar is an iron chest with 50 sp.',
+        '## Room 2: Armory',
+        'Racks of rusted spears and round shields.',
+      ].join('\n');
+
+      db.prepare('INSERT OR REPLACE INTO chapters (id, campaign_id, title, content, order_index) VALUES (?, ?, ?, ?, ?)').run(
+        'chap-rooms',
+        'c-tool-test',
+        'Fortress Rooms',
+        chapMarkdown,
+        2
+      );
+
+      // Read Room 1: Entrance (level 2). It should include subsection ### Secret Chest and stop at ## Room 2: Armory
+      const section1 = await executeTool('read_chapter_section', { headingName: 'Room 1: Entrance' }, { campaignId: 'c-tool-test', chapterId: 'chap-rooms' });
+      expect(section1).toBeDefined();
+      expect(section1.matchedHeading).toBe('Room 1: Entrance');
+      expect(section1.sectionContent).toContain('Cobwebs line the pillars.');
+      expect(section1.sectionContent).toContain('Behind the pillar is an iron chest');
+      expect(section1.sectionContent).not.toContain('Racks of rusted spears');
+
+      // Read subsection ### Secret Chest (level 3). It should only read the secret chest content
+      const subSection = await executeTool('read_chapter_section', { headingName: 'Secret Chest' }, { campaignId: 'c-tool-test', chapterId: 'chap-rooms' });
+      expect(subSection.matchedHeading).toBe('Secret Chest');
+      expect(subSection.sectionContent).toBe('Behind the pillar is an iron chest with 50 sp.');
+
+      // Fuzzy / case-insensitive match (e.g. "armory")
+      const armorySection = await executeTool('read_chapter_section', { headingName: 'armory' }, { campaignId: 'c-tool-test', chapterId: 'chap-rooms' });
+      expect(armorySection.matchedHeading).toBe('Room 2: Armory');
+      expect(armorySection.sectionContent).toBe('Racks of rusted spears and round shields.');
+    });
+
+    it('reads chapter Introduction when requested if text precedes the first heading', async () => {
+      const chapWithIntro = [
+        'Welcome adventurers to the Sunken Temple! Proceed at your own peril.',
+        '# Chamber of Whispers',
+        'A cold wind whistles through the cracks.',
+      ].join('\n');
+
+      db.prepare('INSERT OR REPLACE INTO chapters (id, campaign_id, title, content, order_index) VALUES (?, ?, ?, ?, ?)').run(
+        'chap-intro',
+        'c-tool-test',
+        'Sunken Temple',
+        chapWithIntro,
+        3
+      );
+
+      const introResult = await executeTool('read_chapter_section', { headingName: 'Introduction' }, { campaignId: 'c-tool-test', chapterId: 'chap-intro' });
+      expect(introResult).toBeDefined();
+      expect(introResult.matchedHeading).toBe('Introduction');
+      expect(introResult.sectionContent).toBe('Welcome adventurers to the Sunken Temple! Proceed at your own peril.');
+    });
+
+    it('chunks markdown by headings and prefixes breadcrumbs', () => {
+      const text = [
+        'Prologue notes.',
+        '# First Floor',
+        'Floor description.',
+        '## Library',
+        'Dusty tomes and ancient maps of the coast.',
+      ].join('\n');
+
+      const chunks = chunkMarkdownChapter('Haunted Manor', text, 1500);
+      expect(chunks).toHaveLength(3);
+
+      expect(chunks[0].content).toContain('[Chapter: Haunted Manor > Section: Introduction]');
+      expect(chunks[0].content).toContain('Prologue notes.');
+
+      expect(chunks[1].content).toContain('[Chapter: Haunted Manor > Section: First Floor]');
+      expect(chunks[1].content).toContain('Floor description.');
+
+      expect(chunks[2].content).toContain('[Chapter: Haunted Manor > Section: Library]');
+      expect(chunks[2].content).toContain('Dusty tomes and ancient maps of the coast.');
+    });
+
+    it('splits large chapter sections (> 1500 chars) by paragraphs while retaining breadcrumbs', () => {
+      const para1 = 'Paragraph 1: ' + 'A'.repeat(900);
+      const para2 = 'Paragraph 2: ' + 'B'.repeat(900);
+      const largeSectionText = [
+        '## Grand Ballroom',
+        para1,
+        '',
+        para2,
+      ].join('\n');
+
+      const chunks = chunkMarkdownChapter('Castle Ravenloft', largeSectionText, 1500);
+      expect(chunks.length).toBeGreaterThanOrEqual(2);
+
+      for (const c of chunks) {
+        expect(c.content).toContain('[Chapter: Castle Ravenloft > Section: Grand Ballroom]');
+      }
+      expect(chunks[0].content).toContain('Paragraph 1:');
+      expect(chunks[1].content).toContain('Paragraph 2:');
+    });
+
+    it('indexes chunked chapters and retrieves specific sections via semantic_search without dilution', async () => {
+      const fullChapter = [
+        '# Wavechaser Vessel Navigation',
+        'The ship sails across the Lucidian Ocean under clear skies.',
+        '',
+        '## Tactical Map & Grid Layout',
+        'The combat map is set to 24 columns by 18 rows. The helm is at coordinates (12, 4) and the ballista is mounted at (12, 16).',
+        '',
+        '## Cargo Hold Inventory',
+        'Barrels of fresh water, salted pork, and three crates of dragon lilies.',
+      ].join('\n');
+
+      db.prepare('INSERT OR REPLACE INTO campaigns (id, name, description) VALUES (?, ?, ?)').run('c-chunk-test', 'Chunking Campaign', 'Testing semantic chunking');
+      db.prepare('INSERT OR REPLACE INTO chapters (id, campaign_id, title, content, order_index) VALUES (?, ?, ?, ?, ?)').run(
+        'chap-wavechaser',
+        'c-chunk-test',
+        'Wavechaser Voyage',
+        fullChapter,
+        1
+      );
+
+      const count = await indexCampaignLore('c-chunk-test');
+      expect(count).toBeGreaterThanOrEqual(3);
+
+      const mapResult = await executeTool('semantic_search', {
+        query: 'tactical combat map grid dimensions helm coordinates ballista',
+        category: 'chapter',
+        limit: 1,
+      }, { campaignId: 'c-chunk-test' });
+
+      expect(mapResult.results.length).toBeGreaterThan(0);
+      const topMatch = mapResult.results[0];
+      expect(topMatch.title).toContain('Wavechaser Voyage');
+      expect(topMatch.title).toContain('Tactical Map');
+      expect(topMatch.snippet).toContain('[Chapter: Wavechaser Voyage > Section: Tactical Map & Grid Layout]');
+      expect(topMatch.snippet).toContain('coordinates (12, 4)');
+    });
+
+    it('wipes old dynamic vector chunks when a campaign is re-indexed to prevent staleness and hallucinations', async () => {
+      const campId = 'c-staleness-test';
+      db.prepare('INSERT OR REPLACE INTO campaigns (id, name, description) VALUES (?, ?, ?)').run(campId, 'Staleness Test', 'Testing chunk cleanup');
+
+      // 1. Initial chapter with 4 sections
+      const originalContent = [
+        '# Section 1: Entrance',
+        'Guarded by two guards.',
+        '# Section 2: Courtyard',
+        'Statue of the founder.',
+        '# Section 3: Treasury',
+        'Gold coins everywhere.',
+        '# Section 4: Dungeon',
+        'Prisoners in chains.',
+      ].join('\n');
+
+      db.prepare('INSERT OR REPLACE INTO chapters (id, campaign_id, title, content, order_index) VALUES (?, ?, ?, ?, ?)').run(
+        'chap-stale-1',
+        campId,
+        'Original Castle',
+        originalContent,
+        1
+      );
+
+      const initialCount = await indexCampaignLore(campId);
+      expect(initialCount).toBe(4);
+
+      let rows = db.prepare('SELECT id FROM vector_chunks WHERE campaign_id = ?').all(campId);
+      expect(rows).toHaveLength(4);
+
+      // 2. User rewrites chapter down to only 1 section
+      const rewrittenContent = [
+        '# Quick Summary',
+        'The castle is abandoned.',
+      ].join('\n');
+
+      db.prepare('UPDATE chapters SET content = ? WHERE id = ?').run(rewrittenContent, 'chap-stale-1');
+
+      const updatedCount = await indexCampaignLore(campId);
+      expect(updatedCount).toBe(1);
+
+      // Verify old sec-1, sec-2, sec-3 are wiped and do not persist
+      rows = db.prepare('SELECT id FROM vector_chunks WHERE campaign_id = ?').all(campId);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].id).toBe(`camp-${campId}-chap-chap-stale-1-sec-0`);
+
+      // 3. User deletes all chapters in the campaign
+      db.prepare('DELETE FROM chapters WHERE campaign_id = ?').run(campId);
+      const clearedCount = await indexCampaignLore(campId);
+      expect(clearedCount).toBe(0);
+
+      rows = db.prepare('SELECT id FROM vector_chunks WHERE campaign_id = ?').all(campId);
+      expect(rows).toHaveLength(0);
     });
   });
 });

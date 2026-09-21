@@ -404,7 +404,17 @@ app.put('/api/assistant/config', (req, res) => {
 // POST /api/assistant/chat
 app.post('/api/assistant/chat', async (req, res) => {
   try {
-    const { query, campaignId, encounterId, model, mockResponse } = req.body;
+    const {
+      query,
+      campaignId,
+      encounterId,
+      chapterId,
+      chapterName,
+      worldId,
+      worldName,
+      model,
+      mockResponse,
+    } = req.body;
     if (!query) {
       return res.status(400).json({ error: 'Missing query parameter' });
     }
@@ -412,6 +422,10 @@ app.post('/api/assistant/chat', async (req, res) => {
       query,
       campaignId,
       encounterId,
+      chapterId,
+      chapterName,
+      worldId,
+      worldName,
       model,
       mockResponse: mockResponse ?? (process.env.NODE_ENV === 'test' && req.body.mock !== false),
     });

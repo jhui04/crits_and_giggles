@@ -12,6 +12,7 @@ export const DEFAULT_CONFIG = {
   embeddingModel: process.env.EMBEDDING_MODEL || 'nomic-embed-text',
   maxContextTokens: 8192,
   topKPassages: 3,
+  maxToolIterations: 20,
 };
 
 // Disallowed models: explicitly exclude 26B, 32B, 35B, 70B models which exceed 8GB VRAM budget
@@ -96,6 +97,9 @@ export function setConfig(newConfig = {}) {
   }
   if (newConfig.topKPassages) {
     currentConfig.topKPassages = Math.min(Math.max(newConfig.topKPassages, 1), 10);
+  }
+  if (newConfig.maxToolIterations !== undefined) {
+    currentConfig.maxToolIterations = Math.min(Math.max(Number(newConfig.maxToolIterations) || 20, 1), 50);
   }
 
   return getConfig();
