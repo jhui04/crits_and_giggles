@@ -15,10 +15,42 @@ export interface PassageItem {
   metadata?: Record<string, unknown>;
 }
 
+export interface MapToolResult {
+  success?: boolean;
+  encounterId?: string;
+  encounterName?: string;
+  mapName?: string;
+  mapUrl?: string;
+  version?: string;
+  grid?: {
+    columns: number;
+    rows: number;
+    cellPitch?: number;
+  };
+  combatantsCount?: number;
+  unplacedCombatantsCount?: number;
+  totalCombatantsInEncounter?: number;
+  combatants?: Array<{
+    name: string;
+    instanceId?: string;
+    team: string;
+    coordinates?: { x: number; y: number };
+    cell: string;
+    hp?: string;
+    conditions?: string[];
+  }>;
+  image?: string;
+  imageAttached?: boolean;
+  mimeType?: string;
+  error?: string;
+  hint?: string;
+}
+
 export interface Message {
   id: string;
   sender: 'user' | 'oracle';
   text: string;
+  thinking?: string | null;
   passages?: PassageItem[];
   toolCalls?: Array<{ toolName: string; args: unknown; result?: unknown }>;
   modelUsed?: string;
@@ -56,6 +88,8 @@ type EntityPayload =
   | { type: 'item'; data: MagicItem }
   | { type: 'lore'; data: PassageItem };
 
+const STORAGE_KEY_MODEL = 'crits_assistant_model';
+
 export function AssistantOracleModal({
   isOpen,
   onClose,
@@ -77,7 +111,15 @@ export function AssistantOracleModal({
   ]);
   const [inputQuery, setInputQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [activeModel, setActiveModel] = useState('qwen3.5:9b');
+  const [activeModel, setActiveModel] = useState<string>(() => {
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY_MODEL);
+        if (saved) return saved;
+      } catch {}
+    }
+    return 'qwen3.5:9b';
+  });
 
   // Knowledge passage modal state
   const [selectedPassage, setSelectedPassage] = useState<PassageItem | null>(null);
@@ -92,15 +134,38 @@ export function AssistantOracleModal({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
 
-  // Fetch active model config on mount
+  // Fetch active model config on mount or sync persisted model choice
   useEffect(() => {
     if (isOpen) {
-      fetch('/api/assistant/config')
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.activeModel) setActiveModel(data.activeModel);
-        })
-        .catch(() => {});
+      let savedModel: string | null = null;
+      if (typeof localStorage !== 'undefined') {
+        try {
+          savedModel = localStorage.getItem(STORAGE_KEY_MODEL);
+        } catch {}
+      }
+
+      if (savedModel) {
+        setActiveModel(savedModel);
+        fetch('/api/assistant/config', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ activeModel: savedModel }),
+        }).catch(() => {});
+      } else {
+        fetch('/api/assistant/config')
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.activeModel) {
+              setActiveModel(data.activeModel);
+              if (typeof localStorage !== 'undefined') {
+                try {
+                  localStorage.setItem(STORAGE_KEY_MODEL, data.activeModel);
+                } catch {}
+              }
+            }
+          })
+          .catch(() => {});
+      }
     }
   }, [isOpen]);
 
@@ -213,6 +278,11 @@ export function AssistantOracleModal({
   const handleModelChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newModel = e.target.value;
     setActiveModel(newModel);
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem(STORAGE_KEY_MODEL, newModel);
+      } catch {}
+    }
     try {
       await fetch('/api/assistant/config', {
         method: 'PUT',
@@ -364,10 +434,32 @@ export function AssistantOracleModal({
       });
 
       const data = await res.json();
+
+      let answerText = data.answer || 'No response received from the Oracle.';
+      let thinkingText = data.thinking || null;
+
+      // Failsafe: if answerText contains <think> tags, extract and clean them
+      if (answerText.includes('<think>')) {
+        const closedMatch = answerText.match(/<think>([\s\S]*?)<\/think>/i);
+        if (closedMatch) {
+          const extracted = closedMatch[1].trim();
+          thinkingText = thinkingText ? `${thinkingText}\n\n${extracted}` : extracted;
+          answerText = answerText.replace(/<think>[\s\S]*?<\/think>/i, '').trim();
+        } else {
+          const unclosedMatch = answerText.match(/<think>([\s\S]*)$/i);
+          if (unclosedMatch) {
+            const extracted = unclosedMatch[1].trim();
+            thinkingText = thinkingText ? `${thinkingText}\n\n${extracted}` : extracted;
+            answerText = answerText.replace(/<think>[\s\S]*$/i, '').trim();
+          }
+        }
+      }
+
       const oracleMessage: Message = {
         id: `oracle-${Date.now()}`,
         sender: 'oracle',
-        text: data.answer || 'No response received from the Oracle.',
+        text: answerText || '*(The model completed its thought process. Expand "Thought Process" above to view its reasoning.)*',
+        thinking: thinkingText,
         passages: data.passages,
         toolCalls: data.toolCalls,
         modelUsed: data.modelUsed || activeModel,
@@ -527,6 +619,56 @@ export function AssistantOracleModal({
                 <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{msg.text}</p>
               ) : (
                 <>
+                  {/* Collapsed Thought Process Disclosure */}
+                  {msg.thinking && (
+                    <details
+                      className="oracle-thoughts-disclosure"
+                      style={{
+                        marginBottom: '0.75rem',
+                        fontSize: '0.85rem',
+                        background: '#161616',
+                        padding: '0.4rem 0.6rem',
+                        borderRadius: '4px',
+                        border: '1px solid #333',
+                      }}
+                    >
+                      <summary
+                        style={{
+                          cursor: 'pointer',
+                          fontWeight: 600,
+                          color: '#a0a0a0',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.4rem',
+                        }}
+                        aria-label="Oracle Thought Process"
+                      >
+                        <span>💭 Thought Process</span>
+                      </summary>
+                      <div
+                        tabIndex={0}
+                        role="region"
+                        aria-label="Expanded Thought Process"
+                        style={{
+                          marginTop: '0.5rem',
+                          padding: '0.5rem',
+                          background: '#0d0d0d',
+                          borderRadius: '4px',
+                          color: '#999',
+                          whiteSpace: 'pre-wrap',
+                          fontFamily: 'monospace',
+                          fontSize: '0.8rem',
+                          lineHeight: '1.45',
+                          maxHeight: '320px',
+                          overflowY: 'auto',
+                          border: '1px solid #222',
+                        }}
+                      >
+                        {msg.thinking}
+                      </div>
+                    </details>
+                  )}
+
                   <AssistantMarkdown content={msg.text} />
 
                   {/* Executed Tools Disclosure */}
@@ -545,11 +687,160 @@ export function AssistantOracleModal({
                         Authoritative Data Reads Executed ({msg.toolCalls.length})
                       </summary>
                       <ul style={{ margin: '0.5rem 0 0 1rem', padding: 0 }}>
-                        {msg.toolCalls.map((tc, idx) => (
-                          <li key={idx} style={{ marginBottom: '0.25rem' }}>
-                            <code>{tc.toolName}</code> with args <code>{JSON.stringify(tc.args)}</code>
-                          </li>
-                        ))}
+                        {msg.toolCalls.map((tc, idx) => {
+                          const isMapTool = tc.toolName === 'get_current_map';
+                          const mapResult =
+                            isMapTool && tc.result && typeof tc.result === 'object'
+                              ? (tc.result as MapToolResult)
+                              : null;
+
+                          return (
+                            <li key={idx} style={{ marginBottom: '0.5rem' }}>
+                              <div>
+                                <code>{tc.toolName}</code> with args <code>{JSON.stringify(tc.args)}</code>
+                              </div>
+                              {mapResult && mapResult.image && (
+                                <div
+                                  className="assistant-map-result-container"
+                                  style={{
+                                    marginTop: '0.4rem',
+                                    padding: '0.5rem',
+                                    background: '#121212',
+                                    borderRadius: '4px',
+                                    border: '1px solid #333',
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      fontWeight: 'bold',
+                                      marginBottom: '0.3rem',
+                                      color: '#66d9ef',
+                                    }}
+                                  >
+                                    Tactical Map: {mapResult.mapName || mapResult.encounterName || 'Current Encounter'}
+                                    {mapResult.grid
+                                      ? ` (${mapResult.grid.columns}x${mapResult.grid.rows} grid)`
+                                      : ''}
+                                  </div>
+                                  <div style={{ textAlign: 'center', marginBottom: '0.4rem' }}>
+                                    <img
+                                      src={mapResult.image}
+                                      alt={`Tactical combat map for ${mapResult.mapName || 'the encounter'} with character locations`}
+                                      style={{
+                                        maxWidth: '100%',
+                                        maxHeight: '360px',
+                                        objectFit: 'contain',
+                                        borderRadius: '4px',
+                                        border: '1px solid #444',
+                                        display: 'block',
+                                        margin: '0 auto',
+                                      }}
+                                    />
+                                  </div>
+                                  {mapResult.combatants && mapResult.combatants.length > 0 && (
+                                    <div style={{ marginTop: '0.4rem' }}>
+                                      <div
+                                        style={{
+                                          fontSize: '0.8rem',
+                                          fontWeight: 'bold',
+                                          color: '#bbb',
+                                          marginBottom: '0.2rem',
+                                        }}
+                                      >
+                                        Character Locations:
+                                      </div>
+                                      <div
+                                        tabIndex={0}
+                                        role="region"
+                                        aria-label={`Combatant coordinates table for ${mapResult.mapName || 'tactical map'}`}
+                                        style={{ overflowX: 'auto', outline: 'none' }}
+                                      >
+                                        <table
+                                          style={{
+                                            width: '100%',
+                                            borderCollapse: 'collapse',
+                                            fontSize: '0.78rem',
+                                            textAlign: 'left',
+                                          }}
+                                          aria-label={`Combatant coordinates on ${mapResult.mapName || 'tactical map'}`}
+                                        >
+                                          <thead>
+                                            <tr style={{ borderBottom: '1px solid #444', color: '#888' }}>
+                                              <th scope="col" style={{ padding: '2px 4px' }}>Name</th>
+                                              <th scope="col" style={{ padding: '2px 4px' }}>Team</th>
+                                              <th scope="col" style={{ padding: '2px 4px' }}>Cell</th>
+                                              <th scope="col" style={{ padding: '2px 4px' }}>HP</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {mapResult.combatants.map((c, cIdx) => (
+                                              <tr key={cIdx} style={{ borderBottom: '1px solid #282828' }}>
+                                                <td style={{ padding: '2px 4px', fontWeight: 'bold' }}>
+                                                  {c.name}
+                                                </td>
+                                                <td
+                                                  style={{
+                                                    padding: '2px 4px',
+                                                    color: c.team === 'Player' ? '#74c0fc' : '#ffa8a8',
+                                                  }}
+                                                >
+                                                  {c.team}
+                                                </td>
+                                                <td
+                                                  style={{
+                                                    padding: '2px 4px',
+                                                    fontFamily: 'monospace',
+                                                    fontWeight: 'bold',
+                                                  }}
+                                                >
+                                                  {c.cell}
+                                                </td>
+                                                <td style={{ padding: '2px 4px' }}>{c.hp || '—'}</td>
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      </div>
+                                    </div>
+                                  )}
+                                  {mapResult.unplacedCombatantsCount !== undefined && mapResult.unplacedCombatantsCount > 0 && (
+                                    <div
+                                      style={{
+                                        marginTop: '0.35rem',
+                                        fontSize: '0.75rem',
+                                        color: '#ced4da',
+                                        fontStyle: 'italic',
+                                      }}
+                                    >
+                                      {mapResult.unplacedCombatantsCount} combatant{mapResult.unplacedCombatantsCount > 1 ? 's' : ''} in encounter not yet placed on grid coordinates.
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                              {mapResult && mapResult.error && (
+                                <div
+                                  className="assistant-map-error-callout"
+                                  style={{
+                                    marginTop: '0.35rem',
+                                    padding: '0.4rem 0.6rem',
+                                    background: '#2b1616',
+                                    borderRadius: '4px',
+                                    border: '1px solid #ff6b6b',
+                                    color: '#ffc9c9',
+                                    fontSize: '0.8rem',
+                                  }}
+                                >
+                                  <strong>Map Unavailable:</strong> {mapResult.error}
+                                  {mapResult.hint && (
+                                    <div style={{ marginTop: '0.2rem', color: '#ffe066' }}>
+                                      {mapResult.hint}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </li>
+                          );
+                        })}
                       </ul>
                     </details>
                   )}

@@ -77,6 +77,7 @@ export async function benchmarkQuery({
           { role: 'user', content: query }
         ],
         stream: false,
+        keep_alive: config.keepAlive || '30m',
         options: { temperature: 0.2 }
       })
     });

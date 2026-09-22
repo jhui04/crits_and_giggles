@@ -17,7 +17,7 @@ if (!isMemory && !process.env.OVERRIDE_DB_PATH) {
   }
 }
 
-export const db = new Database(DB_PATH);
+export let db = new Database(DB_PATH);
 
 // Enable WAL mode for better concurrency
 db.pragma('journal_mode = WAL');
@@ -25,14 +25,25 @@ db.pragma('journal_mode = WAL');
 // Enable foreign keys
 db.pragma('foreign_keys = ON');
 
-export function initDb() {
+export function setDb(newDb) {
+  try {
+    if (db && db.open) db.close();
+  } catch {}
+  db = newDb;
+  try {
+    db.pragma('foreign_keys = ON');
+  } catch {}
+  return db;
+}
+
+export function initDb(targetDb = db) {
   // We need to support multi-tenancy where multiple campaigns can have assets/chapters with the same "natural" ID (e.g. from a template)
   // To do this properly, we use composite primary keys (id, campaign_id).
   
   // For this prototype, if we are changing schema, we might need to drop tables.
   // We'll try to do it safely but since it's a major change, we'll just ensure they are created correctly.
   
-  db.exec(`
+  targetDb.exec(`
     CREATE TABLE IF NOT EXISTS worlds (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -183,61 +194,61 @@ export function initDb() {
 
   // Migration for existing tables:
   try {
-    db.exec('ALTER TABLE campaigns ADD COLUMN world_id TEXT;');
+    targetDb.exec('ALTER TABLE campaigns ADD COLUMN world_id TEXT;');
   } catch (e) {
     // Column already exists, ignore
   }
 
   try {
-    db.exec('ALTER TABLE assets ADD COLUMN world_asset_id TEXT;');
+    targetDb.exec('ALTER TABLE assets ADD COLUMN world_asset_id TEXT;');
   } catch (e) {
     // Column already exists, ignore
   }
 
   try {
-    db.exec('ALTER TABLE encounters ADD COLUMN running_state TEXT;');
+    targetDb.exec('ALTER TABLE encounters ADD COLUMN running_state TEXT;');
   } catch (e) {
     // Column already exists, ignore
   }
 
   try {
-    db.exec('ALTER TABLE encounters ADD COLUMN dm_map_url TEXT;');
+    targetDb.exec('ALTER TABLE encounters ADD COLUMN dm_map_url TEXT;');
   } catch (e) {
     // Column already exists, ignore
   }
 
   try {
-    db.exec('ALTER TABLE encounters ADD COLUMN player_map_url TEXT;');
+    targetDb.exec('ALTER TABLE encounters ADD COLUMN player_map_url TEXT;');
   } catch (e) {
     // Column already exists, ignore
   }
 
   try {
-    db.exec('ALTER TABLE encounters ADD COLUMN map_size TEXT;');
+    targetDb.exec('ALTER TABLE encounters ADD COLUMN map_size TEXT;');
   } catch (e) {
     // Column already exists, ignore
   }
 
   try {
-    db.exec('ALTER TABLE encounters ADD COLUMN grid_config TEXT;');
+    targetDb.exec('ALTER TABLE encounters ADD COLUMN grid_config TEXT;');
   } catch (e) {
     // Column already exists, ignore
   }
 
   try {
-    db.exec('ALTER TABLE encounter_units ADD COLUMN position_x INTEGER;');
+    targetDb.exec('ALTER TABLE encounter_units ADD COLUMN position_x INTEGER;');
   } catch (e) {
     // Column already exists, ignore
   }
 
   try {
-    db.exec('ALTER TABLE encounter_units ADD COLUMN position_y INTEGER;');
+    targetDb.exec('ALTER TABLE encounter_units ADD COLUMN position_y INTEGER;');
   } catch (e) {
     // Column already exists, ignore
   }
 
   try {
-    db.exec('ALTER TABLE encounter_units ADD COLUMN phase INTEGER DEFAULT 1;');
+    targetDb.exec('ALTER TABLE encounter_units ADD COLUMN phase INTEGER DEFAULT 1;');
   } catch (e) {
     // Column already exists, ignore
   }

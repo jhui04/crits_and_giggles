@@ -10,6 +10,11 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "benchmark": "node scripts/benchmark-llm.js",
+    "seed:eval": "node tools/seed_eval_db.js",
+    "eval": "node server/evals/run_evals.js",
+    "eval:bonus": "node server/evals/run_evals.js --bonus",
+    "eval:mock": "node server/evals/run_evals.js --mock --bonus",
+    "test:eval": "vitest run -c vitest.eval.config.ts",
     "test": "npm run build && npx vitest run && npx playwright test"
   },
   "dependencies": {
@@ -21,7 +26,8 @@
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "sharp": "^0.35.4"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.11.3",

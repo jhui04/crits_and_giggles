@@ -27,6 +27,7 @@ export default defineConfig({
   },
   test: {
     include: ['src/**/*.test.{ts,tsx}', 'server/**/*.test.js'],
+    exclude: ['**/node_modules/**', '**/dist/**', 'server/evals/**'],
     testTimeout: 20000,
   },
 })

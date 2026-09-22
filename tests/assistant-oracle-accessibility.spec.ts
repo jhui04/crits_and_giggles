@@ -204,6 +204,21 @@ test.describe('Assistant Oracle Accessibility & Interaction', () => {
     // Verify accessible state with Axe
     await checkA11y(page, 'Assistant Oracle with Llama 3 selected');
 
+    // Close modal via Escape
+    await page.keyboard.press('Escape');
+    await expect(modal).not.toBeVisible();
+
+    // Verify localStorage has persisted the model selection
+    const persistedModel = await page.evaluate(() => localStorage.getItem('crits_assistant_model'));
+    expect(persistedModel).toBe('llama3');
+
+    // Reopen modal and verify the model choice remains persisted
+    const openBtn = page.getByRole('button', { name: 'Open Assistant Oracle (Alt+A)' });
+    await openBtn.click();
+    await expect(modal).toBeVisible();
+    await expect(modelSelect).toHaveValue('llama3');
+    await expect(modelSelect).toHaveAttribute('aria-label', 'Current Model: Llama 3 (8B)');
+
     // Switch back to primary 9B model
     await modelSelect.selectOption('qwen3.5:9b');
     await expect(modelSelect).toHaveValue('qwen3.5:9b');
@@ -471,6 +486,145 @@ test.describe('Assistant Oracle Accessibility & Interaction', () => {
 
     // Run Axe scan on tool disclosure
     await checkA11y(page, 'Assistant Oracle with chapter reading tools disclosure');
+
+    await page.keyboard.press('Escape');
+    await expect(modal).not.toBeVisible();
+  });
+
+  test('Renders get_current_map tool execution with annotated map image and accessible combatant coordinate table', async ({ page }) => {
+    // Intercept chat API returning get_current_map tool execution with image and coordinates
+    await page.route('**/api/assistant/chat', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          answer: 'Here is the tactical map for Palma Flora. Grog Strongjaw is holding the line at cell M9, and the Sahuagin Raider is positioned at cell P9.',
+          passages: [],
+          toolCalls: [
+            {
+              toolName: 'get_current_map',
+              args: { include_combatants: true },
+              result: {
+                success: true,
+                encounterId: 'enc-palma-flora',
+                encounterName: 'Palma Flora Ambush',
+                mapName: 'Palma Flora Ambush',
+                grid: { columns: 33, rows: 21 },
+                combatantsCount: 2,
+                combatants: [
+                  { name: 'Grog Strongjaw', team: 'Player', cell: 'M9', hp: '68/68' },
+                  { name: 'Sahuagin Raider', team: 'Monster/Enemy', cell: 'P9', hp: '22/22' },
+                ],
+                // 1x1 valid red PNG pixel data URI for testing
+                image: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+                imageAttached: true,
+              },
+            },
+          ],
+          modelUsed: 'qwen3.5:9b',
+        }),
+      });
+    });
+
+    await page.keyboard.press('Alt+a');
+    const modal = page.locator('[role="dialog"][aria-labelledby="assistant-oracle-title"]');
+    await expect(modal).toBeVisible();
+
+    const chatInput = page.locator('#assistant-oracle-input');
+    await chatInput.fill('Show me the combat map with everyone positions');
+    await modal.getByRole('button', { name: 'Ask' }).click();
+
+    const logRegion = modal.locator('[role="log"][aria-label="Assistant Oracle Conversation History"]');
+    const oracleResponses = logRegion.locator('article.oracle-message');
+    await expect(oracleResponses.last()).toBeVisible();
+
+    // Verify tool execution disclosure appears
+    const toolDisclosure = modal.locator('details').filter({ hasText: 'Authoritative Data Reads Executed (1)' });
+    await expect(toolDisclosure).toBeVisible();
+
+    // Open disclosure
+    await toolDisclosure.locator('summary').click();
+
+    // Verify get_current_map tool execution and map details
+    await expect(toolDisclosure).toContainText('get_current_map');
+    await expect(toolDisclosure).toContainText('Tactical Map: Palma Flora Ambush (33x21 grid)');
+
+    // Verify map image has accessible alt text and is visible
+    const mapImg = toolDisclosure.locator('img[alt="Tactical combat map for Palma Flora Ambush with character locations"]');
+    await expect(mapImg).toBeVisible();
+
+    // Verify accessible combatant locations table
+    const table = toolDisclosure.locator('table[aria-label="Combatant coordinates on Palma Flora Ambush"]');
+    await expect(table).toBeVisible();
+    await expect(table).toContainText('Grog Strongjaw');
+    await expect(table).toContainText('Player');
+    await expect(table).toContainText('M9');
+    await expect(table).toContainText('Sahuagin Raider');
+    await expect(table).toContainText('Monster/Enemy');
+    await expect(table).toContainText('P9');
+
+    // Strict Axe accessibility verification
+    await checkA11y(page, 'Assistant Oracle with Tactical Map Preview and Combatant Locations');
+
+    await page.keyboard.press('Escape');
+    await expect(modal).not.toBeVisible();
+  });
+
+  test('Model thought process is rendered in an accessible, collapsed disclosure with only final answer in the main log', async ({ page }) => {
+    // Mock assistant chat response with both thinking and final answer
+    await page.route('**/api/assistant/chat', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          answer: 'Fireball is a 3rd-level evocation spell that deals 8d6 fire damage.',
+          thinking: 'User is asking about Fireball.\n1. Verify spell level: 3rd level evocation.\n2. Verify damage: 8d6 fire damage on failed Dexterity save.\n3. Formulate clear final response.',
+          passages: [],
+          toolCalls: [],
+          modelUsed: 'qwen3.5:9b',
+        }),
+      });
+    });
+
+    await page.keyboard.press('Alt+a');
+    const modal = page.locator('[role="dialog"][aria-labelledby="assistant-oracle-title"]');
+    await expect(modal).toBeVisible();
+
+    const chatInput = page.locator('#assistant-oracle-input');
+    await chatInput.fill('Tell me about Fireball');
+    await modal.getByRole('button', { name: 'Ask' }).click();
+
+    const logRegion = modal.locator('[role="log"][aria-label="Assistant Oracle Conversation History"]');
+    const oracleResponses = logRegion.locator('article.oracle-message');
+    await expect(oracleResponses.last()).toBeVisible();
+
+    const lastMessage = oracleResponses.last();
+
+    // 1. Verify main log contains the final answer
+    await expect(lastMessage).toContainText('Fireball is a 3rd-level evocation spell that deals 8d6 fire damage.');
+
+    // 2. Verify thoughts disclosure is present and collapsed by default
+    const thoughtsDisclosure = lastMessage.locator('details.oracle-thoughts-disclosure');
+    await expect(thoughtsDisclosure).toBeVisible();
+    await expect(thoughtsDisclosure).not.toHaveAttribute('open', '');
+
+    // Verify summary accessibility
+    const summary = thoughtsDisclosure.locator('summary');
+    await expect(summary).toHaveAttribute('aria-label', 'Oracle Thought Process');
+    await expect(summary).toContainText('Thought Process');
+
+    // 3. Open the disclosure
+    await summary.click();
+    await expect(thoughtsDisclosure).toHaveAttribute('open', '');
+
+    // 4. Verify thought process contents and accessible region
+    const thoughtRegion = thoughtsDisclosure.locator('[role="region"][aria-label="Expanded Thought Process"]');
+    await expect(thoughtRegion).toBeVisible();
+    await expect(thoughtRegion).toContainText('Verify spell level: 3rd level evocation');
+    await expect(thoughtRegion).toHaveAttribute('tabindex', '0');
+
+    // 5. Verify Axe scan passes with expanded thoughts disclosure
+    await checkA11y(page, 'Assistant Oracle with Collapsed Thought Process');
 
     await page.keyboard.press('Escape');
     await expect(modal).not.toBeVisible();

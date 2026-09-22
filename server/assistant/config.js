@@ -13,6 +13,9 @@ export const DEFAULT_CONFIG = {
   maxContextTokens: 8192,
   topKPassages: 3,
   maxToolIterations: 20,
+  keepAlive: process.env.OLLAMA_KEEP_ALIVE || '30m',
+  maxTokens: parseInt(process.env.LLM_MAX_TOKENS, 10) || 4096,
+  numCtx: parseInt(process.env.LLM_NUM_CTX, 10) || 16384,
 };
 
 // Disallowed models: explicitly exclude 26B, 32B, 35B, 70B models which exceed 8GB VRAM budget
@@ -100,6 +103,15 @@ export function setConfig(newConfig = {}) {
   }
   if (newConfig.maxToolIterations !== undefined) {
     currentConfig.maxToolIterations = Math.min(Math.max(Number(newConfig.maxToolIterations) || 20, 1), 50);
+  }
+  if (newConfig.keepAlive !== undefined) {
+    currentConfig.keepAlive = String(newConfig.keepAlive).trim();
+  }
+  if (newConfig.maxTokens !== undefined) {
+    currentConfig.maxTokens = Math.max(Number(newConfig.maxTokens) || 4096, 512);
+  }
+  if (newConfig.numCtx !== undefined) {
+    currentConfig.numCtx = Math.max(Number(newConfig.numCtx) || 16384, 2048);
   }
 
   return getConfig();

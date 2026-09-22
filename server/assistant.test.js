@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import request from 'supertest';
 import { app } from './index.js';
 import { db } from './db.js';
@@ -6,7 +6,8 @@ import { validateModel, getConfig, setConfig, resetConfig } from './assistant/co
 import { computeLocalEmbedding, cosineSimilarity } from './assistant/embedder.js';
 import { upsertVectorChunk, searchVectorStore, indexSrdAndJsonData, indexCampaignLore, invalidateVectorCache, chunkMarkdownChapter } from './assistant/vectorStore.js';
 import { computeSemanticEmbeddingsBatch } from './assistant/embedder.js';
-import { ASSISTANT_TOOLS, validateToolCall, executeTool, getToolAuditLog, clearToolAuditLog, parseChapterOutline, resolveChapter } from './assistant/toolController.js';
+import fs from 'fs';
+import { ASSISTANT_TOOLS, validateToolCall, executeTool, getToolAuditLog, clearToolAuditLog, parseChapterOutline, resolveChapter, columnIndexToLabel, coordinateToLabel, resolveMapFilePath, getMapGridData, escapeXml } from './assistant/toolController.js';
 import { getAuthoritativeGameState, buildChatMessages, estimateTokenCount } from './assistant/contextBuilder.js';
 import { handleAssistantChat } from './assistant/orchestrator.js';
 import { benchmarkQuery } from './assistant/benchmark.js';
@@ -43,6 +44,109 @@ describe('Epic 1: Local LLM Infrastructure & Abstraction', () => {
         .send({ maxToolIterations: 15 });
       expect(updateRes.status).toBe(200);
       expect(updateRes.body.maxToolIterations).toBe(15);
+    });
+
+    it('defaults Ollama model keepAlive duration to 30m and allows configuration', async () => {
+      const config = getConfig();
+      expect(config.keepAlive).toBe('30m');
+
+      const res = await request(app).get('/api/assistant/config');
+      expect(res.status).toBe(200);
+      expect(res.body.keepAlive).toBe('30m');
+
+      const updateRes = await request(app)
+        .put('/api/assistant/config')
+        .send({ keepAlive: '45m' });
+      expect(updateRes.status).toBe(200);
+      expect(updateRes.body.keepAlive).toBe('45m');
+
+      // Reset
+      await request(app)
+        .put('/api/assistant/config')
+        .send({ keepAlive: '30m' });
+    });
+
+    it('sends keep_alive: "30m" in callOllamaNativeChat payload to keep models in memory for 30 minutes', async () => {
+      const { callOllamaNativeChat } = await import('./assistant/llmClient.js');
+      const originalFetch = globalThis.fetch;
+      let capturedPayload = null;
+
+      globalThis.fetch = vi.fn().mockImplementation(async (url, opts) => {
+        capturedPayload = JSON.parse(opts.body);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            message: { role: 'assistant', content: 'Test response' },
+            done_reason: 'stop',
+          }),
+        };
+      });
+
+      try {
+        await callOllamaNativeChat({
+          baseURL: 'http://localhost:11434/v1',
+          model: 'qwen3.5:9b',
+          messages: [{ role: 'user', content: 'Hello' }],
+        });
+
+        expect(capturedPayload).toBeDefined();
+        expect(capturedPayload.keep_alive).toBe('30m');
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it('sends num_predict: 4096 and num_ctx: 16384 in callOllamaNativeChat options to prevent output truncation', async () => {
+      const { callOllamaNativeChat } = await import('./assistant/llmClient.js');
+      const originalFetch = globalThis.fetch;
+      let capturedPayload = null;
+
+      globalThis.fetch = vi.fn().mockImplementation(async (url, opts) => {
+        capturedPayload = JSON.parse(opts.body);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            message: { role: 'assistant', content: 'Test response' },
+            done_reason: 'stop',
+          }),
+        };
+      });
+
+      try {
+        await callOllamaNativeChat({
+          baseURL: 'http://localhost:11434/v1',
+          model: 'qwen3.5:9b',
+          messages: [{ role: 'user', content: 'Hello' }],
+        });
+
+        expect(capturedPayload).toBeDefined();
+        expect(capturedPayload.options).toBeDefined();
+        expect(capturedPayload.options.num_predict).toBe(4096);
+        expect(capturedPayload.options.num_ctx).toBe(16384);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it('robustly separates native thinking and inline <think> tags from final response content', async () => {
+      const { separateThinkingAndContent } = await import('./assistant/llmClient.js');
+
+      // Case 1: Native thinking property
+      const case1 = separateThinkingAndContent('Final answer.', 'Step 1: analyze.\nStep 2: compute.');
+      expect(case1.thinking).toBe('Step 1: analyze.\nStep 2: compute.');
+      expect(case1.content).toBe('Final answer.');
+
+      // Case 2: Closed <think> tag inside content
+      const case2 = separateThinkingAndContent('<think>Internal thoughts about fire damage</think>Fireball deals 8d6 fire damage.');
+      expect(case2.thinking).toBe('Internal thoughts about fire damage');
+      expect(case2.content).toBe('Fireball deals 8d6 fire damage.');
+
+      // Case 3: Unclosed <think> tag (truncated generation)
+      const case3 = separateThinkingAndContent('<think>Unfinished thoughts cut off by token limit');
+      expect(case3.thinking).toBe('Unfinished thoughts cut off by token limit');
+      expect(case3.content).toBe('');
     });
   });
 
@@ -1050,6 +1154,485 @@ describe('Iteration 4: LLM Telemetry & Benchmarking', () => {
 
       rows = db.prepare('SELECT id FROM vector_chunks WHERE campaign_id = ?').all(campId);
       expect(rows).toHaveLength(0);
+    });
+  });
+
+  describe('Multimodal Map Tool & Visual Tactical Inspection (get_current_map)', () => {
+    it('declares get_current_map in ASSISTANT_TOOLS with proper parameters and omits empty required array', () => {
+      const tool = ASSISTANT_TOOLS.find((t) => t.function.name === 'get_current_map');
+      expect(tool).toBeDefined();
+      expect(tool.function.description).toContain('tactical layout');
+      expect(tool.function.parameters.properties.include_combatants).toBeDefined();
+      expect(tool.function.parameters.properties.version).toBeDefined();
+      // Important for Ollama compatibility: no empty required array
+      expect(tool.function.parameters.required).toBeUndefined();
+    });
+
+    it('instructs the LLM in TOOL SELECTION STRATEGY to use get_current_map for spatial and tactical queries', () => {
+      const { buildChatMessages } = require('./assistant/contextBuilder.js');
+      const { messages } = buildChatMessages({ query: 'Where are the characters on the map?' });
+      const systemMessage = messages.find((m) => m.role === 'system');
+      expect(systemMessage.content).toContain('For SPATIAL, TACTICAL, or MAP queries');
+      expect(systemMessage.content).toContain('use the get_current_map tool');
+    });
+
+    it('correctly maps column index and grid coordinates to D&D cell notation', () => {
+      expect(columnIndexToLabel(0)).toBe('A');
+      expect(columnIndexToLabel(25)).toBe('Z');
+      expect(columnIndexToLabel(26)).toBe('AA');
+      expect(columnIndexToLabel(27)).toBe('AB');
+
+      expect(coordinateToLabel(0, 0)).toBe('A1');
+      expect(coordinateToLabel(12, 7)).toBe('M8');
+      expect(coordinateToLabel(22, 3)).toBe('W4');
+    });
+
+    it('resolves map image files and retrieves grid configurations', () => {
+      const resolved = resolveMapFilePath('/maps/5.1-palma-flora-player.png');
+      expect(resolved).toBeTruthy();
+      expect(fs.existsSync(resolved)).toBe(true);
+
+      const gridData = getMapGridData('/maps/5.1-palma-flora-player.png');
+      expect(gridData.columns).toBe(33);
+      expect(gridData.rows).toBe(21);
+      expect(gridData.cellPitch).toBe(74);
+    });
+
+    it('executes get_current_map and returns structured locations with composited image', async () => {
+      const campId = 'camp-map-test';
+      const encId = 'enc-palma-flora-tactical';
+
+      db.prepare('INSERT OR REPLACE INTO campaigns (id, name, description) VALUES (?, ?, ?)').run(
+        campId,
+        'Palma Flora Expedition',
+        'Campaign with tactical map'
+      );
+
+      const runningState = {
+        isCombatStarted: true,
+        round: 2,
+        turnIndex: 0,
+        combatants: [
+          {
+            instanceId: 'c-grog',
+            name: 'Grog Strongjaw',
+            currentHp: 68,
+            maxHp: 68,
+            initiative: 14,
+            isPlayer: true,
+            position: { x: 12, y: 8 },
+            conditions: [],
+          },
+          {
+            instanceId: 'c-sahuagin-1',
+            name: 'Sahuagin Raider',
+            currentHp: 22,
+            maxHp: 22,
+            initiative: 11,
+            isPlayer: false,
+            position: { x: 15, y: 8 },
+            conditions: ['Poisoned'],
+          },
+        ],
+      };
+
+      db.prepare(
+        `INSERT OR REPLACE INTO encounters (id, campaign_id, name, running_state, dm_map_url, player_map_url, map_size)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        encId,
+        campId,
+        'Palma Flora Shoreline Ambush',
+        JSON.stringify(runningState),
+        '/maps/5.1-palma-flora.png',
+        '/maps/5.1-palma-flora-player.png',
+        JSON.stringify({ width: 33, height: 21 })
+      );
+
+      const result = await executeTool(
+        'get_current_map',
+        { include_combatants: true, version: 'dm' },
+        { campaignId: campId, encounterId: encId }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.encounterId).toBe(encId);
+      expect(result.mapName).toBe('Palma Flora Shoreline Ambush');
+      expect(result.mapUrl).toBe('/maps/5.1-palma-flora.png');
+      expect(result.version).toBe('dm');
+      expect(result.combatantsCount).toBe(2);
+
+      // Verify character locations
+      const grog = result.combatants.find((c) => c.name === 'Grog Strongjaw');
+      expect(grog).toBeDefined();
+      expect(grog.team).toBe('Player');
+      expect(grog.cell).toBe('M9'); // x: 12 -> M, y: 8 -> 9
+      expect(grog.coordinates).toEqual({ x: 12, y: 8 });
+
+      const sahuagin = result.combatants.find((c) => c.name === 'Sahuagin Raider');
+      expect(sahuagin).toBeDefined();
+      expect(sahuagin.team).toBe('Monster/Enemy');
+      expect(sahuagin.cell).toBe('P9'); // x: 15 -> P, y: 8 -> 9
+      expect(sahuagin.coordinates).toEqual({ x: 15, y: 8 });
+
+      // Verify image data URI
+      expect(result.imageAttached).toBe(true);
+      expect(result.image).toMatch(/^data:image\/png;base64,[A-Za-z0-9+/=]+/);
+      expect(result.image.length).toBeGreaterThan(10000);
+    });
+
+    it('supports player map version when requested', async () => {
+      const campId = 'camp-map-test';
+      const encId = 'enc-palma-flora-tactical';
+
+      const result = await executeTool(
+        'get_current_map',
+        { version: 'player' },
+        { campaignId: campId, encounterId: encId }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.mapUrl).toBe('/maps/5.1-palma-flora-player.png');
+      expect(result.version).toBe('player');
+    });
+
+    it('supports include_combatants: false to retrieve an unannotated clean map', async () => {
+      const campId = 'camp-map-test';
+      const encId = 'enc-palma-flora-tactical';
+
+      const result = await executeTool(
+        'get_current_map',
+        { include_combatants: false },
+        { campaignId: campId, encounterId: encId }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.combatants).toEqual([]);
+      expect(result.imageAttached).toBe(true);
+      expect(result.image).toMatch(/^data:image\/png;base64,/);
+    });
+
+    it('returns helpful guidance when encounter has no map configured', async () => {
+      const campId = 'camp-no-map';
+      const encId = 'enc-theater-of-mind';
+
+      db.prepare('INSERT OR REPLACE INTO campaigns (id, name, description) VALUES (?, ?, ?)').run(
+        campId,
+        'No Map Campaign',
+        'Theater of mind'
+      );
+      db.prepare(
+        'INSERT OR REPLACE INTO encounters (id, campaign_id, name, running_state) VALUES (?, ?, ?, ?)'
+      ).run(encId, campId, 'Tavern Discussion', JSON.stringify({ combatants: [] }));
+
+      const result = await executeTool(
+        'get_current_map',
+        {},
+        { campaignId: campId, encounterId: encId }
+      );
+
+      expect(result.error).toContain('No tactical map configured');
+      expect(result.hint).toContain('Encounter Builder');
+    });
+
+    it('handles null or missing HP values gracefully with ?/? fallback', async () => {
+      const campId = 'camp-null-hp';
+      const encId = 'enc-null-hp';
+
+      db.prepare('INSERT OR REPLACE INTO campaigns (id, name, description) VALUES (?, ?, ?)').run(
+        campId,
+        'Null HP Campaign',
+        'Testing combatants with undefined or null HP'
+      );
+
+      const runningState = {
+        combatants: [
+          {
+            instanceId: 'c-barrel-1',
+            name: 'Explosive Powder Keg',
+            isPlayer: false,
+            currentHp: null,
+            maxHp: undefined,
+            position: { x: 4, y: 4 },
+          },
+          {
+            instanceId: 'c-zero-hp',
+            name: 'Unconscious Guard',
+            isPlayer: true,
+            currentHp: 0,
+            maxHp: 20,
+            position: { x: 5, y: 4 },
+          },
+        ],
+      };
+
+      db.prepare(
+        `INSERT OR REPLACE INTO encounters (id, campaign_id, name, running_state, dm_map_url)
+         VALUES (?, ?, ?, ?, ?)`
+      ).run(
+        encId,
+        campId,
+        'Warehouse Hazard',
+        JSON.stringify(runningState),
+        '/maps/5.1-palma-flora.png'
+      );
+
+      const result = await executeTool(
+        'get_current_map',
+        { include_combatants: true },
+        { campaignId: campId, encounterId: encId }
+      );
+
+      expect(result.success).toBe(true);
+      const keg = result.combatants.find((c) => c.name === 'Explosive Powder Keg');
+      expect(keg).toBeDefined();
+      expect(keg.hp).toBe('?/?');
+
+      const guard = result.combatants.find((c) => c.name === 'Unconscious Guard');
+      expect(guard).toBeDefined();
+      expect(guard.hp).toBe('0/20');
+    });
+
+    it('cascades to global encounter with a map when target campaign only has mapless encounters', async () => {
+      const emptyMapCampId = 'camp-only-mapless';
+      const maplessEncId = 'enc-only-mapless';
+
+      db.prepare('INSERT OR REPLACE INTO campaigns (id, name, description) VALUES (?, ?, ?)').run(
+        emptyMapCampId,
+        'Only Mapless Campaign',
+        'Campaign with no tactical maps'
+      );
+      db.prepare(
+        'INSERT OR REPLACE INTO encounters (id, campaign_id, name, running_state) VALUES (?, ?, ?, ?)'
+      ).run(maplessEncId, emptyMapCampId, 'Mapless Encounter', JSON.stringify({ combatants: [] }));
+
+      // Pass campaignId that has only mapless encounters, without specifying encounterId
+      const result = await executeTool(
+        'get_current_map',
+        {},
+        { campaignId: emptyMapCampId }
+      );
+
+      // Should cascade past emptyMapCampId to global encounter with map (e.g. Palma Flora)
+      expect(result.success).toBe(true);
+      expect(result.mapUrl).toBeDefined();
+      expect(result.imageAttached).toBe(true);
+    });
+
+    it('formats multimodal messages in orchestrator without base64 text token explosion', async () => {
+      const campId = 'camp-map-test';
+      const encId = 'enc-palma-flora-tactical';
+
+      const llmClient = await import('./assistant/llmClient.js');
+      const spy = vi.spyOn(llmClient, 'executeChatCompletion');
+
+      spy.mockResolvedValueOnce({
+        response: {
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                tool_calls: [
+                  {
+                    id: 'call-map-123',
+                    function: {
+                      name: 'get_current_map',
+                      arguments: JSON.stringify({ include_combatants: true }),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+        modelUsed: 'qwen3.5:9b',
+      });
+
+      spy.mockResolvedValueOnce({
+        response: {
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'I see Grog Strongjaw at cell M9 and Sahuagin Raider at cell P9.',
+              },
+            },
+          ],
+        },
+        modelUsed: 'qwen3.5:9b',
+      });
+
+      try {
+        const chatResult = await handleAssistantChat({
+          query: 'Where is everyone located on the tactical map?',
+          campaignId: campId,
+          encounterId: encId,
+          mockResponse: false,
+        });
+
+        expect(chatResult.toolCalls).toHaveLength(1);
+        expect(chatResult.toolCalls[0].toolName).toBe('get_current_map');
+        expect(chatResult.toolCalls[0].result.imageAttached).toBe(true);
+        expect(chatResult.toolCalls[0].result.combatants).toHaveLength(2);
+        expect(chatResult.answer).toContain('Grog Strongjaw at cell M9');
+
+        // Verify the messages passed to the second turn:
+        expect(spy).toHaveBeenCalledTimes(2);
+        const secondTurnMessages = spy.mock.calls[1][0].messages;
+
+        // 1. Tool message must NOT have massive raw base64 string
+        const toolMsg = secondTurnMessages.find((m) => m.role === 'tool');
+        expect(toolMsg).toBeDefined();
+        expect(toolMsg.content).toContain('[Attached Visual Map Image');
+        expect(toolMsg.content).not.toContain('data:image/png;base64');
+
+        // 2. Multimodal message must contain vision parts for OpenAI and images array for Ollama
+        const visionMsg = secondTurnMessages.find((m) => m.role === 'user' && m.images);
+        expect(visionMsg).toBeDefined();
+        expect(visionMsg.images).toHaveLength(1);
+        expect(visionMsg.images[0].length).toBeGreaterThan(1000);
+        expect(visionMsg.content[1].type).toBe('image_url');
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('escapes XML special characters in combatant names to prevent sharp SVG parse crashes', async () => {
+      expect(escapeXml('M&M <Archer> "Boss" \'Sneak\'')).toBe(
+        'M&amp;M &lt;Archer&gt; &quot;Boss&quot; &apos;Sneak&apos;'
+      );
+
+      const campId = 'camp-xml-escape';
+      const encId = 'enc-xml-escape';
+
+      db.prepare('INSERT OR REPLACE INTO campaigns (id, name, description) VALUES (?, ?, ?)').run(
+        campId,
+        'XML Escape Campaign',
+        'Testing special characters in combatant names'
+      );
+
+      const runningState = {
+        combatants: [
+          {
+            instanceId: 'c-special-1',
+            name: 'Goblins & Wargs <Elite>',
+            isPlayer: false,
+            currentHp: 15,
+            maxHp: 15,
+            position: { x: 5, y: 5 },
+          },
+          {
+            instanceId: 'c-special-2',
+            name: 'Rogue "Dagger" O\'Connor',
+            isPlayer: true,
+            currentHp: 25,
+            maxHp: 25,
+            position: { x: 6, y: 5 },
+          },
+        ],
+      };
+
+      db.prepare(
+        `INSERT OR REPLACE INTO encounters (id, campaign_id, name, running_state, dm_map_url)
+         VALUES (?, ?, ?, ?, ?)`
+      ).run(
+        encId,
+        campId,
+        'Special Char Ambush',
+        JSON.stringify(runningState),
+        '/maps/5.1-palma-flora.png'
+      );
+
+      // Must execute cleanly without throwing XML parse error
+      const result = await executeTool(
+        'get_current_map',
+        { include_combatants: true },
+        { campaignId: campId, encounterId: encId }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.combatantsCount).toBe(2);
+      expect(result.imageAttached).toBe(true);
+    });
+
+    it('enforces that all tool responses precede multimodal user image attachments during parallel tool execution', async () => {
+      const campId = 'camp-map-test';
+      const encId = 'enc-palma-flora-tactical';
+
+      const llmClient = await import('./assistant/llmClient.js');
+      const spy = vi.spyOn(llmClient, 'executeChatCompletion');
+
+      // Model returns two tool calls at once: get_current_map AND get_monster_hp
+      spy.mockResolvedValueOnce({
+        response: {
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                tool_calls: [
+                  {
+                    id: 'call-map-1',
+                    function: {
+                      name: 'get_current_map',
+                      arguments: JSON.stringify({ include_combatants: true }),
+                    },
+                  },
+                  {
+                    id: 'call-hp-2',
+                    function: {
+                      name: 'get_monster_hp',
+                      arguments: JSON.stringify({ name_or_id: 'Sahuagin Raider' }),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+        modelUsed: 'qwen3.5:9b',
+      });
+
+      spy.mockResolvedValueOnce({
+        response: {
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'Sahuagin Raider has 22 HP and is located at cell P9.',
+              },
+            },
+          ],
+        },
+        modelUsed: 'qwen3.5:9b',
+      });
+
+      try {
+        const chatResult = await handleAssistantChat({
+          query: 'Show map and check Sahuagin HP',
+          campaignId: campId,
+          encounterId: encId,
+          mockResponse: false,
+        });
+
+        expect(chatResult.toolCalls).toHaveLength(2);
+
+        // Verify message sequencing in second turn:
+        // All role: 'tool' responses must appear immediately after assistant, BEFORE any user multimodal image
+        const secondTurnMessages = spy.mock.calls[1][0].messages;
+        const assistantIdx = secondTurnMessages.findIndex((m) => m.role === 'assistant' && m.tool_calls);
+        expect(assistantIdx).toBeGreaterThanOrEqual(0);
+
+        const toolMsg1 = secondTurnMessages[assistantIdx + 1];
+        const toolMsg2 = secondTurnMessages[assistantIdx + 2];
+        expect(toolMsg1.role).toBe('tool');
+        expect(toolMsg2.role).toBe('tool');
+
+        // Any multimodal user message must come strictly AFTER all tool messages
+        const multimodalUserIdx = secondTurnMessages.findIndex((m) => m.role === 'user' && m.images);
+        expect(multimodalUserIdx).toBeGreaterThan(assistantIdx + 2);
+      } finally {
+        spy.mockRestore();
+      }
     });
   });
 });

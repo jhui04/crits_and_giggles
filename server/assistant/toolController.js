@@ -1,12 +1,15 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import sharp from 'sharp';
 import { db } from '../db.js';
 import { searchVectorStore } from './vectorStore.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PUBLIC_DATA_DIR = path.resolve(__dirname, '../../public/data');
+const PUBLIC_MAPS_DIR = path.resolve(__dirname, '../../public/maps');
+const PUBLIC_DIR = path.resolve(__dirname, '../../public');
 
 // Cache static datasets
 let cachedSpells = null;
@@ -48,6 +51,243 @@ function getMagicItems() {
     }
   }
   return cachedMagicItems;
+}
+
+let cachedMapGrids = null;
+export function getMapGrids() {
+  if (!cachedMapGrids) {
+    const p = path.join(PUBLIC_DATA_DIR, 'map_grids.json');
+    if (fs.existsSync(p)) {
+      try {
+        cachedMapGrids = JSON.parse(fs.readFileSync(p, 'utf-8'));
+      } catch {
+        cachedMapGrids = {};
+      }
+    } else {
+      cachedMapGrids = {};
+    }
+  }
+  return cachedMapGrids;
+}
+
+/**
+ * Converts a 0-indexed column number to spreadsheet column letters.
+ * 0 -> A, 25 -> Z, 26 -> AA, etc.
+ */
+export function columnIndexToLabel(index) {
+  if (index < 0 || typeof index !== 'number') return '';
+  let label = '';
+  let num = index;
+  while (num >= 0) {
+    label = String.fromCharCode((num % 26) + 65) + label;
+    num = Math.floor(num / 26) - 1;
+  }
+  return label;
+}
+
+/**
+ * Converts a (x, y) coordinate into standard D&D grid cell label (e.g. "A1", "C4").
+ */
+export function coordinateToLabel(x, y) {
+  return `${columnIndexToLabel(x)}${y + 1}`;
+}
+
+/**
+ * Resolves a map URL to a local filesystem path.
+ */
+export function resolveMapFilePath(mapUrl) {
+  if (!mapUrl || typeof mapUrl !== 'string') return null;
+  const cleaned = mapUrl.split('?')[0].trim();
+  const basename = path.basename(cleaned);
+
+  // 1. Direct file in public/maps
+  const p1 = path.join(PUBLIC_MAPS_DIR, basename);
+  if (fs.existsSync(p1)) return p1;
+
+  // 2. Relative from public directory
+  const relPath = cleaned.replace(/^\/+/, '');
+  const p2 = path.join(PUBLIC_DIR, relPath);
+  if (fs.existsSync(p2)) return p2;
+
+  // 3. Absolute path or direct match
+  if (fs.existsSync(cleaned)) return cleaned;
+
+  return null;
+}
+
+/**
+ * Retrieves grid metadata (cell pitch, offsets, columns, rows) for a given map URL.
+ */
+export function getMapGridData(mapUrl, encounter = null) {
+  const mapGrids = getMapGrids();
+  if (mapUrl) {
+    const cleaned = mapUrl.split('?')[0].trim();
+    const basename = path.basename(cleaned);
+    const candidateKeys = [
+      cleaned,
+      `/maps/${basename}`,
+      `maps/${basename}`,
+      basename,
+      `/${basename}`,
+    ];
+
+    for (const key of candidateKeys) {
+      if (mapGrids[key]) {
+        return {
+          ...mapGrids[key],
+          columns: mapGrids[key].columns || 20,
+          rows: mapGrids[key].rows || 20,
+        };
+      }
+    }
+  }
+
+  // Fallback to encounter grid_config or map_size if available
+  let gridConfig = null;
+  let mapSize = null;
+  try {
+    if (encounter?.grid_config) {
+      gridConfig = typeof encounter.grid_config === 'string' ? JSON.parse(encounter.grid_config) : encounter.grid_config;
+    }
+    if (encounter?.map_size) {
+      mapSize = typeof encounter.map_size === 'string' ? JSON.parse(encounter.map_size) : encounter.map_size;
+    }
+  } catch {}
+
+  const columns = gridConfig?.columns || mapSize?.width || 20;
+  const rows = gridConfig?.rows || mapSize?.height || 20;
+  const cellPitch = gridConfig?.cellPitch || 50;
+  const offsetX = gridConfig?.offsetX || 0;
+  const offsetY = gridConfig?.offsetY || 0;
+
+  return {
+    columns,
+    rows,
+    cellPitch,
+    offsetX,
+    offsetY,
+    imageWidth: gridConfig?.imageWidth || columns * cellPitch,
+    imageHeight: gridConfig?.imageHeight || rows * cellPitch,
+  };
+}
+
+/**
+ * Escapes characters for safe inclusion in SVG XML text nodes and attributes.
+ */
+export function escapeXml(unsafe) {
+  if (unsafe === null || unsafe === undefined) return '';
+  return String(unsafe).replace(/[<>&'"]/g, (c) => {
+    switch (c) {
+      case '<':
+        return '&lt;';
+      case '>':
+        return '&gt;';
+      case '&':
+        return '&amp;';
+      case "'":
+        return '&apos;';
+      case '"':
+        return '&quot;';
+      default:
+        return c;
+    }
+  });
+}
+
+/**
+ * Composites SVG combatant tokens onto a base map image and produces an optimized PNG buffer.
+ */
+export async function generateAnnotatedMapImage({
+  imagePath,
+  gridData,
+  combatants = [],
+  includeCombatants = true,
+}) {
+  let metadata;
+  try {
+    metadata = await sharp(imagePath).metadata();
+  } catch (err) {
+    throw new Error(`Failed to read image metadata for "${imagePath}": ${err.message}`);
+  }
+
+  const width = metadata.width || gridData.imageWidth || 1000;
+  const height = metadata.height || gridData.imageHeight || 1000;
+
+  // If actual image dimensions differ from calibrated grid definition, scale pitch and offsets
+  const scale = gridData.imageWidth ? width / gridData.imageWidth : 1;
+
+  const cols = gridData.columns || 20;
+  const rawPitch = gridData.cellPitch || Math.floor(width / cols);
+  const cellPitch = rawPitch * scale;
+  const offsetX = (gridData.offsetX || 0) * scale;
+  const offsetY = (gridData.offsetY || 0) * scale;
+
+  const validCombatants = includeCombatants
+    ? combatants.filter((c) => c.position && typeof c.position.x === 'number' && typeof c.position.y === 'number')
+    : [];
+
+  let compositedBuffer;
+
+  if (validCombatants.length > 0) {
+    const tokenRadius = Math.max(14, Math.min(Math.floor(cellPitch * 0.42), 36));
+
+    const tokenSvgElements = validCombatants
+      .map((c, idx) => {
+        const cx = Math.round(offsetX + c.position.x * cellPitch + cellPitch / 2);
+        const cy = Math.round(offsetY + c.position.y * cellPitch + cellPitch / 2);
+        const isPlayer = !!c.isPlayer;
+        const fillColor = isPlayer ? '#0284c7' : '#e11d48';
+        const strokeColor = isPlayer ? '#bae6fd' : '#fecdd3';
+        const badgeColor = isPlayer ? '#0369a1' : '#be123c';
+        const initial = escapeXml((c.name || 'U').slice(0, 2).toUpperCase());
+        const coordLabel = coordinateToLabel(c.position.x, c.position.y);
+        const rawLabel = `${c.name} [${coordLabel}]`;
+        const displayLabel = rawLabel.length > 18 ? rawLabel.slice(0, 17) + '…' : rawLabel;
+        const escapedDisplayLabel = escapeXml(displayLabel);
+        const badgeWidth = Math.max(76, displayLabel.length * 8 + 12);
+
+        return `
+          <g id="token-${idx}">
+            <circle cx="${cx + 2}" cy="${cy + 2}" r="${tokenRadius}" fill="rgba(0,0,0,0.5)" />
+            <circle cx="${cx}" cy="${cy}" r="${tokenRadius}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="${Math.max(2, Math.floor(tokenRadius * 0.12))}" />
+            <text x="${cx}" y="${cy + Math.floor(tokenRadius * 0.35)}" font-family="Arial, sans-serif" font-size="${Math.floor(tokenRadius * 0.9)}" font-weight="bold" fill="#ffffff" text-anchor="middle">${initial}</text>
+            <rect x="${cx - Math.floor(badgeWidth / 2)}" y="${cy - tokenRadius - 22}" width="${badgeWidth}" height="20" rx="4" fill="${badgeColor}" fill-opacity="0.92" stroke="#ffffff" stroke-width="1.5" />
+            <text x="${cx}" y="${cy - tokenRadius - 8}" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#ffffff" text-anchor="middle">${escapedDisplayLabel}</text>
+          </g>
+        `;
+      })
+      .join('\n');
+
+    const svgOverlay = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+      ${tokenSvgElements}
+    </svg>`;
+
+    const pngOverlay = await sharp(Buffer.from(svgOverlay)).png().toBuffer();
+
+    compositedBuffer = await sharp(imagePath)
+      .composite([{ input: pngOverlay }])
+      .png()
+      .toBuffer();
+  } else {
+    compositedBuffer = await sharp(imagePath)
+      .png()
+      .toBuffer();
+  }
+
+  // Constrain max dimensions to 1024x1024 to optimize transfer speed & VRAM budget (<8GB VRAM)
+  const outputBuffer = await sharp(compositedBuffer)
+    .resize({ width: 1024, height: 1024, fit: 'inside', withoutEnlargement: true })
+    .png({ quality: 80, compressionLevel: 8 })
+    .toBuffer();
+
+  const base64 = outputBuffer.toString('base64');
+  return {
+    base64,
+    dataUri: `data:image/png;base64,${base64}`,
+    mimeType: 'image/png',
+    width,
+    height,
+  };
 }
 
 /**
@@ -478,6 +718,30 @@ export const ASSISTANT_TOOLS = [
           },
         },
         required: ['headingName'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_current_map',
+      description:
+        'Retrieve an image and tactical layout of the current combat encounter map, including character and monster grid locations, coordinates, and visual token markers.',
+      parameters: {
+        type: 'object',
+        properties: {
+          include_combatants: {
+            type: 'boolean',
+            description:
+              'Whether to include and visually annotate character and monster positions on the map. Defaults to true.',
+          },
+          version: {
+            type: 'string',
+            enum: ['dm', 'player'],
+            description:
+              'Whether to retrieve the DM version (with secret notes/room numbers) or Player version of the map. Defaults to "dm".',
+          },
+        },
       },
     },
   },
@@ -1498,6 +1762,179 @@ export async function executeTool(toolName, rawArgs, context = {}) {
           matchedHeading: targetHeading.heading,
           headingLevel: targetHeading.level,
           sectionContent: sectionText,
+        };
+        break;
+      }
+
+      case 'get_current_map': {
+        const includeCombatants = args.include_combatants !== false;
+        const requestedVersion = (args.version || 'dm').toLowerCase().trim();
+        const campaignId = context.campaignId;
+        const encounterId = context.encounterId;
+
+        // 1. Locate the active or target encounter
+        let encounter = null;
+        if (encounterId) {
+          encounter = db
+            .prepare(
+              'SELECT id, campaign_id, name, running_state, dm_map_url, player_map_url, map_size, grid_config FROM encounters WHERE id = ?'
+            )
+            .get(encounterId);
+        }
+
+        if (!encounter && campaignId) {
+          // Prefer encounter with active running state AND a map, then any with a map in this campaign
+          encounter = db
+            .prepare(
+              'SELECT id, campaign_id, name, running_state, dm_map_url, player_map_url, map_size, grid_config FROM encounters WHERE campaign_id = ? AND (dm_map_url IS NOT NULL OR player_map_url IS NOT NULL) ORDER BY (running_state IS NOT NULL) DESC, id LIMIT 1'
+            )
+            .get(campaignId);
+        }
+
+        if (!encounter) {
+          // Global fallback if no context provided
+          encounter = db
+            .prepare(
+              'SELECT id, campaign_id, name, running_state, dm_map_url, player_map_url, map_size, grid_config FROM encounters WHERE (dm_map_url IS NOT NULL OR player_map_url IS NOT NULL) ORDER BY (running_state IS NOT NULL) DESC, id LIMIT 1'
+            )
+            .get();
+        }
+
+        if (!encounter) {
+          result = {
+            error: 'No combat encounter found in active context.',
+            hint: 'No encounters exist in the current campaign. Create or load an encounter with a tactical map.',
+          };
+          break;
+        }
+
+        // 2. Select map URL based on requested version (dm vs player)
+        let selectedMapUrl = null;
+        let chosenVersion = requestedVersion;
+
+        if (requestedVersion === 'player') {
+          selectedMapUrl = encounter.player_map_url || encounter.dm_map_url;
+          if (!encounter.player_map_url && encounter.dm_map_url) {
+            chosenVersion = 'dm (fallback - no player map available)';
+          }
+        } else {
+          selectedMapUrl = encounter.dm_map_url || encounter.player_map_url;
+          if (!encounter.dm_map_url && encounter.player_map_url) {
+            chosenVersion = 'player (fallback - no DM map available)';
+          }
+        }
+
+        if (!selectedMapUrl) {
+          result = {
+            error: `No tactical map configured for encounter "${encounter.name}" (ID: ${encounter.id}).`,
+            hint: 'This encounter does not have a dmMapUrl or playerMapUrl assigned. Set a map in Encounter Builder or choose an encounter with a map.',
+            encounterId: encounter.id,
+            encounterName: encounter.name,
+          };
+          break;
+        }
+
+        // 3. Resolve map file on disk
+        const filePath = resolveMapFilePath(selectedMapUrl);
+        if (!filePath) {
+          result = {
+            error: `Map image file could not be found on disk for URL: "${selectedMapUrl}".`,
+            hint: 'Verify that the map file exists in the public/maps/ directory.',
+            encounterId: encounter.id,
+            encounterName: encounter.name,
+            mapUrl: selectedMapUrl,
+          };
+          break;
+        }
+
+        // 4. Retrieve Grid Configuration
+        const gridData = getMapGridData(selectedMapUrl, encounter);
+
+        // 5. Gather combatants and their positions
+        let allCombatants = [];
+        if (encounter.running_state) {
+          try {
+            const rs = JSON.parse(encounter.running_state);
+            if (Array.isArray(rs.combatants)) {
+              allCombatants = rs.combatants.map((c) => ({
+                instanceId: c.instanceId,
+                name: c.name || 'Unknown',
+                currentHp: c.currentHp,
+                maxHp: c.maxHp,
+                initiative: c.initiative,
+                isPlayer: !!c.isPlayer,
+                position: c.position || null,
+                conditions: c.conditions || [],
+              }));
+            }
+          } catch {}
+        }
+
+        if (allCombatants.length === 0) {
+          const units = db
+            .prepare(
+              'SELECT instanceId, name, currentHp, maxHp, initiative, isPlayer, position_x, position_y FROM encounter_units WHERE encounter_id = ?'
+            )
+            .all(encounter.id);
+          allCombatants = units.map((u) => ({
+            instanceId: u.instanceId,
+            name: u.name || 'Unknown',
+            currentHp: u.currentHp,
+            maxHp: u.maxHp,
+            initiative: u.initiative,
+            isPlayer: !!u.isPlayer,
+            position:
+              u.position_x !== null && u.position_y !== null
+                ? { x: u.position_x, y: u.position_y }
+                : null,
+            conditions: [],
+          }));
+        }
+
+        const combatantsWithPosition = allCombatants.filter(
+          (c) => c.position && typeof c.position.x === 'number' && typeof c.position.y === 'number'
+        );
+
+        // 6. Generate Annotated Map Image
+        const imageResult = await generateAnnotatedMapImage({
+          imagePath: filePath,
+          gridData,
+          combatants: combatantsWithPosition,
+          includeCombatants,
+        });
+
+        // 7. Format structured combatant locations
+        const formattedCombatants = includeCombatants
+          ? combatantsWithPosition.map((c) => ({
+              name: c.name,
+              instanceId: c.instanceId,
+              team: c.isPlayer ? 'Player' : 'Monster/Enemy',
+              coordinates: { x: c.position.x, y: c.position.y },
+              cell: coordinateToLabel(c.position.x, c.position.y),
+              hp: `${c.currentHp ?? '?'}/${c.maxHp ?? '?'}`,
+              conditions: c.conditions || [],
+            }))
+          : [];
+
+        result = {
+          success: true,
+          encounterId: encounter.id,
+          encounterName: encounter.name,
+          mapName: encounter.name,
+          mapUrl: selectedMapUrl,
+          version: chosenVersion,
+          grid: {
+            columns: gridData.columns,
+            rows: gridData.rows,
+            cellPitch: gridData.cellPitch,
+          },
+          combatantsCount: formattedCombatants.length,
+          unplacedCombatantsCount: allCombatants.length - combatantsWithPosition.length,
+          totalCombatantsInEncounter: allCombatants.length,
+          combatants: formattedCombatants,
+          image: imageResult.dataUri,
+          imageAttached: true,
+          mimeType: imageResult.mimeType,
         };
         break;
       }
