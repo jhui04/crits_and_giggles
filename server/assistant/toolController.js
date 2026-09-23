@@ -4,6 +4,23 @@ import { fileURLToPath } from 'url';
 import sharp from 'sharp';
 import { db } from '../db.js';
 import { searchVectorStore } from './vectorStore.js';
+import { hitlManager } from './hitlManager.js';
+import { projectHpApplication } from './combatHpUtils.js';
+import {
+  parseScenarioCombatants,
+  allocateTokenCoordinates,
+  formatPhaseLabel,
+  findMonster,
+} from './combatantParser.js';
+import {
+  columnIndexToLabel,
+  coordinateToLabel,
+  columnLabelToIndex,
+  labelToCoordinate,
+  calculateDistance,
+  resolveRegionName,
+  calculateAdjacencies,
+} from './gridUtils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -41,6 +58,29 @@ function getMonsters() {
   return cachedMonsters;
 }
 
+// Exact id/name -> monster lookup map, built once from the (already cached)
+// monster list, so callers that just need an exact match (e.g. attaching a
+// stat block to a live combatant by monsterId) don't linearly scan all ~800
+// monsters. Fuzzy/substring lookups still need a full scan and are
+// unaffected.
+let cachedMonsterLookup = null;
+function getMonsterLookup() {
+  const monsters = getMonsters();
+  if (cachedMonsterLookup && cachedMonsterLookup.source === monsters) {
+    return cachedMonsterLookup.map;
+  }
+  const map = new Map();
+  for (const m of monsters) {
+    if (m.id !== undefined && m.id !== null) map.set(String(m.id).toLowerCase(), m);
+    if (m.name) {
+      const key = m.name.toLowerCase();
+      if (!map.has(key)) map.set(key, m);
+    }
+  }
+  cachedMonsterLookup = { source: monsters, map };
+  return map;
+}
+
 function getMagicItems() {
   if (!cachedMagicItems) {
     const p = path.join(PUBLIC_DATA_DIR, 'magic_items.json');
@@ -71,26 +111,249 @@ export function getMapGrids() {
 }
 
 /**
- * Converts a 0-indexed column number to spreadsheet column letters.
- * 0 -> A, 25 -> Z, 26 -> AA, etc.
+ * Resolves the target encounter for a write tool call, given explicit args and
+ * conversation context. Never reaches outside a known campaign: once
+ * `context.campaignId` is known, only encounters belonging to that campaign are
+ * considered. The "first encounter in the whole DB" fallback is used only when
+ * no campaign is known at all (e.g. isolated tool tests).
  */
-export function columnIndexToLabel(index) {
-  if (index < 0 || typeof index !== 'number') return '';
-  let label = '';
-  let num = index;
-  while (num >= 0) {
-    label = String.fromCharCode((num % 26) + 65) + label;
-    num = Math.floor(num / 26) - 1;
+function resolveEncounterForWrite(args, context = {}) {
+  const cols = 'id, campaign_id, name, running_state, dm_map_url, player_map_url, map_size, grid_config';
+  let encounter = null;
+  const encounterId = args.encounterId || context.encounterId;
+
+  if (encounterId) {
+    encounter = db.prepare(`SELECT ${cols} FROM encounters WHERE id = ?`).get(encounterId);
+    if (encounter && context.campaignId && encounter.campaign_id !== context.campaignId) {
+      throw new Error(
+        `Encounter "${encounterId}" does not belong to the active campaign "${context.campaignId}".`
+      );
+    }
   }
-  return label;
+
+  if (!encounter && context.campaignId) {
+    encounter =
+      db.prepare(`SELECT ${cols} FROM encounters WHERE campaign_id = ? AND running_state IS NOT NULL ORDER BY id LIMIT 1`).get(context.campaignId) ||
+      db.prepare(`SELECT ${cols} FROM encounters WHERE campaign_id = ? ORDER BY id LIMIT 1`).get(context.campaignId);
+  }
+
+  // Only reach outside the known campaign when no campaign is known at all.
+  if (!encounter && !context.campaignId) {
+    encounter =
+      db.prepare(`SELECT ${cols} FROM encounters WHERE running_state IS NOT NULL ORDER BY id LIMIT 1`).get() ||
+      db.prepare(`SELECT ${cols} FROM encounters ORDER BY id LIMIT 1`).get();
+  }
+
+  return encounter;
 }
 
 /**
- * Converts a (x, y) coordinate into standard D&D grid cell label (e.g. "A1", "C4").
+ * Loads the current combatant roster for an encounter, preferring the live
+ * running_state snapshot and falling back to the encounter_units table.
+ * Attaches monster stat blocks (fullData) when missing so resistance/immunity
+ * calculations can run.
  */
-export function coordinateToLabel(x, y) {
-  return `${columnIndexToLabel(x)}${y + 1}`;
+function loadEncounterCombatants(encounterId, runningStateJson) {
+  let allCombatants = [];
+  if (runningStateJson) {
+    try {
+      const rs = JSON.parse(runningStateJson);
+      if (Array.isArray(rs.combatants)) {
+        allCombatants = rs.combatants.map((c) => ({
+          instanceId: c.instanceId || c.id,
+          name: c.name || 'Unknown',
+          currentHp: c.currentHp,
+          maxHp: c.maxHp,
+          tempHp: c.tempHp || 0,
+          initiative: c.initiative,
+          isPlayer: !!c.isPlayer,
+          faction: c.faction,
+          monsterId: c.monsterId,
+          fullData: c.fullData,
+          position: c.position || null,
+        }));
+      }
+    } catch {}
+  }
+
+  if (allCombatants.length === 0) {
+    const units = db
+      .prepare(
+        'SELECT instanceId, name, currentHp, maxHp, tempHp, hpDice, dexMod, initiative, isPlayer, monsterId, faction, position_x, position_y FROM encounter_units WHERE encounter_id = ?'
+      )
+      .all(encounterId);
+    allCombatants = units.map((u) => ({
+      instanceId: u.instanceId,
+      name: u.name || 'Unknown',
+      currentHp: u.currentHp,
+      maxHp: u.maxHp,
+      tempHp: u.tempHp || 0,
+      initiative: u.initiative,
+      isPlayer: !!u.isPlayer,
+      faction: u.faction,
+      monsterId: u.monsterId,
+      position: u.position_x !== null && u.position_y !== null ? { x: u.position_x, y: u.position_y } : null,
+    }));
+  }
+
+  const monsterLookup = getMonsterLookup();
+  for (const c of allCombatants) {
+    if (!c.fullData && c.monsterId) {
+      const found =
+        monsterLookup.get(String(c.monsterId).toLowerCase()) ||
+        (c.name ? monsterLookup.get(c.name.toLowerCase()) : undefined);
+      if (found) {
+        c.fullData = found;
+      }
+    }
+  }
+
+  return allCombatants;
 }
+
+/**
+ * Resolves a combatant reference (instanceId preferred, name as fallback)
+ * against a roster. Unlike a plain `find`, an ambiguous name match (multiple
+ * combatants sharing the same or overlapping name) throws rather than
+ * silently picking the first match, since the LLM commonly passes names for
+ * encounters with repeated monster names (e.g. multiple "Goblin"s).
+ */
+function resolveCombatantRef(allCombatants, id, rawName) {
+  if (id) {
+    const byId = allCombatants.find((c) => c.instanceId === id);
+    if (byId) return byId;
+  }
+
+  const name = (rawName || '').trim().replace(/@\w+\[.*?\]\{([^}]+)\}/g, '$1').trim().toLowerCase();
+  if (!name) return null;
+
+  const exact = allCombatants.filter((c) => (c.name || '').toLowerCase() === name);
+  if (exact.length === 1) return exact[0];
+  if (exact.length > 1) {
+    throw new Error(
+      `Combatant name "${rawName}" is ambiguous: ${exact.length} combatants share this name (${exact
+        .map((c) => c.instanceId)
+        .join(', ')}). Specify combatantId instead.`
+    );
+  }
+
+  const partial = allCombatants.filter((c) => (c.name || '').toLowerCase().includes(name));
+  if (partial.length === 1) return partial[0];
+  if (partial.length > 1) {
+    throw new Error(
+      `Combatant name "${rawName}" matches multiple combatants (${partial
+        .map((c) => c.name)
+        .join(', ')}). Specify combatantId instead.`
+    );
+  }
+
+  return null;
+}
+
+/**
+ * Builds a fresh default running_state document for an encounter from its
+ * encounter_units rows. Used consistently by every write tool so an
+ * approval never implicitly starts combat or drops fields.
+ */
+function buildDefaultRunningState(encounterId) {
+  const allUnits = db.prepare('SELECT * FROM encounter_units WHERE encounter_id = ?').all(encounterId);
+  return {
+    isCombatStarted: false,
+    round: 1,
+    turnIndex: 0,
+    activePhases: [1],
+    combatants: allUnits.map((u) => ({
+      instanceId: u.instanceId,
+      monsterId: u.monsterId,
+      name: u.name,
+      maxHp: u.maxHp,
+      currentHp: u.currentHp,
+      tempHp: u.tempHp || 0,
+      dexMod: u.dexMod || 0,
+      initiative: u.initiative,
+      isPlayer: !!u.isPlayer,
+      faction: u.faction || 'enemy',
+      position:
+        u.position_x !== null && u.position_y !== null ? { x: u.position_x, y: u.position_y } : null,
+      phase: u.phase || 1,
+    })),
+    combatLog: [],
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Builds the human-readable description for a set of damage/healing/temp_hp
+ * projections. Used both when staging the proposal and, after re-projecting
+ * against live state, when actually applying it at approval time — so the
+ * DM-facing summary and the combat log always describe what was actually
+ * applied, not a stale snapshot from staging time (see N-5/G-4).
+ * @param {Array} projectedTargets
+ * @param {Array<{combatantId?: string, combatantName?: string}>} [skippedTargets] targets that could not be found/applied
+ */
+function buildDamageDescription(projectedTargets, skippedTargets = []) {
+  let description = '';
+  if (projectedTargets.length === 1) {
+    const p = projectedTargets[0];
+    if (p.actionType === 'damage') {
+      const dTypeStr = p.damageType ? ` ${p.damageType}` : '';
+      const tempStr = p.currentTempHp > 0 ? ` (+${p.currentTempHp} temp)` : '';
+      const projTempStr = p.projectedTempHp > 0 ? ` (+${p.projectedTempHp} temp)` : '';
+      description = `Apply ${p.amount}${dTypeStr} damage to ${p.combatantName} (HP: ${p.currentHp}${tempStr} -> ${p.projectedHp}${projTempStr}).`;
+    } else if (p.actionType === 'healing') {
+      description = `Apply ${p.amount} healing to ${p.combatantName} (HP: ${p.currentHp} -> ${p.projectedHp} / ${p.maxHp}).`;
+    } else if (p.actionType === 'temp_hp') {
+      description = `Grant ${p.amount} temporary HP to ${p.combatantName} (Temp HP: ${p.currentTempHp} -> ${p.projectedTempHp}).`;
+    }
+  } else if (projectedTargets.length > 1) {
+    const summaries = projectedTargets.map((p) => {
+      const typeStr = p.damageType ? `${p.damageType} ` : '';
+      return `${p.combatantName}: ${p.actionType} ${p.amount} ${typeStr}(HP ${p.currentHp} -> ${p.projectedHp})`;
+    });
+    description = `Apply combat effects to ${projectedTargets.length} combatants: ${summaries.join('; ')}.`;
+  }
+
+  if (skippedTargets.length > 0) {
+    const skippedNames = skippedTargets.map((t) => t.combatantName || t.combatantId || 'unknown').join(', ');
+    const skippedNote = `Skipped ${skippedTargets.length} target(s) no longer in the encounter: ${skippedNames}.`;
+    description = description ? `${description} ${skippedNote}` : skippedNote;
+  }
+
+  return description;
+}
+
+/**
+ * Reads and parses running_state for an encounter, falling back to a fresh
+ * default document (built from encounter_units) when absent or corrupt.
+ */
+function readRunningStateOrDefault(encounterId) {
+  const enc = db.prepare('SELECT id, running_state FROM encounters WHERE id = ?').get(encounterId);
+  if (enc?.running_state) {
+    try {
+      const rs = JSON.parse(enc.running_state);
+      if (rs && Array.isArray(rs.combatants)) return rs;
+    } catch {}
+  }
+  return buildDefaultRunningState(encounterId);
+}
+
+// Grid coordinate/region helpers (columnIndexToLabel, coordinateToLabel,
+// columnLabelToIndex, labelToCoordinate, calculateDistance, resolveRegionName,
+// calculateAdjacencies) live in gridUtils.js (imported above) and are
+// re-exported here so existing imports from toolController.js keep working.
+// combatantParser.js imports the same module instead of keeping its own
+// copies (see R-1: these used to be defined twice, so a fix like the
+// columnIndexToLabel Infinity-loop guard had to be applied in both places
+// by hand).
+export {
+  columnIndexToLabel,
+  coordinateToLabel,
+  columnLabelToIndex,
+  labelToCoordinate,
+  calculateDistance,
+  resolveRegionName,
+  calculateAdjacencies,
+};
 
 /**
  * Resolves a map URL to a local filesystem path.
@@ -397,6 +660,18 @@ export function matchTokens(queryOrTokens, text) {
 
 // In-memory audit log for executed tool calls
 export const toolAuditLog = [];
+const MAX_TOOL_AUDIT_LOG_ENTRIES = 2000;
+
+/**
+ * Appends to the audit log and trims it so it doesn't grow unbounded over a
+ * long-running server process (see G-17).
+ */
+export function pushToolAuditLog(entry) {
+  toolAuditLog.push(entry);
+  if (toolAuditLog.length > MAX_TOOL_AUDIT_LOG_ENTRIES) {
+    toolAuditLog.splice(0, toolAuditLog.length - MAX_TOOL_AUDIT_LOG_ENTRIES);
+  }
+}
 
 export function clearToolAuditLog() {
   toolAuditLog.length = 0;
@@ -499,7 +774,7 @@ export function resolveChapter(chapterIdentifier, context = {}) {
 /**
  * Tool definitions exposed to the OpenAI API (OpenAI tool format)
  */
-export const ASSISTANT_TOOLS = [
+export const READ_TOOLS = [
   {
     type: 'function',
     function: {
@@ -747,15 +1022,948 @@ export const ASSISTANT_TOOLS = [
   },
 ];
 
-const ALLOWED_TOOL_NAMES = new Set(ASSISTANT_TOOLS.map((t) => t.function.name));
+export const ASSISTANT_TOOLS = [...READ_TOOLS];
+export const WRITE_TOOLS_REGISTRY = new Map();
+export const WRITE_TOOL_NAMES = new Set();
+export const READ_TOOL_NAMES = new Set(READ_TOOLS.map((t) => t.function.name));
+export const ALLOWED_TOOL_NAMES = new Set(READ_TOOL_NAMES);
 
 /**
- * Validates tool calls and blocks any mutation attempt.
+ * Registers a write tool with the tool controller and HITL manager.
+ * Guarantees that write tools stage proposals rather than executing direct state mutations.
+ */
+export function registerWriteTool(writeToolDef) {
+  const name = writeToolDef?.name || writeToolDef?.function?.name;
+  if (!name || typeof name !== 'string') {
+    throw new Error('registerWriteTool: write tool must specify name or function.name');
+  }
+  if (typeof writeToolDef.stageProposal !== 'function') {
+    throw new Error(`registerWriteTool: write tool "${name}" must define a stageProposal(args, context) function`);
+  }
+  if (typeof writeToolDef.executeMutation !== 'function') {
+    throw new Error(`registerWriteTool: write tool "${name}" must define an executeMutation(payload, context) function`);
+  }
+
+  const fnObj = writeToolDef.function || {
+    name: writeToolDef.name,
+    description: writeToolDef.description,
+    parameters: writeToolDef.parameters,
+  };
+
+  const toolObj = {
+    type: 'function',
+    function: fnObj,
+    isWriteTool: true,
+    payloadType: writeToolDef.payloadType || 'generic',
+    stageProposal: writeToolDef.stageProposal,
+    executeMutation: writeToolDef.executeMutation,
+  };
+
+  WRITE_TOOLS_REGISTRY.set(name, toolObj);
+  WRITE_TOOL_NAMES.add(name);
+  ALLOWED_TOOL_NAMES.add(name);
+
+  // Register mutation handler directly with the centralized HITL manager
+  hitlManager.registerExecutionHandler(name, async (execPayload, context) => {
+    return await toolObj.executeMutation(execPayload, context);
+  });
+
+  // Rebuild ASSISTANT_TOOLS export in place
+  ASSISTANT_TOOLS.length = 0;
+  ASSISTANT_TOOLS.push(
+    ...READ_TOOLS,
+    ...Array.from(WRITE_TOOLS_REGISTRY.values()).map((wt) => ({
+      type: wt.type,
+      function: wt.function,
+    }))
+  );
+
+  return toolObj;
+}
+
+export function clearWriteTools(keepBuiltins = false) {
+  for (const name of WRITE_TOOL_NAMES) {
+    ALLOWED_TOOL_NAMES.delete(name);
+  }
+  WRITE_TOOLS_REGISTRY.clear();
+  WRITE_TOOL_NAMES.clear();
+  ASSISTANT_TOOLS.length = 0;
+  ASSISTANT_TOOLS.push(...READ_TOOLS);
+  if (keepBuiltins) {
+    registerBuiltInWriteTools();
+  }
+}
+
+export function isWriteTool(toolName) {
+  return WRITE_TOOL_NAMES.has(toolName);
+}
+
+export function isReadTool(toolName) {
+  return READ_TOOL_NAMES.has(toolName);
+}
+
+export const MOVE_COMBATANT_TOOL_DEF = {
+  name: 'move_combatant',
+  description:
+    'Propose moving a combatant (player character or monster) to a new grid position on the encounter battlemap. Stages a Human-in-the-Loop confirmation proposal with origin/destination coordinates, map region names, and adjacent allies/enemies.',
+  payloadType: 'movement',
+  parameters: {
+    type: 'object',
+    properties: {
+      combatantId: {
+        type: 'string',
+        description: 'The unique instanceId of the combatant to move.',
+      },
+      combatantName: {
+        type: 'string',
+        description: 'The name of the combatant to move (e.g. "Grog Strongjaw" or "Sahuagin Raider 1").',
+      },
+      destination: {
+        type: 'string',
+        description: 'The target destination grid coordinate label (e.g. "A1", "M9", "Q2") or "x,y" coordinates.',
+      },
+      encounterId: {
+        type: 'string',
+        description: 'The ID of the encounter. Optional if active encounter can be inferred from context.',
+      },
+    },
+    required: ['destination'],
+  },
+  stageProposal: async (args, context = {}) => {
+    // 1. Resolve encounter (never leaves a known campaign; see resolveEncounterForWrite)
+    const encounter = resolveEncounterForWrite(args, context);
+    if (!encounter) {
+      throw new Error('No encounter found for move_combatant. Please specify a valid encounterId.');
+    }
+    const encounterId = encounter.id;
+
+    // 2. Gather combatants
+    const allCombatants = loadEncounterCombatants(encounterId, encounter.running_state);
+
+    // 3. Find the moving combatant. No id or name supplied is an explicit error
+    // rather than a silent guess (previously defaulted to allCombatants[0]).
+    if (!args.combatantId && !args.combatantName) {
+      throw new Error(
+        'move_combatant: either combatantId or combatantName is required to identify which combatant to move.'
+      );
+    }
+    const movingUnit = resolveCombatantRef(allCombatants, args.combatantId, args.combatantName);
+    if (!movingUnit) {
+      throw new Error(
+        `Combatant "${args.combatantName || args.combatantId || 'unknown'}" not found in encounter "${encounter.name || encounterId}".`
+      );
+    }
+
+    // 4. Resolve origin. A combatant with no recorded position is not on the
+    // grid yet; say so explicitly rather than silently treating it as {0,0}.
+    const wasUnplaced = !movingUnit.position;
+    const origin = movingUnit.position || { x: 0, y: 0 };
+    const originLabel = wasUnplaced ? 'not yet placed on the grid' : coordinateToLabel(origin.x, origin.y);
+
+    // 5. Parse destination
+    let destCoord = null;
+    if (typeof args.destination === 'object' && args.destination !== null) {
+      destCoord = { x: Number(args.destination.x), y: Number(args.destination.y) };
+    } else {
+      destCoord = labelToCoordinate(String(args.destination));
+    }
+    if (destCoord.x < 0 || destCoord.y < 0 || !Number.isFinite(destCoord.x) || !Number.isFinite(destCoord.y)) {
+      throw new Error(`Invalid destination coordinates: { x: ${destCoord.x}, y: ${destCoord.y} }. Coordinates must be non-negative finite numbers.`);
+    }
+
+    // 6. Resolve regions and grid bounds
+    const selectedMapUrl = encounter.dm_map_url || encounter.player_map_url;
+    const gridData = getMapGridData(selectedMapUrl, encounter);
+
+    if (
+      gridData &&
+      Number.isFinite(gridData.columns) &&
+      Number.isFinite(gridData.rows) &&
+      (destCoord.x >= gridData.columns || destCoord.y >= gridData.rows)
+    ) {
+      throw new Error(
+        `Destination coordinates { x: ${destCoord.x}, y: ${destCoord.y} } are outside the ${gridData.columns}x${gridData.rows} map grid.`
+      );
+    }
+
+    const destLabel = coordinateToLabel(destCoord.x, destCoord.y);
+    let regions = gridData?.regions || null;
+    if (!regions) {
+      try {
+        if (encounter.grid_config) {
+          const gc = typeof encounter.grid_config === 'string' ? JSON.parse(encounter.grid_config) : encounter.grid_config;
+          regions = gc.regions || null;
+        }
+        if (!regions && encounter.map_size) {
+          const ms = typeof encounter.map_size === 'string' ? JSON.parse(encounter.map_size) : encounter.map_size;
+          regions = ms.regions || null;
+        }
+      } catch {}
+    }
+
+    const originRegionName = resolveRegionName(origin, regions);
+    const destRegionName = resolveRegionName(destCoord, regions);
+
+    // 7. Calculate adjacencies
+    const originAdjacencies = calculateAdjacencies(origin, movingUnit, allCombatants);
+    const destinationAdjacencies = calculateAdjacencies(destCoord, movingUnit, allCombatants);
+
+    const originRegionStr = originRegionName ? ` (${originRegionName})` : '';
+    const destRegionStr = destRegionName ? ` (${destRegionName})` : '';
+    const description = `Move ${movingUnit.name} from ${originLabel}${originRegionStr} to ${destLabel}${destRegionStr}.`;
+
+    const proposalPayload = {
+      combatantId: movingUnit.instanceId,
+      combatantName: movingUnit.name,
+      origin: {
+        x: origin.x,
+        y: origin.y,
+        label: originLabel,
+        regionName: originRegionName || undefined,
+      },
+      destination: {
+        x: destCoord.x,
+        y: destCoord.y,
+        label: destLabel,
+        regionName: destRegionName || undefined,
+      },
+      originAdjacencies,
+      destinationAdjacencies,
+    };
+
+    const executionPayload = {
+      encounterId: encounter.id,
+      campaignId: encounter.campaign_id,
+      combatantId: movingUnit.instanceId,
+      combatantName: movingUnit.name,
+      destination: destCoord,
+      destinationLabel: destLabel,
+    };
+
+    const proposal = hitlManager.createProposal({
+      toolName: 'move_combatant',
+      description,
+      payloadType: 'movement',
+      payload: proposalPayload,
+      executionPayload,
+      context: {
+        campaignId: encounter.campaign_id,
+        encounterId: encounter.id,
+      },
+    });
+
+    return {
+      proposal,
+      summary: description,
+    };
+  },
+  executeMutation: async (executionPayload, context = {}) => {
+    const { encounterId, combatantId, combatantName, destination } = executionPayload;
+    const { x, y } = destination;
+
+    const updateTx = db.transaction(() => {
+      // 1. Update encounter_units table
+      db.prepare(
+        'UPDATE encounter_units SET position_x = ?, position_y = ? WHERE instanceId = ?'
+      ).run(x, y, combatantId);
+
+      // 2. Update encounters.running_state
+      const enc = db.prepare('SELECT id, running_state FROM encounters WHERE id = ?').get(encounterId);
+      if (enc) {
+        let rs = null;
+        if (enc.running_state) {
+          try {
+            const parsed = JSON.parse(enc.running_state);
+            if (parsed && Array.isArray(parsed.combatants)) rs = parsed;
+          } catch {}
+        }
+        if (!rs) {
+          // Initialize running_state with all units from encounter_units
+          rs = buildDefaultRunningState(encounterId);
+        }
+
+        let found = false;
+        // Match strictly on instanceId: name-based matching at execution time
+        // would move every same-named combatant to the same cell (see G-7).
+        rs.combatants = rs.combatants.map((c) => {
+          if (c.instanceId === combatantId) {
+            found = true;
+            return {
+              ...c,
+              position: { x, y },
+            };
+          }
+          return c;
+        });
+        if (!found) {
+          // The combatant exists in encounter_units but hadn't yet appeared in
+          // running_state; pull its real stats rather than pushing a bare
+          // stub with no HP.
+          const unitRow = db.prepare('SELECT * FROM encounter_units WHERE instanceId = ?').get(combatantId);
+          rs.combatants.push({
+            instanceId: combatantId,
+            monsterId: unitRow?.monsterId,
+            name: unitRow?.name || combatantName || 'Unknown',
+            maxHp: unitRow?.maxHp,
+            currentHp: unitRow?.currentHp,
+            tempHp: unitRow?.tempHp || 0,
+            dexMod: unitRow?.dexMod || 0,
+            initiative: unitRow?.initiative,
+            isPlayer: !!unitRow?.isPlayer,
+            faction: unitRow?.faction || 'enemy',
+            phase: unitRow?.phase || 1,
+            position: { x, y },
+          });
+        }
+        rs.updatedAt = new Date().toISOString();
+
+        db.prepare('UPDATE encounters SET running_state = ? WHERE id = ?').run(
+          JSON.stringify(rs),
+          encounterId
+        );
+      }
+
+      // Return updated combatant
+      const updatedUnit = db.prepare('SELECT * FROM encounter_units WHERE instanceId = ?').get(combatantId);
+      return updatedUnit || { instanceId: combatantId, name: combatantName, position_x: x, position_y: y };
+    });
+
+    const updatedCombatant = updateTx();
+    const destLabel = coordinateToLabel(x, y);
+
+    return {
+      executionSummary: `Moved ${combatantName || combatantId} to ${destLabel}.`,
+      updatedState: {
+        combatantId,
+        combatantName,
+        position: { x, y },
+        destinationLabel: destLabel,
+        encounterId,
+      },
+      combatant: updatedCombatant,
+    };
+  },
+};
+
+export const APPLY_COMBAT_DAMAGE_TOOL_DEF = {
+  name: 'apply_combat_damage',
+  description:
+    'Propose applying damage, healing, or temporary HP to one or more combatants in the active combat encounter. Stages a Human-in-the-Loop confirmation proposal previewing current vs projected HP, temp HP absorption, and resistances before committing.',
+  payloadType: 'damage',
+  parameters: {
+    type: 'object',
+    properties: {
+      encounterId: {
+        type: 'string',
+        description: 'The ID of the encounter. Optional if active encounter can be inferred from context.',
+      },
+      targets: {
+        type: 'array',
+        description: 'List of target combatants to apply damage, healing, or temporary HP to.',
+        items: {
+          type: 'object',
+          properties: {
+            combatantId: {
+              type: 'string',
+              description: 'The unique instanceId of the combatant.',
+            },
+            combatantName: {
+              type: 'string',
+              description: 'The name of the combatant (e.g. "Grog Strongjaw" or "Goblin 1").',
+            },
+            amount: {
+              type: 'number',
+              description: 'The amount of damage, healing, or temporary HP to apply.',
+            },
+            actionType: {
+              type: 'string',
+              enum: ['damage', 'healing', 'temp_hp'],
+              description: 'The type of action: damage, healing, or temp_hp.',
+            },
+            type: {
+              type: 'string',
+              enum: ['damage', 'healing', 'temp_hp'],
+              description: 'Alias for actionType.',
+            },
+            damageType: {
+              type: 'string',
+              description: 'Optional damage type (e.g. "fire", "slashing", "cold", "radiant") for calculating resistances or immunities.',
+            },
+          },
+          required: ['amount'],
+        },
+      },
+    },
+    required: ['targets'],
+  },
+  stageProposal: async (args, context = {}) => {
+    // 1. Resolve encounter (never leaves a known campaign; see resolveEncounterForWrite)
+    const encounter = resolveEncounterForWrite(args, context);
+    if (!encounter) {
+      throw new Error('No encounter found for apply_combat_damage. Please specify a valid encounterId.');
+    }
+    const encounterId = encounter.id;
+
+    // 2. Gather combatants
+    const allCombatants = loadEncounterCombatants(encounterId, encounter.running_state);
+
+    // 3. Process targets. Entries are applied in order against a working copy
+    // of each combatant's HP so the same target appearing twice in one call
+    // (e.g. temp HP followed by damage) accumulates correctly instead of
+    // each entry projecting from the same starting HP (see G-5).
+    if (!args.targets || !Array.isArray(args.targets) || args.targets.length === 0) {
+      throw new Error('apply_combat_damage: targets must be a non-empty array.');
+    }
+
+    const projectedTargets = [];
+
+    for (const rawTarget of args.targets) {
+      const targetId = rawTarget.combatantId || rawTarget.instanceId || rawTarget.id;
+      const targetName = rawTarget.combatantName || rawTarget.name;
+
+      const matchedCombatant = resolveCombatantRef(allCombatants, targetId, targetName);
+      if (!matchedCombatant) {
+        throw new Error(
+          `Combatant "${rawTarget.combatantName || rawTarget.combatantId || 'unknown'}" not found in encounter "${encounter.name || encounterId}".`
+        );
+      }
+
+      const actionType = rawTarget.actionType || rawTarget.type || 'damage';
+      const amount = Number(rawTarget.amount) || 0;
+      const damageType = rawTarget.damageType;
+
+      const projection = projectHpApplication(matchedCombatant, actionType, amount, damageType);
+      projectedTargets.push(projection);
+
+      // Feed this projection's result back into the working copy so a
+      // subsequent entry for the same combatant in this call sees it.
+      matchedCombatant.currentHp = projection.projectedHp;
+      matchedCombatant.tempHp = projection.projectedTempHp;
+    }
+
+    // 4. Construct human-readable description
+    const description = buildDamageDescription(projectedTargets);
+
+    const proposalPayload = {
+      encounterId: encounter.id,
+      targets: projectedTargets,
+    };
+
+    // Store the raw delta inputs (id, actionType, amount, damageType) rather
+    // than the projected HP baked in at staging time. Approval re-projects
+    // against whatever the combatant's HP actually is at that moment, so a
+    // change that happens between staging and approval (a manual edit,
+    // another approved proposal) is not silently overwritten (see G-4).
+    const executionTargets = projectedTargets.map((p) => ({
+      combatantId: p.combatantId,
+      combatantName: p.combatantName,
+      actionType: p.actionType,
+      amount: p.amount,
+      damageType: p.damageType,
+    }));
+
+    const executionPayload = {
+      encounterId: encounter.id,
+      campaignId: encounter.campaign_id,
+      targets: executionTargets,
+      summary: description,
+    };
+
+    const proposal = hitlManager.createProposal({
+      toolName: 'apply_combat_damage',
+      description,
+      payloadType: 'damage',
+      payload: proposalPayload,
+      executionPayload,
+      context: {
+        campaignId: encounter.campaign_id,
+        encounterId: encounter.id,
+      },
+    });
+
+    return {
+      proposal,
+      summary: description,
+    };
+  },
+  executeMutation: async (executionPayload, context = {}) => {
+    const { encounterId, targets } = executionPayload;
+
+    const updateTx = db.transaction(() => {
+      // Re-project against whatever HP the combatants actually have right
+      // now, not the HP snapshot captured when the proposal was staged, so a
+      // change that happened in between (a manual edit, another approved
+      // proposal) is not silently overwritten. See G-4.
+      const rs = readRunningStateOrDefault(encounterId);
+      const liveCombatants = loadEncounterCombatants(encounterId, JSON.stringify(rs));
+
+      const finalTargets = [];
+      const skippedTargets = [];
+      for (const t of targets) {
+        // Match strictly on instanceId (resolved once at staging time); see G-7.
+        const matched = liveCombatants.find((c) => c.instanceId === t.combatantId);
+        if (!matched) {
+          // The combatant was removed between staging and approval. Report
+          // this in the summary rather than silently dropping it (see N-5).
+          skippedTargets.push(t);
+          continue;
+        }
+        const projection = projectHpApplication(matched, t.actionType, t.amount, t.damageType);
+        finalTargets.push(projection);
+        // Accumulate so repeated entries for the same combatant in one call apply in order (G-5).
+        matched.currentHp = projection.projectedHp;
+        matched.tempHp = projection.projectedTempHp;
+      }
+
+      // Rebuild the summary from what was actually applied just now, not the
+      // stale sentence captured at staging time (see N-5): if HP changed
+      // between staging and approval, the DM would otherwise be shown
+      // "HP: 10 -> 7" while the DB now says 4.
+      const finalSummary = buildDamageDescription(finalTargets, skippedTargets);
+
+      // 1. Update encounter_units table in SQLite
+      const updateUnitStmt = db.prepare(
+        'UPDATE encounter_units SET currentHp = ?, tempHp = ? WHERE instanceId = ?'
+      );
+      for (const t of finalTargets) {
+        updateUnitStmt.run(t.projectedHp, t.projectedTempHp, t.combatantId);
+      }
+
+      // 2. Update encounters.running_state in SQLite
+      for (const t of finalTargets) {
+        const match = rs.combatants.find((c) => c.instanceId === t.combatantId);
+        if (match) {
+          match.currentHp = t.projectedHp;
+          match.tempHp = t.projectedTempHp;
+        }
+      }
+
+      // 3. Log event in combat log
+      if (!Array.isArray(rs.combatLog)) {
+        rs.combatLog = [];
+      }
+      rs.combatLog.push({
+        id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        timestamp: new Date().toISOString(),
+        type: 'combat_damage',
+        description: finalSummary,
+        targets: finalTargets.map((t) => ({
+          combatantId: t.combatantId,
+          combatantName: t.combatantName,
+          actionType: t.actionType,
+          damageType: t.damageType,
+          amount: t.amount,
+          previousHp: t.currentHp,
+          newHp: t.projectedHp,
+          previousTempHp: t.currentTempHp,
+          newTempHp: t.projectedTempHp,
+          effectiveChange: t.effectiveChange,
+        })),
+      });
+
+      rs.updatedAt = new Date().toISOString();
+      db.prepare('UPDATE encounters SET running_state = ? WHERE id = ?').run(
+        JSON.stringify(rs),
+        encounterId
+      );
+
+      // Return refreshed units
+      return {
+        units: db.prepare('SELECT * FROM encounter_units WHERE encounter_id = ?').all(encounterId),
+        finalTargets,
+        skippedTargets,
+        finalSummary,
+      };
+    });
+
+    const { units: updatedUnits, finalTargets, skippedTargets, finalSummary } = updateTx();
+
+    return {
+      executionSummary: finalSummary || `Applied HP changes to ${finalTargets.length} combatant(s).`,
+      updatedState: {
+        encounterId,
+        targets: finalTargets,
+        skippedTargets: skippedTargets.length > 0 ? skippedTargets : undefined,
+      },
+      units: updatedUnits,
+    };
+  },
+};
+
+export const CONFIGURE_ENCOUNTER_COMBATANTS_TOOL_DEF = {
+  name: 'configure_encounter_combatants',
+  description:
+    'Analyze scenario/chapter text or structured combatant list to configure participating combatants, starting map coordinates, and encounter phases (e.g. Phase 1 initial wave, Phase 2 reinforcements). Stages a Human-in-the-Loop confirmation proposal before mutating the database or encounter state.',
+  payloadType: 'combatant_config',
+  parameters: {
+    type: 'object',
+    properties: {
+      scenarioText: {
+        type: 'string',
+        description: 'Narrative or chapter text detailing combatants, waves, and starting positions.',
+      },
+      combatants: {
+        type: 'array',
+        description: 'Explicit structured combatants array with name, monsterId, coordinates, phase, and faction.',
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            monsterId: { type: 'string' },
+            coordinates: { type: 'string' },
+            phase: { type: 'integer' },
+            faction: { type: 'string', enum: ['ally', 'enemy', 'neutral'] },
+            hp: { type: 'integer' },
+          },
+          required: ['name', 'coordinates'],
+        },
+      },
+      encounterId: {
+        type: 'string',
+        description: 'The target encounter ID. Optional if resolvable from active context.',
+      },
+    },
+  },
+  stageProposal: async (args, context = {}) => {
+    // 1. Resolve encounter (never leaves a known campaign; see resolveEncounterForWrite)
+    const encounter = resolveEncounterForWrite(args, context);
+    if (!encounter) {
+      throw new Error(
+        'No encounter found for configure_encounter_combatants. Please specify a valid encounterId.'
+      );
+    }
+    const encounterId = encounter.id;
+
+    // 2. Resolve grid bounds/regions. Prefer the calibrated map_grids.json
+    // entry for the encounter's actual map (same source move_combatant
+    // uses) over encounter.grid_config, which is frequently absent or
+    // stale and would otherwise silently default bounds to 50x50 (see G-12).
+    const selectedMapUrl = encounter.dm_map_url || encounter.player_map_url;
+    const gridData = getMapGridData(selectedMapUrl, encounter);
+    const gridConfig = { columns: gridData.columns, rows: gridData.rows };
+    let regions = gridData?.regions || [];
+
+    const occupiedCells = new Set();
+    const existingUnits = db
+      .prepare('SELECT position_x, position_y FROM encounter_units WHERE encounter_id = ?')
+      .all(encounterId);
+    for (const u of existingUnits) {
+      if (u.position_x !== null && u.position_y !== null) {
+        occupiedCells.add(`${u.position_x},${u.position_y}`);
+      }
+    }
+
+    // 3. Extract combatants from scenarioText OR explicit combatants. Both
+    // being supplied at once is a common LLM pattern (it narrates the scene
+    // and also lists the roster it just described); honoring both would
+    // double the roster, so the explicit structured list wins when present.
+    const finalCombatants = [];
+    const monstersList = getMonsters();
+    const hasExplicitCombatants = Array.isArray(args.combatants) && args.combatants.length > 0;
+
+    if (!hasExplicitCombatants && args.scenarioText) {
+      const parsed = parseScenarioCombatants(args.scenarioText, encounter, monstersList, occupiedCells, gridData);
+      finalCombatants.push(...parsed);
+    }
+
+    if (hasExplicitCombatants) {
+      for (const raw of args.combatants) {
+        if (!raw || typeof raw !== 'object') {
+          throw new Error('Invalid combatant entry: must be an object.');
+        }
+        if (!raw.name || typeof raw.name !== 'string' || !raw.name.trim()) {
+          throw new Error('Invalid combatant: name is required and must be a non-empty string.');
+        }
+        if (!raw.coordinates) {
+          throw new Error(`Invalid combatant "${raw.name}": coordinates are required.`);
+        }
+
+        let pos;
+        if (typeof raw.coordinates === 'string') {
+          pos = labelToCoordinate(raw.coordinates);
+        } else if (
+          typeof raw.coordinates === 'object' &&
+          raw.coordinates.x !== undefined &&
+          raw.coordinates.y !== undefined
+        ) {
+          pos = { x: Number(raw.coordinates.x), y: Number(raw.coordinates.y) };
+        } else {
+          throw new Error(`Invalid coordinates for combatant "${raw.name}".`);
+        }
+
+        if (
+          !Number.isFinite(pos.x) ||
+          !Number.isFinite(pos.y) ||
+          pos.x < 0 ||
+          pos.y < 0
+        ) {
+          throw new Error(
+            `Invalid coordinates for combatant "${raw.name}": { x: ${pos.x}, y: ${pos.y} } must be non-negative finite numbers.`
+          );
+        }
+
+        const phase = raw.phase !== undefined ? parseInt(raw.phase, 10) : 1;
+        if (isNaN(phase) || phase < 1) {
+          throw new Error(`Invalid phase ${raw.phase} for combatant "${raw.name}". Phase must be >= 1.`);
+        }
+
+        const faction = ['ally', 'enemy', 'neutral'].includes(raw.faction) ? raw.faction : 'enemy';
+
+        const allocated = allocateTokenCoordinates(pos, occupiedCells, gridConfig);
+        const label = allocated.label || coordinateToLabel(allocated.x, allocated.y);
+        const regionName = resolveRegionName(allocated, regions);
+
+        let hp = raw.hp;
+        let dexMod = 0;
+        let hpDice = null;
+        let monsterType = raw.monsterType || raw.name;
+        let monsterId = raw.monsterId;
+
+        if (monsterId || raw.name) {
+          const matched = findMonster(monsterId || raw.name, monstersList);
+          if (matched) {
+            if (!hp) hp = matched.attributes?.hp?.value || 10;
+            dexMod = matched.stats?.DEX?.modifier ?? matched.stats?.dex?.modifier ?? 0;
+            hpDice = matched.attributes?.hp?.dice || null;
+            monsterType = matched.name;
+            if (!monsterId) monsterId = matched.id;
+          }
+        }
+
+        if (!hp) hp = 10;
+
+        finalCombatants.push({
+          name: raw.name.trim(),
+          monsterId: monsterId || undefined,
+          monsterType,
+          coordinates: {
+            x: allocated.x,
+            y: allocated.y,
+            label,
+            regionName: regionName || undefined,
+          },
+          phase,
+          faction,
+          hp,
+          hpDice,
+          dexMod,
+        });
+      }
+    }
+
+    if (finalCombatants.length === 0) {
+      throw new Error(
+        'No combatants could be identified or configured. Please supply scenarioText or an explicit combatants array.'
+      );
+    }
+
+    // Validate phases
+    for (const c of finalCombatants) {
+      if (typeof c.phase !== 'number' || isNaN(c.phase) || c.phase < 1) {
+        throw new Error(`Invalid phase ${c.phase}: Phase must be a positive integer (>= 1).`);
+      }
+    }
+
+    const uniquePhases = new Set(finalCombatants.map((c) => c.phase));
+    const phaseSummary = Array.from(uniquePhases)
+      .sort((a, b) => a - b)
+      .map((p) => formatPhaseLabel(p))
+      .join(', ');
+
+    const description = `Configure ${finalCombatants.length} combatant(s) across ${uniquePhases.size} phase(s) (${phaseSummary}) for encounter "${encounter.name}"`;
+
+    const proposalPayload = {
+      encounterId: encounter.id,
+      encounterName: encounter.name,
+      scenarioTextSummary: args.scenarioText
+        ? args.scenarioText.length > 120
+          ? args.scenarioText.slice(0, 117) + '...'
+          : args.scenarioText
+        : undefined,
+      combatants: finalCombatants,
+    };
+
+    const executionPayload = {
+      encounterId: encounter.id,
+      campaignId: encounter.campaign_id,
+      combatants: finalCombatants.map((c, idx) => ({
+        instanceId: `unit_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 7)}`,
+        encounterId: encounter.id,
+        campaignId: encounter.campaign_id,
+        monsterId: c.monsterId || null,
+        name: c.name,
+        maxHp: c.hp,
+        currentHp: c.hp,
+        tempHp: 0,
+        hpDice: c.hpDice || null,
+        dexMod: c.dexMod || 0,
+        initiative: null,
+        passivePerception: 10,
+        isPlayer: 0,
+        position_x: c.coordinates.x,
+        position_y: c.coordinates.y,
+        phase: c.phase || 1,
+        faction: c.faction || 'enemy',
+        monsterType: c.monsterType,
+      })),
+      summary: description,
+    };
+
+    const proposal = hitlManager.createProposal({
+      toolName: 'configure_encounter_combatants',
+      description,
+      payloadType: 'combatant_config',
+      payload: proposalPayload,
+      executionPayload,
+      context: {
+        campaignId: encounter.campaign_id,
+        encounterId: encounter.id,
+      },
+    });
+
+    return {
+      proposal,
+      summary: description,
+    };
+  },
+  executeMutation: async (executionPayload, context = {}) => {
+    const { encounterId, campaignId, combatants, summary } = executionPayload;
+
+    const updateTx = db.transaction(() => {
+      // 1. Insert units into encounter_units in SQLite
+      const insertStmt = db.prepare(`
+        INSERT OR REPLACE INTO encounter_units (
+          instanceId, encounter_id, campaign_id, monsterId, name,
+          maxHp, currentHp, tempHp, hpDice, dexMod, initiative,
+          passivePerception, isPlayer, position_x, position_y, phase, faction
+        ) VALUES (
+          ?, ?, ?, ?, ?,
+          ?, ?, ?, ?, ?, ?,
+          ?, ?, ?, ?, ?, ?
+        )
+      `);
+
+      for (const u of combatants) {
+        insertStmt.run(
+          u.instanceId,
+          u.encounterId || encounterId,
+          u.campaignId || campaignId,
+          u.monsterId,
+          u.name,
+          u.maxHp,
+          u.currentHp,
+          u.tempHp || 0,
+          u.hpDice,
+          u.dexMod || 0,
+          u.initiative,
+          u.passivePerception || 10,
+          u.isPlayer || 0,
+          u.position_x,
+          u.position_y,
+          u.phase || 1,
+          u.faction || 'enemy'
+        );
+      }
+
+      // 2. Update encounters.running_state in SQLite
+      const enc = db
+        .prepare('SELECT id, running_state FROM encounters WHERE id = ?')
+        .get(encounterId);
+
+      if (enc) {
+        let rs = null;
+        if (enc.running_state) {
+          try {
+            rs = JSON.parse(enc.running_state);
+          } catch {}
+        }
+
+        if (!rs || !Array.isArray(rs.combatants)) {
+          rs = buildDefaultRunningState(encounterId);
+        } else {
+          const existingIds = new Set(rs.combatants.map((c) => c.instanceId || c.id));
+          for (const u of combatants) {
+            if (!existingIds.has(u.instanceId)) {
+              rs.combatants.push({
+                instanceId: u.instanceId,
+                monsterId: u.monsterId,
+                name: u.name,
+                maxHp: u.maxHp,
+                currentHp: u.currentHp,
+                tempHp: u.tempHp || 0,
+                dexMod: u.dexMod || 0,
+                initiative: u.initiative,
+                isPlayer: !!u.isPlayer,
+                faction: u.faction || 'enemy',
+                position:
+                  u.position_x !== null && u.position_y !== null
+                    ? { x: u.position_x, y: u.position_y }
+                    : null,
+                phase: u.phase || 1,
+              });
+              existingIds.add(u.instanceId);
+            }
+          }
+        }
+
+        // 3. Log event in combat log
+        if (!Array.isArray(rs.combatLog)) {
+          rs.combatLog = [];
+        }
+        rs.combatLog.push({
+          id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          timestamp: new Date().toISOString(),
+          type: 'combatants_configured',
+          description: summary,
+          combatantCount: combatants.length,
+        });
+
+        rs.updatedAt = new Date().toISOString();
+        db.prepare('UPDATE encounters SET running_state = ? WHERE id = ?').run(
+          JSON.stringify(rs),
+          encounterId
+        );
+      }
+
+      return db.prepare('SELECT * FROM encounter_units WHERE encounter_id = ?').all(encounterId);
+    });
+
+    const allUnits = updateTx();
+
+    return {
+      executionSummary: summary || `Configured ${combatants.length} combatant(s).`,
+      updatedState: {
+        encounterId,
+        combatants,
+      },
+      units: allUnits,
+    };
+  },
+};
+
+export function registerBuiltInWriteTools() {
+  registerWriteTool(MOVE_COMBATANT_TOOL_DEF);
+  registerWriteTool(APPLY_COMBAT_DAMAGE_TOOL_DEF);
+  registerWriteTool(CONFIGURE_ENCOUNTER_COMBATANTS_TOOL_DEF);
+}
+
+export {
+  parseScenarioCombatants,
+  allocateTokenCoordinates,
+  formatPhaseLabel,
+  findMonster,
+};
+
+// Auto-register built-in write tools on module load
+registerBuiltInWriteTools();
+
+/**
+ * Validates tool calls and blocks any unauthorized mutation attempt.
  */
 export function validateToolCall(toolName, args) {
   if (!ALLOWED_TOOL_NAMES.has(toolName)) {
     throw new Error(
-      `Execution blocked: Tool "${toolName}" is not allowed. The assistant only has access to explicit, read-only tools and cannot mutate game state.`
+      `Execution blocked: Tool "${toolName}" is not allowed. The assistant only has access to explicit read-only tools and a small set of write tools that stage Human-in-the-Loop proposals; it cannot mutate game state directly.`
     );
   }
 
@@ -767,7 +1975,9 @@ export function validateToolCall(toolName, args) {
 }
 
 /**
- * Executes a read-only tool, logs the result to the audit log, and returns the result.
+ * Executes a tool:
+ * - Write tools: stages a confirmation proposal (Phase 1, zero state mutation)
+ * - Read tools: queries game state/rules and returns data
  */
 export async function executeTool(toolName, rawArgs, context = {}) {
   let args = rawArgs;
@@ -782,6 +1992,42 @@ export async function executeTool(toolName, rawArgs, context = {}) {
   validateToolCall(toolName, args);
 
   const timestamp = new Date().toISOString();
+
+  // Phase 1: Write Tool Dispatch (Proposal Staging Only)
+  if (isWriteTool(toolName)) {
+    const writeTool = WRITE_TOOLS_REGISTRY.get(toolName);
+    try {
+      const { proposal, summary } = await writeTool.stageProposal(args, context);
+
+      const logEntry = {
+        timestamp,
+        toolName,
+        args,
+        success: true,
+        isWriteProposal: true,
+        proposalId: proposal.proposalId,
+        resultSummary: summary,
+      };
+      pushToolAuditLog(logEntry);
+
+      return {
+        status: 'proposal_staged',
+        requiresConfirmation: true,
+        proposal,
+        summary,
+      };
+    } catch (err) {
+      pushToolAuditLog({
+        timestamp,
+        toolName,
+        args,
+        success: false,
+        error: err.message,
+      });
+      throw err;
+    }
+  }
+
   let result = null;
 
   try {
@@ -1950,7 +3196,7 @@ export async function executeTool(toolName, rawArgs, context = {}) {
       success: true,
       resultSummary: JSON.stringify(result).slice(0, 200),
     };
-    toolAuditLog.push(logEntry);
+    pushToolAuditLog(logEntry);
     console.log(`[ToolController Audit] ${toolName}:`, JSON.stringify(args), '=>', logEntry.resultSummary);
 
     return result;
@@ -1962,7 +3208,7 @@ export async function executeTool(toolName, rawArgs, context = {}) {
       success: false,
       error: err.message,
     };
-    toolAuditLog.push(errorLogEntry);
+    pushToolAuditLog(errorLogEntry);
     console.warn(`[ToolController Error] ${toolName}:`, err.message);
     throw err;
   }

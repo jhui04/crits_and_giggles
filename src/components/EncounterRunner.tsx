@@ -25,6 +25,12 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   const [activePhases, setActivePhases] = useState<number[]>([1]);
   const [isDiceLogOpen, setIsDiceLogOpen] = useState(false);
 
+  // Tracks the running_state.updatedAt this component itself last wrote, so
+  // the "pick up external server-side updates" effect below can tell its own
+  // writes apart from a mutation that happened elsewhere (e.g. an approved
+  // Assistant Oracle HITL proposal) and only reload in the latter case.
+  const lastSyncedUpdatedAtRef = useRef<string | null>(null);
+
   const syncEncounterState = useCallback((
     updatedCombatants: EncounterUnit[],
     combatStarted: boolean = isCombatStarted,
@@ -47,8 +53,10 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
       turnIndex: currentTurn,
       combatants: cleanCombatants,
       activePhases: currentPhases,
+      combatLog: activeEncounter.runningState?.combatLog || [],
       updatedAt: new Date().toISOString()
     };
+    lastSyncedUpdatedAtRef.current = runningState.updatedAt ?? null;
 
     // Immediate synchronous localStorage update for instant page refresh recovery
     try {
@@ -57,22 +65,45 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
       console.warn('Failed to sync encounter to localStorage:', e);
     }
 
+    const existingUnitIds = new Set(activeEncounter.units.map(u => u.instanceId));
+    const newlyAddedUnits = updatedCombatants
+      .filter(c => !existingUnitIds.has(c.instanceId))
+      .map(c => ({
+        instanceId: c.instanceId,
+        encounterId: activeEncounter.id,
+        name: c.name,
+        monsterId: c.monsterId,
+        currentHp: c.currentHp,
+        tempHp: c.tempHp || 0,
+        maxHp: c.maxHp,
+        initiative: c.initiative,
+        position: c.position,
+        phase: c.phase ?? 1,
+        faction: c.faction,
+        isPlayer: !!c.isPlayer,
+        dexMod: c.dexMod ?? 0,
+      }));
+
+    const mappedExistingUnits = activeEncounter.units.map(u => {
+      const found = updatedCombatants.find(c => c.instanceId === u.instanceId);
+      if (found) {
+        return {
+          ...u,
+          currentHp: found.currentHp,
+          tempHp: found.tempHp,
+          maxHp: found.maxHp,
+          initiative: found.initiative,
+          position: found.position,
+          phase: found.phase ?? u.phase ?? 1,
+          faction: found.faction ?? u.faction
+        };
+      }
+      return u;
+    });
+
     const updatedEncounter: Encounter = {
       ...activeEncounter,
-      units: activeEncounter.units.map(u => {
-        const found = updatedCombatants.find(c => c.instanceId === u.instanceId);
-        if (found) {
-          return {
-            ...u,
-            currentHp: found.currentHp,
-            maxHp: found.maxHp,
-            initiative: found.initiative,
-            position: found.position,
-            phase: found.phase ?? u.phase ?? 1
-          };
-        }
-        return u;
-      }),
+      units: [...mappedExistingUnits, ...newlyAddedUnits],
       runningState
     };
 
@@ -566,6 +597,30 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
       return next;
     });
   }, [syncEncounterState]);
+
+  // Pick up server-side mutations made outside this component (e.g. an
+  // approved Assistant Oracle HITL proposal, which refetches the campaign
+  // from the server rather than dispatching client-side events). When the
+  // active encounter's running_state in the shared campaign context carries
+  // a newer `updatedAt` than the one this component itself last wrote, the
+  // change came from elsewhere, so reload the encounter's local view from
+  // that authoritative server state. This is the only mechanism for
+  // absorbing external updates; the server is always the source of truth.
+  useEffect(() => {
+    if (!activeEncounter) return;
+    const freshEncounter = activeCampaign?.encounters.find(e => e.id === activeEncounter.id);
+    const freshUpdatedAt = freshEncounter?.runningState?.updatedAt;
+    const localUpdatedAt = activeEncounter.runningState?.updatedAt;
+    if (
+      freshEncounter &&
+      freshUpdatedAt &&
+      freshUpdatedAt !== lastSyncedUpdatedAtRef.current &&
+      freshUpdatedAt !== localUpdatedAt
+    ) {
+      lastSyncedUpdatedAtRef.current = freshUpdatedAt;
+      loadEncounter(freshEncounter, false);
+    }
+  }, [activeCampaign, activeEncounter, loadEncounter]);
 
   const applyHpMod = (instanceId: string, isDamage: boolean, amount?: number) => {
     const val = amount !== undefined ? amount : parseInt(hpMods[instanceId] || '0', 10);

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import type { ReactNode } from 'react';
 import type { Campaign, Encounter, EncounterUnit } from '../types';
 import { CampaignContext } from './CampaignContext';
@@ -139,7 +139,13 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
     }
   }, [activeCampaignId]);
 
-  const createCampaign = async (name: string, description: string, template?: Partial<Campaign>) => {
+  // Wrapped in useCallback (consistently across all four methods, not just
+  // refreshCampaign) so consumers that put these in a dependency array
+  // don't get a new function reference on every CampaignProvider render —
+  // see N-8, where an unmemoized refreshCampaign was flowing into
+  // AssistantOracleModal's approve handler and from there into a window
+  // keydown effect, tearing that listener down and re-adding it every render.
+  const createCampaign = useCallback(async (name: string, description: string, template?: Partial<Campaign>) => {
     let newCamp: Campaign = {
       id: crypto.randomUUID(),
       name,
@@ -153,7 +159,7 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
       }))
     };
     newCamp = ensureEncountersForCampaign(newCamp);
-    
+
     try {
       const created = await CampaignApiService.create(newCamp);
       setCampaigns(prev => [...prev, created]);
@@ -162,9 +168,9 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
       console.error('Failed to create campaign:', err);
       setError('Failed to create campaign');
     }
-  };
+  }, []);
 
-  const updateCampaign = async (updated: Campaign) => {
+  const updateCampaign = useCallback(async (updated: Campaign) => {
     try {
       const result = await CampaignApiService.update(updated);
       setCampaigns(prev => prev.map(c => c.id === result.id ? result : c));
@@ -172,20 +178,29 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
       console.error('Failed to update campaign:', err);
       setError('Failed to update campaign');
     }
-  };
+  }, []);
 
-  const deleteCampaign = async (id: string) => {
+  const refreshCampaign = useCallback(async (id: string): Promise<Campaign | null> => {
+    try {
+      const full = ensureEncountersForCampaign(await CampaignApiService.getById(id));
+      setCampaigns(prev => prev.map(c => c.id === full.id ? full : c));
+      return full;
+    } catch (err) {
+      console.error('Failed to refresh campaign:', err);
+      return null;
+    }
+  }, []);
+
+  const deleteCampaign = useCallback(async (id: string) => {
     try {
       await CampaignApiService.delete(id);
       setCampaigns(prev => prev.filter(c => c.id !== id));
-      if (activeCampaignId === id) {
-        setActiveCampaignId(null);
-      }
+      setActiveCampaignId(prev => prev === id ? null : prev);
     } catch (err) {
       console.error('Failed to delete campaign:', err);
       setError('Failed to delete campaign');
     }
-  };
+  }, []);
 
   const activeCampaign = campaigns.find(c => c.id === activeCampaignId);
 
@@ -217,7 +232,7 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
     <CampaignContext.Provider value={{
       campaigns, activeCampaignId, activeCampaign,
       setActiveCampaignId, activeChapterId: effectiveActiveChapterId, setActiveChapterId,
-      createCampaign, updateCampaign, deleteCampaign
+      createCampaign, updateCampaign, deleteCampaign, refreshCampaign
     }}>
       {isLoaded ? children : (
         <div role="status" aria-live="polite" style={{ padding: '2rem', textAlign: 'center' }}>
@@ -225,7 +240,7 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
         </div>
       )}
       {error && (
-        <div role="alert" style={{ color: 'red', padding: '1rem' }}>
+        <div role="alert" style={{ color: '#b71c1c', padding: '1rem' }}>
           {error}
           <button onClick={() => window.location.reload()}>Retry</button>
         </div>

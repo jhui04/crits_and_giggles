@@ -4,7 +4,9 @@ import { SpellDetail } from './SpellBrowser';
 import { MonsterDetails } from './MonsterDetails';
 import { MagicItemDetail } from './MagicItemBrowser';
 import { dataService } from '../services/DataService';
-import type { Spell, Monster, MagicItem } from '../types';
+import type { Spell, Monster, MagicItem, ConfirmationProposal } from '../types';
+import { HitlConfirmationBox } from './hitl/HitlConfirmationBox';
+import { useCampaigns } from '../context/CampaignContext';
 
 export interface PassageItem {
   id?: string;
@@ -101,6 +103,7 @@ export function AssistantOracleModal({
   worldName = null,
   initialFocusOnInput = false,
 }: AssistantOracleModalProps) {
+  const { refreshCampaign } = useCampaigns();
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 'welcome',
@@ -120,6 +123,11 @@ export function AssistantOracleModal({
     }
     return 'qwen3.5:9b';
   });
+
+  // Human-in-the-Loop (HITL) proposal state
+  const [pendingProposal, setPendingProposal] = useState<ConfirmationProposal | null>(null);
+  const [isConfirming, setIsConfirming] = useState(false);
+  const [hitlAnnouncement, setHitlAnnouncement] = useState('');
 
   // Knowledge passage modal state
   const [selectedPassage, setSelectedPassage] = useState<PassageItem | null>(null);
@@ -169,6 +177,30 @@ export function AssistantOracleModal({
     }
   }, [isOpen]);
 
+  // Recover a pending proposal on reopen. Escape closes the modal without
+  // denying the proposal (see N-7), so if the DM dismissed the modal with
+  // Escape — or reloaded the page entirely — the proposal is still live
+  // server-side; re-fetch it here rather than leaving it silently
+  // orphaned with no way back to it.
+  useEffect(() => {
+    if (!isOpen || pendingProposal || !campaignId) return;
+    let cancelled = false;
+    fetch(`/api/assistant/proposals/pending?campaignId=${encodeURIComponent(campaignId)}`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((proposals: ConfirmationProposal[]) => {
+        if (cancelled || !Array.isArray(proposals) || proposals.length === 0) return;
+        const restored = proposals[0];
+        setPendingProposal(restored);
+        setHitlAnnouncement(
+          `Restored a pending action proposal from before this window was closed: ${restored.description}. Press Alt+Y to approve, Alt+N to deny.`
+        );
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, campaignId, pendingProposal]);
+
   // Focus management when modal opens
   useEffect(() => {
     if (isOpen) {
@@ -198,17 +230,193 @@ export function AssistantOracleModal({
     }
   }, [selectedPassage]);
 
-  // Main modal focus trap & Escape handling
+  // Human-in-the-Loop (HITL) proposal resolution handlers.
+  //
+  // The server is the single source of truth for the mutation. On success we
+  // simply refetch the campaign from the server and replace local state;
+  // we never derive the new state from the staged proposal payload
+  // ourselves. This guarantees a rejected/expired/failed confirmation can
+  // never leave a client-side trace (see G-1), and avoids the client and
+  // server independently computing (and disagreeing on) the same mutation
+  // (see G-2, G-6).
+  const handleProposalApprove = useCallback(async (proposalId: string) => {
+    setIsConfirming(true);
+    try {
+      const res = await fetch('/api/assistant/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ proposalId, action: 'approve' }),
+      });
+      const result = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        const errorMsg = result?.error || `Confirmation failed (HTTP ${res.status}).`;
+        setHitlAnnouncement(`Error approving action: ${errorMsg}`);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `confirm-error-${Date.now()}`,
+            sender: 'oracle',
+            text: `⚠️ **Could not apply action**: ${errorMsg}. Game state was NOT changed.`,
+            timestamp: formatTimestamp(),
+          },
+        ]);
+        // A failed/expired/already-resolved confirmation means the server
+        // did not accept this decision; the DM must be shown the proposal
+        // again if they still want to act on it, so it's simplest to just
+        // drop it rather than let it sit in a now-inconsistent local state.
+        setPendingProposal(null);
+        return;
+      }
+
+      const summary = result.executionSummary || 'Action approved and applied.';
+      setHitlAnnouncement(`Action approved: ${summary}. Game state updated successfully.`);
+
+      // Prefer this modal's own campaignId prop, but fall back to the
+      // campaign the proposal was actually staged against (now included in
+      // the proposal's context). The two only diverge when the Oracle was
+      // opened with no active campaign in context and the server resolved
+      // the write tool via its global fallback — a narrow case, but one
+      // where skipping the refetch entirely would leave CampaignProvider's
+      // copy of that campaign stale with no other trigger to correct it
+      // (see N-9).
+      const targetCampaignId = campaignId || pendingProposal?.context?.campaignId;
+      if (targetCampaignId) {
+        await refreshCampaign(targetCampaignId);
+      }
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `confirm-approve-${Date.now()}`,
+          sender: 'oracle',
+          text: `✅ **Action Approved & Applied**: ${summary}`,
+          timestamp: formatTimestamp(),
+        },
+      ]);
+
+      setPendingProposal(null);
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      setHitlAnnouncement(`Error executing action: ${errorMsg}`);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `confirm-error-${Date.now()}`,
+          sender: 'oracle',
+          text: `⚠️ **Error applying action**: ${errorMsg}`,
+          timestamp: formatTimestamp(),
+        },
+      ]);
+    } finally {
+      setIsConfirming(false);
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 30);
+    }
+  }, [campaignId, pendingProposal, refreshCampaign]);
+
+  const handleProposalDeny = useCallback(async (proposalId: string) => {
+    setIsConfirming(true);
+    try {
+      const res = await fetch('/api/assistant/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ proposalId, action: 'deny' }),
+      });
+      const result = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        const errorMsg = result?.error || `Cancellation failed (HTTP ${res.status}).`;
+        setHitlAnnouncement(`Error denying action: ${errorMsg}`);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `confirm-error-${Date.now()}`,
+            sender: 'oracle',
+            text: `⚠️ **Could not cancel action**: ${errorMsg}.`,
+            timestamp: formatTimestamp(),
+          },
+        ]);
+        setPendingProposal(null);
+        return;
+      }
+
+      const cancelMsg = result.message || 'Action cancelled by user.';
+      setHitlAnnouncement(`Action denied. ${cancelMsg}`);
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `confirm-deny-${Date.now()}`,
+          sender: 'oracle',
+          text: `❌ **Action Cancelled**: ${cancelMsg}`,
+          timestamp: formatTimestamp(),
+        },
+      ]);
+
+      setPendingProposal(null);
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      setHitlAnnouncement(`Error cancelling action: ${errorMsg}`);
+    } finally {
+      setIsConfirming(false);
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 30);
+    }
+  }, []);
+
+  // Global window keydown listener while modal is open
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleWindowKeyDown = (e: KeyboardEvent) => {
+      if (selectedPassage) return;
+
+      // HITL Decision Shortcuts (Alt+Y / Alt+N)
+      if (pendingProposal && !isConfirming && e.altKey) {
+        const key = e.key.toLowerCase();
+        if (key === 'y' || e.code === 'KeyY') {
+          e.preventDefault();
+          e.stopPropagation();
+          handleProposalApprove(pendingProposal.proposalId);
+          return;
+        }
+        if (key === 'n' || e.code === 'KeyN') {
+          e.preventDefault();
+          e.stopPropagation();
+          handleProposalDeny(pendingProposal.proposalId);
+          return;
+        }
+      }
+
+      // Escape is handled exclusively here (not also in the overlay's
+      // onKeyDown) so onClose only ever runs once per press. Escape only
+      // closes the modal; it never denies a pending proposal on its own.
+      // Denial is a decision with a real consequence (the proposal is
+      // discarded), so it must go through the explicit Deny
+      // button/Alt+N — a stray Escape (closing to check something else,
+      // muscle memory, a misclick) must not silently throw away a
+      // proposal the DM was still reading. The proposal stays pending
+      // server-side and is recovered automatically if this modal reopens
+      // (see the recovery effect above), so nothing is orphaned either.
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleWindowKeyDown);
+    return () => window.removeEventListener('keydown', handleWindowKeyDown);
+  }, [isOpen, selectedPassage, pendingProposal, isConfirming, handleProposalApprove, handleProposalDeny, onClose]);
+
+  // Main modal focus trap (Escape is handled by the window-level listener above)
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       // If passage modal is active, let passage modal handler handle it
       if (selectedPassage) return;
-
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
-        return;
-      }
 
       if (e.key === 'Tab' && modalRef.current) {
         const focusable = modalRef.current.querySelectorAll<HTMLElement>(
@@ -236,7 +444,7 @@ export function AssistantOracleModal({
         }
       }
     },
-    [onClose, selectedPassage]
+    [selectedPassage]
   );
 
   // Passage modal keyboard handling
@@ -435,6 +643,14 @@ export function AssistantOracleModal({
 
       const data = await res.json();
 
+      // Handle staged Human-in-the-Loop proposal
+      if (data.proposal && data.proposal.requiresConfirmation) {
+        setPendingProposal(data.proposal);
+        setHitlAnnouncement(
+          `Action proposed: ${data.proposal.description}. Press Alt+Y to approve, Alt+N to deny, or review details above input.`
+        );
+      }
+
       let answerText = data.answer || 'No response received from the Oracle.';
       let thinkingText = data.thinking || null;
 
@@ -524,6 +740,24 @@ export function AssistantOracleModal({
           boxShadow: '0 8px 30px rgba(0,0,0,0.8)',
         }}
       >
+        {/* Persistent Live Region for Screen Reader Announcements */}
+        <div
+          id="hitl-live-announcement"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="sr-only"
+          style={{
+            position: 'absolute',
+            width: '1px',
+            height: '1px',
+            overflow: 'hidden',
+            clip: 'rect(0,0,0,0)',
+          }}
+        >
+          {hitlAnnouncement}
+        </div>
+
         {/* Header */}
         <div
           style={{
@@ -572,6 +806,7 @@ export function AssistantOracleModal({
         <div
           role="log"
           aria-label="Assistant Oracle Conversation History"
+          tabIndex={0}
           style={{
             flex: 1,
             overflowY: 'auto',
@@ -911,6 +1146,16 @@ export function AssistantOracleModal({
 
           <div ref={logEndRef} />
         </div>
+
+        {/* HITL Write-Tool Confirmation Box */}
+        {pendingProposal && (
+          <HitlConfirmationBox
+            proposal={pendingProposal}
+            onApprove={handleProposalApprove}
+            onDeny={handleProposalDeny}
+            isProcessing={isConfirming}
+          />
+        )}
 
         {/* Input Form */}
         <form onSubmit={handleSend} style={{ display: 'flex', gap: '0.5rem' }}>

@@ -131,11 +131,13 @@ export interface EncounterUnit {
   name: string;
   maxHp?: number;
   currentHp?: number;
+  tempHp?: number;
   hpDice?: string; 
   dexMod: number;
   initiative?: number;
   passivePerception?: number;
   isPlayer?: boolean;
+  faction?: 'ally' | 'enemy' | 'neutral';
   fullData?: Monster;
   conditions?: string[];
   notes?: string;
@@ -149,6 +151,7 @@ export interface EncounterRunningState {
   turnIndex: number;
   combatants: EncounterUnit[];
   activePhases?: number[];
+  combatLog?: Array<Record<string, unknown>>;
   updatedAt?: string;
 }
 
@@ -279,4 +282,110 @@ export interface MagicItemFilters {
   types?: string[];
   rarities?: string[];
   sources?: string[];
+}
+
+// ============================================================================
+// Human-In-The-Loop (HITL) Write-Tool Framework Types
+// ============================================================================
+
+export type HitlAction = 'approve' | 'deny';
+export type ProposalStatus = 'pending' | 'approved' | 'denied' | 'expired';
+export type HitlPayloadType = 'movement' | 'damage' | 'combatant_config' | 'generic';
+
+export interface MovementProposalPayload {
+  combatantId: string;
+  combatantName?: string;
+  origin: {
+    x: number;
+    y: number;
+    label: string;
+    regionName?: string;
+  };
+  destination: {
+    x: number;
+    y: number;
+    label: string;
+    regionName?: string;
+  };
+  originAdjacencies?: {
+    allies: string[];
+    enemies: string[];
+    neutral: string[];
+  };
+  destinationAdjacencies?: {
+    allies: string[];
+    enemies: string[];
+    neutral: string[];
+  };
+}
+
+export interface DamageTargetProjection {
+  combatantId: string;
+  combatantName: string;
+  amount: number;
+  actionType: 'damage' | 'healing' | 'temp_hp';
+  damageType?: string;
+  currentHp: number;
+  currentTempHp: number;
+  maxHp: number;
+  projectedHp: number;
+  projectedTempHp: number;
+  effectiveChange?: string;
+}
+
+export interface DamageProposalPayload {
+  targets: DamageTargetProjection[];
+  encounterId?: string;
+}
+
+export interface CombatantConfigEntry {
+  name: string;
+  monsterId?: string;
+  monsterType?: string;
+  coordinates: {
+    x: number;
+    y: number;
+    label: string;
+    regionName?: string;
+    /** True when the scenario text gave no location for this combatant and
+     *  the placement (A1 / 0,0) was inferred rather than specified. */
+    placementInferred?: boolean;
+  };
+  phase: number;
+  faction: 'ally' | 'enemy' | 'neutral';
+  hp?: number;
+}
+
+export interface CombatantConfigProposalPayload {
+  encounterId?: string;
+  encounterName?: string;
+  scenarioTextSummary?: string;
+  combatants: CombatantConfigEntry[];
+}
+
+export interface GenericProposalPayload {
+  [key: string]: unknown;
+}
+
+export type ToolProposalPayload =
+  | MovementProposalPayload
+  | DamageProposalPayload
+  | CombatantConfigProposalPayload
+  | GenericProposalPayload;
+
+export interface ConfirmationProposal<T = ToolProposalPayload> {
+  proposalId: string;
+  toolName: string;
+  description: string;
+  requiresConfirmation: true;
+  status: ProposalStatus;
+  createdAt: number;
+  expiresAt?: number;
+  payloadType: HitlPayloadType | string;
+  payload: T;
+  context?: {
+    campaignId?: string | null;
+    encounterId?: string | null;
+    chapterId?: string | null;
+  };
 }

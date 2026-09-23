@@ -1,4 +1,5 @@
 import { db } from '../db.js';
+import { hitlManager } from './hitlManager.js';
 
 /**
  * Accurate and conservative token estimator.
@@ -158,13 +159,14 @@ export function buildChatMessages({
   passages = [],
   gameState = null,
   maxContextTokens = 8192,
+  campaignId = null,
 }) {
   let systemPrompt = `You are the Assistant Oracle for "Crits & Giggles", a high-performance, accessible assistant for Dungeon Masters.
 Your top priority is SPEED OF INFORMATION. Be direct, clear, and concise.
 
 STRICT OPERATIONAL RULES:
 1. AUTHORITATIVE GAME STATE: The JSON below is a high-level overview. Never guess or hallucinate stats or positions. For tactical map inspection, distances, spell details, or monster stats, you must use the appropriate tools.
-2. NO STATE MUTATION: You have NO authority to modify HP, positions, or database records. If the DM asks to change anything, inform them it must be done via the app controls.
+2. PROPOSE, NEVER EXECUTE: You have three write tools — move_combatant, apply_combat_damage, and configure_encounter_combatants. Calling one of them NEVER directly changes HP, positions, or database records: it only stages a Human-in-the-Loop confirmation proposal that is shown to the DM, who must explicitly approve it before anything is applied. When the DM asks you to move a combatant, apply damage/healing, or set up an encounter's roster, call the matching write tool to propose it, then tell the DM the proposal is staged and awaiting their approval. Never claim an action has already happened just because you staged the proposal — it has not, until the DM approves it. Only one write action can be staged per turn; if one is already pending, tell the DM to resolve it first instead of calling another write tool.
 3. GROUNDING: Base answers on official SRD 5.2.1 rules and provided lore passages.
 4. TOOL SELECTION STRATEGY:
    - For EXACT NAMES of spells, monsters, or magic items: use lookup_spell, lookup_monster, or lookup_magic_item.
@@ -174,6 +176,9 @@ STRICT OPERATIONAL RULES:
    - For CHAPTER STRUCTURE and section outline: use get_chapter_outline.
    - For READING SPECIFIC SECTIONS of a chapter: use read_chapter_section.
    - For SPATIAL, TACTICAL, or MAP queries (e.g., "where are the tokens", "look at the map", "look at the tactical map", "show me the map", "tactical map", "closest", "who is closest"): use the get_current_map tool. CRITICAL: Whenever the user query mentions "tactical map" or asks to look at the map, you MUST call get_current_map before answering. Do not answer a tactical map query without calling get_current_map.
+   - To MOVE a combatant on the battlemap (e.g. "move Grog to C4", "have the goblin retreat"): use move_combatant.
+   - To APPLY DAMAGE, HEALING, or TEMPORARY HP to one or more combatants (e.g. "the fireball deals 22 fire damage to the goblins", "heal Grog for 10"): use apply_combat_damage.
+   - To SET UP or ADD TO an encounter's roster and starting positions from narrative text or an explicit list (e.g. "set up the ambush described in this room", "add 3 goblins at B3 and B4"): use configure_encounter_combatants.
    - NEVER get stuck in retry loops. If an exact lookup yields no matches or suggests semantic search, use semantic_search or answer with the closest verified match. Do not hallucinate stats or abilities.
 5. FAILSAFE: If you cannot answer a question based on the available context or tools, you MUST reply with a textual explanation of what information is missing. NEVER return an empty response.`;
 
@@ -188,6 +193,23 @@ STRICT OPERATIONAL RULES:
     if (gameState.world) {
       systemPrompt += `\n\n[ACTIVE WORLD CONTEXT]\nActive World: "${gameState.world.name}" (ID: ${gameState.world.id}).`;
     }
+  }
+
+  // Tell the model what the DM already decided on recent write-tool
+  // proposals, most recent first, so a denied action isn't silently
+  // re-proposed and an approved one is acknowledged instead of repeated.
+  // This reads the server-side HITL audit log rather than requiring any
+  // conversation-history/session subsystem (see G-16).
+  const effectiveCampaignId = campaignId || gameState?.campaign?.id || null;
+  const recentDecisions = effectiveCampaignId ? hitlManager.getRecentDecisions(effectiveCampaignId) : [];
+  if (recentDecisions.length > 0) {
+    systemPrompt += `\n\n[RECENT DM DECISIONS] (most recent first, within the last hour — do not re-propose a denied action unless the DM asks again)`;
+    recentDecisions.forEach((d) => {
+      const verdict = d.event === 'proposal_approved' ? 'APPROVED' : 'DENIED';
+      const minutesAgo = Math.max(0, Math.round((Date.now() - new Date(d.timestamp).getTime()) / 60000));
+      const ageLabel = minutesAgo <= 1 ? 'just now' : `${minutesAgo} min ago`;
+      systemPrompt += `\n- ${verdict} (${ageLabel}): ${d.description}`;
+    });
   }
 
   if (passages && passages.length > 0) {
@@ -207,9 +229,9 @@ STRICT OPERATIONAL RULES:
   if (totalTokens > maxContextTokens) {
     console.warn(`Context tokens (${totalTokens}) exceed ${maxContextTokens}. Pruning context...`);
     if (passages && passages.length > 1) {
-      return buildChatMessages({ query, passages: passages.slice(0, passages.length - 1), gameState, maxContextTokens });
+      return buildChatMessages({ query, passages: passages.slice(0, passages.length - 1), gameState, maxContextTokens, campaignId });
     } else if (passages && passages.length === 1) {
-      return buildChatMessages({ query, passages: [], gameState, maxContextTokens });
+      return buildChatMessages({ query, passages: [], gameState, maxContextTokens, campaignId });
     } else {
       // Passages already empty: compact game state and prevent any recursion
       const compactState = gameState ? {

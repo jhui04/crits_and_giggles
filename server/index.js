@@ -5,7 +5,7 @@ import { db, initDb } from './db.js';
 import { getConfig, setConfig } from './assistant/config.js';
 import { handleAssistantChat } from './assistant/orchestrator.js';
 import { searchVectorStore, indexSrdAndJsonData, indexCampaignLore, invalidateVectorCache } from './assistant/vectorStore.js';
-import { getToolAuditLog } from './assistant/toolController.js';
+import { getToolAuditLog, executeTool } from './assistant/toolController.js';
 import {
   recordTelemetryAsync,
   getLlmMetrics,
@@ -13,6 +13,7 @@ import {
   recordLlmMetric,
   clearLlmMetrics,
 } from './assistant/telemetry.js';
+import { hitlManager } from './assistant/hitlManager.js';
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -248,10 +249,10 @@ app.post('/api/campaigns', (req, res) => {
       const insertEncounter = db.prepare('INSERT INTO encounters (id, campaign_id, name, running_state, dm_map_url, player_map_url, map_size, grid_config) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
       const insertEncounterChapter = db.prepare('INSERT INTO encounter_chapters (encounter_id, chapter_id, campaign_id) VALUES (?, ?, ?)');
       const insertUnit = db.prepare(`
-        INSERT INTO encounter_units (instanceId, encounter_id, campaign_id, monsterId, playerId, name, maxHp, currentHp, hpDice, dexMod, initiative, passivePerception, isPlayer, position_x, position_y, phase)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO encounter_units (instanceId, encounter_id, campaign_id, monsterId, playerId, name, maxHp, currentHp, hpDice, dexMod, initiative, passivePerception, isPlayer, position_x, position_y, phase, tempHp, faction)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
-      
+
       data.encounters.forEach(enc => {
         insertEncounter.run(
           enc.id,
@@ -268,10 +269,24 @@ app.post('/api/campaigns', (req, res) => {
         }
         if (enc.units) {
           enc.units.forEach(u => insertUnit.run(
-            u.instanceId, enc.id, data.id, u.monsterId, u.playerId, u.name, u.maxHp, u.currentHp, u.hpDice, u.dexMod, u.initiative, u.passivePerception, u.isPlayer ? 1 : 0,
+            u.instanceId,
+            enc.id,
+            data.id,
+            u.monsterId ?? null,
+            u.playerId ?? null,
+            u.name ?? 'Unknown',
+            u.maxHp ?? null,
+            u.currentHp ?? null,
+            u.hpDice ?? null,
+            u.dexMod ?? null,
+            u.initiative ?? null,
+            u.passivePerception ?? null,
+            u.isPlayer ? 1 : 0,
             u.position?.x ?? null,
             u.position?.y ?? null,
-            u.phase ?? 1
+            u.phase ?? 1,
+            u.tempHp ?? 0,
+            u.faction ?? 'enemy'
           ));
         }
       });
@@ -330,10 +345,10 @@ app.put('/api/campaigns/:id', (req, res) => {
       const insertEncounter = db.prepare('INSERT INTO encounters (id, campaign_id, name, running_state, dm_map_url, player_map_url, map_size, grid_config) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
       const insertEncounterChapter = db.prepare('INSERT INTO encounter_chapters (encounter_id, chapter_id, campaign_id) VALUES (?, ?, ?)');
       const insertUnit = db.prepare(`
-        INSERT INTO encounter_units (instanceId, encounter_id, campaign_id, monsterId, playerId, name, maxHp, currentHp, hpDice, dexMod, initiative, passivePerception, isPlayer, position_x, position_y, phase)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO encounter_units (instanceId, encounter_id, campaign_id, monsterId, playerId, name, maxHp, currentHp, hpDice, dexMod, initiative, passivePerception, isPlayer, position_x, position_y, phase, tempHp, faction)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
-      
+
       data.encounters.forEach(enc => {
         insertEncounter.run(
           enc.id,
@@ -350,10 +365,24 @@ app.put('/api/campaigns/:id', (req, res) => {
         }
         if (enc.units) {
           enc.units.forEach(u => insertUnit.run(
-            u.instanceId, enc.id, campaignId, u.monsterId, u.playerId, u.name, u.maxHp, u.currentHp, u.hpDice, u.dexMod, u.initiative, u.passivePerception, u.isPlayer ? 1 : 0,
+            u.instanceId,
+            enc.id,
+            campaignId,
+            u.monsterId ?? null,
+            u.playerId ?? null,
+            u.name ?? 'Unknown',
+            u.maxHp ?? null,
+            u.currentHp ?? null,
+            u.hpDice ?? null,
+            u.dexMod ?? null,
+            u.initiative ?? null,
+            u.passivePerception ?? null,
+            u.isPlayer ? 1 : 0,
             u.position?.x ?? null,
             u.position?.y ?? null,
-            u.phase ?? 1
+            u.phase ?? 1,
+            u.tempHp ?? 0,
+            u.faction ?? 'enemy'
           ));
         }
       });
@@ -444,6 +473,54 @@ app.post('/api/assistant/chat', async (req, res) => {
     }
   } catch (err) {
     res.status(500).json({ error: 'Assistant processing failed', details: err.message });
+  }
+});
+
+// POST /api/assistant/confirm
+app.post('/api/assistant/confirm', async (req, res) => {
+  try {
+    const { proposalId, action } = req.body || {};
+
+    if (!proposalId || typeof proposalId !== 'string') {
+      return res.status(400).json({ error: 'Missing or invalid proposalId.' });
+    }
+    if (!action || (action !== 'approve' && action !== 'deny')) {
+      return res.status(400).json({ error: "Invalid action. Must be 'approve' or 'deny'." });
+    }
+
+    const result = await hitlManager.resolveProposal(proposalId, action);
+    res.json(result);
+  } catch (err) {
+    if (err.code === 'NOT_FOUND') {
+      return res.status(404).json({ error: err.message });
+    }
+    if (err.code === 'ALREADY_RESOLVED') {
+      return res.status(409).json({ error: err.message, status: err.status });
+    }
+    if (err.code === 'INVALID_ACTION') {
+      return res.status(400).json({ error: err.message });
+    }
+    res.status(500).json({ error: 'Proposal confirmation failed.', details: err.message });
+  }
+});
+
+// GET /api/assistant/proposals/pending
+// Lets a client that lost its local proposal state (e.g. the DM dismissed
+// the Oracle modal with Escape, or reloaded the page) recover a still-live
+// pending proposal instead of it being orphaned with no way back to it.
+// Optionally scoped to a campaignId; unscoped only returns proposals with
+// no campaign context (matches the lack of confirm-endpoint scoping
+// documented in docs/HITL_WRITE_TOOLS.md).
+app.get('/api/assistant/proposals/pending', (req, res) => {
+  try {
+    const campaignId = req.query.campaignId || null;
+    const all = hitlManager.listPendingProposals();
+    const filtered = campaignId
+      ? all.filter((p) => p.context?.campaignId === campaignId)
+      : all.filter((p) => !p.context?.campaignId);
+    res.json(filtered);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to list pending proposals.', details: err.message });
   }
 });
 
@@ -538,6 +615,27 @@ app.post('/api/assistant/index', async (req, res) => {
 app.get('/api/assistant/tools/log', (req, res) => {
   res.json(getToolAuditLog());
 });
+
+// TEST ONLY: Staging a write tool proposal.
+// This is deliberately a separate mechanism from `clearWriteTools`
+// (toolController.js), which resets the write-tool registry between test
+// runs rather than staging a proposal: one lets tests drive a proposal
+// through the real HTTP/HITL flow via supertest, the other resets shared
+// module-level state so each test file starts from a clean registry. Both
+// are gated to test usage (this route by NODE_ENV, `clearWriteTools` by
+// only being called from `beforeEach` in test files), so keeping them
+// separate rather than merging them is intentional, not redundant.
+if (process.env.NODE_ENV === 'test') {
+  app.post('/api/test/stage-proposal', async (req, res) => {
+    try {
+      const { toolName, args, context } = req.body || {};
+      const result = await executeTool(toolName, args, context);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+}
 
 // DANGER: Reset database (test only)
 app.delete('/api/danger/reset', async (req, res) => {

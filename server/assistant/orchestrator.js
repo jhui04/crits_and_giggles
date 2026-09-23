@@ -2,7 +2,7 @@ import { getConfig } from './config.js';
 import { executeChatCompletion, separateThinkingAndContent } from './llmClient.js';
 import { searchVectorStore } from './vectorStore.js';
 import { getAuthoritativeGameState, buildChatMessages, estimateTokenCount } from './contextBuilder.js';
-import { ASSISTANT_TOOLS, executeTool } from './toolController.js';
+import { ASSISTANT_TOOLS, executeTool, isWriteTool } from './toolController.js';
 
 /**
  * Handles the complete RAG + State + Tool Execution pipeline for user queries.
@@ -49,6 +49,7 @@ export async function handleAssistantChat({
     passages,
     gameState,
     maxContextTokens: config.maxContextTokens,
+    campaignId,
   });
 
   if (mockResponse) {
@@ -104,6 +105,7 @@ export async function handleAssistantChat({
     // 5. Handle structured tool calls if the model invoked any
     let iterations = 0;
     const maxToolIterations = config.maxToolIterations || 20;
+    let stagedProposal = null;
 
     while (assistantMessage?.tool_calls && assistantMessage.tool_calls.length > 0 && iterations < maxToolIterations) {
       iterations++;
@@ -116,6 +118,18 @@ export async function handleAssistantChat({
         const fnArgs = toolCall.function?.arguments;
 
         try {
+          // Only one write-tool proposal can be surfaced to the DM per turn
+          // (the confirmation box shows a single pending proposal). Reject
+          // any further write-tool call with a tool-level error rather than
+          // silently staging it: an orphaned proposal that never reaches the
+          // DM, while the model tells them everything was staged, is worse
+          // than a clear "resolve the pending one first" message (see G-8).
+          if (stagedProposal && isWriteTool(fnName)) {
+            throw new Error(
+              `A write action is already staged for the Dungeon Master's confirmation this turn ("${stagedProposal.description}"). Only one write action may be staged per turn. Wait for the DM to approve or deny it before proposing another.`
+            );
+          }
+
           const toolResult = await executeTool(fnName, fnArgs, {
             campaignId,
             encounterId,
@@ -130,13 +144,25 @@ export async function handleAssistantChat({
             result: toolResult,
           });
 
+          const isProposal = !!(toolResult && toolResult.requiresConfirmation && toolResult.proposal);
+          if (isProposal && !stagedProposal) {
+            stagedProposal = toolResult.proposal;
+          }
+
           // Prepare tool response content for the LLM
           // If toolResult contains a base64 image, keep it out of the JSON string
           // to prevent blowing up the text token budget (<8K limit)
           let toolContentObj = toolResult;
           let attachedImage = null;
 
-          if (
+          if (isProposal) {
+            toolContentObj = {
+              status: 'proposal_staged',
+              proposalId: toolResult.proposal.proposalId,
+              actionDescription: toolResult.proposal.description,
+              message: `The proposed action "${toolResult.proposal.description}" has been successfully staged for the Dungeon Master's explicit confirmation. Game state has NOT been altered yet. Inform the DM about the staged proposal and wait for their confirmation.`,
+            };
+          } else if (
             toolResult &&
             toolResult.image &&
             typeof toolResult.image === 'string' &&
@@ -244,6 +270,7 @@ export async function handleAssistantChat({
 
     return {
       answer: finalAnswer,
+      proposal: stagedProposal || null,
       thinking: finalThinking || null,
       passages,
       gameState,

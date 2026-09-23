@@ -11,7 +11,17 @@ import {
   calculateMoveTowards,
   findPathAroundWalls
 } from './mapUtils';
-import type { EncounterUnit, MapSize, Position } from '../types';
+// columnLabelToIndex, labelToCoordinate, resolveRegionName, and
+// calculateAdjacencies are no longer duplicated client-side (nothing here
+// imported them); this coverage now targets the server module that
+// actually runs in production. See R-2 in out_of_scope.md.
+import {
+  columnLabelToIndex,
+  labelToCoordinate,
+  resolveRegionName,
+  calculateAdjacencies,
+} from '../../server/assistant/gridUtils.js';
+import type { EncounterUnit, MapRegion, MapSize, Position } from '../types';
 
 describe('mapUtils', () => {
   describe('calculateDistance', () => {
@@ -288,6 +298,209 @@ describe('mapUtils', () => {
       expect(moveRes.movedFeet).toBe(10);
       // It should not end up at (22, 3) (which is blocked by the fence)
       expect(moveRes.newPos).not.toEqual({ x: 22, y: 3 });
+    });
+  });
+
+  describe('columnLabelToIndex and labelToCoordinate', () => {
+    it('converts single-letter column labels to 0-based index', () => {
+      expect(columnLabelToIndex('A')).toBe(0);
+      expect(columnLabelToIndex('C')).toBe(2);
+      expect(columnLabelToIndex('M')).toBe(12);
+      expect(columnLabelToIndex('Z')).toBe(25);
+    });
+
+    it('converts multi-letter column labels to 0-based index', () => {
+      expect(columnLabelToIndex('AA')).toBe(26);
+      expect(columnLabelToIndex('AB')).toBe(27);
+      expect(columnLabelToIndex('AZ')).toBe(51);
+      expect(columnLabelToIndex('BA')).toBe(52);
+    });
+
+    it('handles lowercase column labels case-insensitively', () => {
+      expect(columnLabelToIndex('a')).toBe(0);
+      expect(columnLabelToIndex('m')).toBe(12);
+      expect(columnLabelToIndex('aa')).toBe(26);
+    });
+
+    it('returns -1 for invalid column labels', () => {
+      expect(columnLabelToIndex('')).toBe(-1);
+      expect(columnLabelToIndex('123')).toBe(-1);
+      expect(columnLabelToIndex('A1')).toBe(-1);
+      expect(columnLabelToIndex(null as unknown as string)).toBe(-1);
+    });
+
+    it('parses standard coordinate strings into { x, y }', () => {
+      expect(labelToCoordinate('A1')).toEqual({ x: 0, y: 0 });
+      expect(labelToCoordinate('M9')).toEqual({ x: 12, y: 8 });
+      expect(labelToCoordinate('C5')).toEqual({ x: 2, y: 4 });
+      expect(labelToCoordinate('AA10')).toEqual({ x: 26, y: 9 });
+    });
+
+    it('handles lowercase, spaced, and hyphenated coordinate labels', () => {
+      expect(labelToCoordinate('a1')).toEqual({ x: 0, y: 0 });
+      expect(labelToCoordinate('m9')).toEqual({ x: 12, y: 8 });
+      expect(labelToCoordinate('A-1')).toEqual({ x: 0, y: 0 });
+      expect(labelToCoordinate('M 9')).toEqual({ x: 12, y: 8 });
+    });
+
+    it('parses comma-separated coordinate strings ("x,y")', () => {
+      expect(labelToCoordinate('0,0')).toEqual({ x: 0, y: 0 });
+      expect(labelToCoordinate('12,8')).toEqual({ x: 12, y: 8 });
+      expect(labelToCoordinate('12, 8')).toEqual({ x: 12, y: 8 });
+    });
+
+    it('throws descriptive error on invalid coordinate labels', () => {
+      expect(() => labelToCoordinate('')).toThrow(/Invalid coordinate label/);
+      expect(() => labelToCoordinate('invalid')).toThrow(/Invalid coordinate label/);
+      expect(() => labelToCoordinate('A0')).toThrow(/row number must be >= 1/);
+      expect(() => labelToCoordinate(null as unknown as string)).toThrow(/non-empty string/);
+    });
+
+    it('guarantees bidirectional round-trip with coordinateToLabel', () => {
+      const testCoords: Position[] = [
+        { x: 0, y: 0 },
+        { x: 12, y: 8 },
+        { x: 26, y: 9 },
+        { x: 51, y: 20 },
+      ];
+      for (const pos of testCoords) {
+        const label = coordinateToLabel(pos);
+        const parsed = labelToCoordinate(label);
+        expect(parsed).toEqual(pos);
+      }
+    });
+  });
+
+  describe('resolveRegionName', () => {
+    const mockRegions: MapRegion[] = [
+      {
+        id: 'P1',
+        name: 'South Shore',
+        cells: ['0,0', '0,1', '1,0', '1,1'],
+      },
+      {
+        id: 'P5',
+        name: 'Northern Bridge',
+        bounds: { minCol: 17, maxCol: 17, minRow: 0, maxRow: 2 },
+        cells: ['17,0', '17,1', '17,2'],
+      },
+      {
+        id: 'P7',
+        name: 'Walled Manor',
+        bounds: { minCol: 20, maxCol: 25, minRow: 10, maxRow: 15 },
+        cells: [],
+      },
+    ];
+
+    it('resolves region name from exact cell match in region.cells', () => {
+      expect(resolveRegionName({ x: 0, y: 1 }, mockRegions)).toBe('South Shore');
+      expect(resolveRegionName({ x: 17, y: 2 }, mockRegions)).toBe('Northern Bridge');
+    });
+
+    it('resolves region name from bounding box fallback when cells are empty', () => {
+      expect(resolveRegionName({ x: 22, y: 12 }, mockRegions)).toBe('Walled Manor');
+    });
+
+    it('returns undefined when coordinate is outside all regions', () => {
+      expect(resolveRegionName({ x: 5, y: 5 }, mockRegions)).toBeUndefined();
+      expect(resolveRegionName({ x: 10, y: 10 }, undefined)).toBeUndefined();
+      expect(resolveRegionName({ x: 10, y: 10 }, [])).toBeUndefined();
+    });
+  });
+
+  describe('calculateAdjacencies', () => {
+    const playerMover: EncounterUnit = {
+      instanceId: 'p-grog',
+      name: 'Grog Strongjaw',
+      dexMod: 2,
+      isPlayer: true,
+      position: { x: 5, y: 5 },
+    };
+
+    const combatants: EncounterUnit[] = [
+      playerMover,
+      // Ally: Vex (isPlayer: true) at (5, 6) -> 5 ft away (orthogonal)
+      {
+        instanceId: 'p-vex',
+        name: 'Vex',
+        dexMod: 4,
+        isPlayer: true,
+        position: { x: 5, y: 6 },
+      },
+      // Enemy: Goblin (isPlayer: false) at (6, 6) -> 5 ft away (diagonal)
+      {
+        instanceId: 'm-goblin',
+        name: 'Goblin 1',
+        dexMod: 2,
+        isPlayer: false,
+        position: { x: 6, y: 6 },
+      },
+      // Neutral NPC: Merchant at (4, 5) -> 5 ft away, faction: 'neutral'
+      {
+        instanceId: 'n-merchant',
+        name: 'Merchant Aldous',
+        dexMod: 0,
+        isPlayer: false,
+        faction: 'neutral',
+        position: { x: 4, y: 5 },
+      },
+      // Distant enemy at (10, 10) -> 25 ft away
+      {
+        instanceId: 'm-boss',
+        name: 'Hobgoblin Warlord',
+        dexMod: 1,
+        isPlayer: false,
+        position: { x: 10, y: 10 },
+      },
+    ];
+
+    it('accurately categorizes adjacent units at origin (Chebyshev <= 5 ft)', () => {
+      const origin = { x: 5, y: 5 };
+      const adj = calculateAdjacencies(origin, playerMover, combatants);
+
+      expect(adj.allies).toEqual(['Vex']);
+      expect(adj.enemies).toEqual(['Goblin 1']);
+      expect(adj.neutral).toEqual(['Merchant Aldous']);
+      // The moving unit itself must NOT be included in any adjacency
+      expect(adj.allies).not.toContain('Grog Strongjaw');
+      // Distant unit at 25 ft must NOT be included
+      expect(adj.enemies).not.toContain('Hobgoblin Warlord');
+    });
+
+    it('accurately categorizes adjacent units at a destination coordinate', () => {
+      // Destination next to Goblin and Hobgoblin Warlord
+      const dest = { x: 6, y: 5 }; // adjacent to Goblin (6,6) and Grog (5,5)
+      const adj = calculateAdjacencies(dest, playerMover, combatants);
+
+      expect(adj.enemies).toContain('Goblin 1');
+      expect(adj.neutral).not.toContain('Merchant Aldous'); // (4,5) is 10 ft from (6,5)
+    });
+
+    it('reverses ally and enemy perspectives when monster is the mover', () => {
+      const monsterMover: EncounterUnit = {
+        instanceId: 'm-goblin',
+        name: 'Goblin 1',
+        dexMod: 2,
+        isPlayer: false,
+        position: { x: 6, y: 6 },
+      };
+
+      // Near Goblin: Grog (5,5 - player), Vex (5,6 - player)
+      const adj = calculateAdjacencies({ x: 6, y: 6 }, monsterMover, combatants);
+
+      // From Goblin's perspective: players are enemies
+      expect(adj.enemies).toContain('Grog Strongjaw');
+      expect(adj.enemies).toContain('Vex');
+      expect(adj.allies).not.toContain('Grog Strongjaw');
+    });
+
+    it('returns empty lists when no combatants are adjacent', () => {
+      const emptyCoord = { x: 20, y: 20 };
+      const adj = calculateAdjacencies(emptyCoord, playerMover, combatants);
+
+      expect(adj.allies).toEqual([]);
+      expect(adj.enemies).toEqual([]);
+      expect(adj.neutral).toEqual([]);
     });
   });
 });

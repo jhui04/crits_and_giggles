@@ -158,6 +158,8 @@ export function initDb(targetDb = db) {
       position_x INTEGER,
       position_y INTEGER,
       phase INTEGER DEFAULT 1,
+      tempHp INTEGER DEFAULT 0,
+      faction TEXT DEFAULT 'enemy',
       FOREIGN KEY (encounter_id, campaign_id) REFERENCES encounters(id, campaign_id) ON DELETE CASCADE
     );
 
@@ -249,6 +251,18 @@ export function initDb(targetDb = db) {
 
   try {
     targetDb.exec('ALTER TABLE encounter_units ADD COLUMN phase INTEGER DEFAULT 1;');
+  } catch (e) {
+    // Column already exists, ignore
+  }
+
+  try {
+    targetDb.exec('ALTER TABLE encounter_units ADD COLUMN tempHp INTEGER DEFAULT 0;');
+  } catch (e) {
+    // Column already exists, ignore
+  }
+
+  try {
+    targetDb.exec("ALTER TABLE encounter_units ADD COLUMN faction TEXT DEFAULT 'enemy';");
   } catch (e) {
     // Column already exists, ignore
   }

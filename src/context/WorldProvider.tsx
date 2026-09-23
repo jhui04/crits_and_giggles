@@ -165,7 +165,7 @@ export function WorldProvider({ children }: { children: ReactNode }) {
         </div>
       )}
       {error && (
-        <div role="alert" style={{ color: 'red', padding: '1rem' }}>
+        <div role="alert" style={{ color: '#b71c1c', padding: '1rem' }}>
           {error}
           <button onClick={() => window.location.reload()}>Retry</button>
         </div>

@@ -40,7 +40,7 @@ export function calculateDirection(from: Position, to: Position): string {
  * 0 -> A, 25 -> Z, 26 -> AA, 27 -> AB, etc.
  */
 export function columnIndexToLabel(index: number): string {
-  if (index < 0) return '';
+  if (index < 0 || typeof index !== 'number' || !Number.isFinite(index)) return '';
   let label = '';
   let num = index;
   while (num >= 0) {
@@ -56,6 +56,17 @@ export function columnIndexToLabel(index: number): string {
 export function coordinateToLabel(pos: Position): string {
   return `${columnIndexToLabel(pos.x)}${pos.y + 1}`;
 }
+
+// columnLabelToIndex, labelToCoordinate, resolveRegionName, and
+// calculateAdjacencies used to be duplicated here, but nothing in this
+// frontend actually imported them — the equivalent (and actively used)
+// server-side logic lives in server/assistant/gridUtils.js. Keeping an
+// unused duplicate around risks silent drift between the two (that's
+// exactly what happened with the G-15 damage-type substring bug); see R-2
+// in out_of_scope.md for the reasoning. `columnIndexToLabel` and
+// `coordinateToLabel` above remain here because production components
+// (CombatMap, MoveTowardsModal, CreatureJumpModal, etc.) do use them for
+// display.
 
 /**
  * Calculates the representative center cell for a map region.

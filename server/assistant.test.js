@@ -823,6 +823,67 @@ describe('Iteration 4: LLM Telemetry & Benchmarking', () => {
       expect(systemPrompt).toMatch(/retry loops/i);
     });
 
+    it('tells the model it may propose mutations via the write tools instead of forbidding all state mutation (N-1)', () => {
+      const { messages } = buildChatMessages({ query: 'Move the goblin to C4' });
+      const systemPrompt = messages.find((m) => m.role === 'system')?.content;
+      expect(systemPrompt).toBeDefined();
+      // Must not tell the model it has no authority to change state at all.
+      expect(systemPrompt).not.toMatch(/no authority to modify/i);
+      expect(systemPrompt).not.toMatch(/must be done via the app controls/i);
+      // Must name all three write tools and explain the propose-not-execute contract.
+      expect(systemPrompt).toMatch(/move_combatant/);
+      expect(systemPrompt).toMatch(/apply_combat_damage/);
+      expect(systemPrompt).toMatch(/configure_encounter_combatants/);
+      expect(systemPrompt).toMatch(/never directly changes|stages a human-in-the-loop/i);
+    });
+
+    it('includes a [RECENT DM DECISIONS] block sourced from the HITL audit log for the active campaign (G-16 partial)', async () => {
+      const { hitlManager } = await import('./assistant/hitlManager.js');
+      const campaignId = 'ctx-builder-decisions-camp';
+
+      const proposal = hitlManager.createProposal({
+        toolName: 'move_combatant',
+        description: 'Move Goblin from A1 to B2.',
+        payload: {},
+        context: { campaignId },
+      });
+      await hitlManager.resolveProposal(proposal.proposalId, 'deny');
+
+      const { messages } = buildChatMessages({ query: 'Move the goblin again', campaignId });
+      const systemPrompt = messages.find((m) => m.role === 'system')?.content;
+      expect(systemPrompt).toMatch(/RECENT DM DECISIONS/i);
+      expect(systemPrompt).toMatch(/DENIED \([^)]*\): Move Goblin from A1 to B2\./);
+      expect(systemPrompt).toMatch(/do not re-propose a denied action/i);
+    });
+
+    it('does not include a decision older than the 1-hour recency window in [RECENT DM DECISIONS] (M-3)', async () => {
+      const { hitlManager } = await import('./assistant/hitlManager.js');
+      const campaignId = 'ctx-builder-stale-decision-camp';
+
+      const proposal = hitlManager.createProposal({
+        toolName: 'move_combatant',
+        description: 'Move Goblin from A1 to B2.',
+        payload: {},
+        context: { campaignId },
+      });
+      await hitlManager.resolveProposal(proposal.proposalId, 'deny');
+
+      // Backdate the audit log entry past the recency window instead of
+      // waiting an hour.
+      const entry = hitlManager.auditLog.find((e) => e.event === 'proposal_denied' && e.campaignId === campaignId);
+      entry.timestamp = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+
+      const { messages } = buildChatMessages({ query: 'Move the goblin again', campaignId });
+      const systemPrompt = messages.find((m) => m.role === 'system')?.content;
+      expect(systemPrompt).not.toMatch(/RECENT DM DECISIONS/i);
+    });
+
+    it('omits the [RECENT DM DECISIONS] block when there are no decisions for the campaign', () => {
+      const { messages } = buildChatMessages({ query: 'What is Fireball?', campaignId: 'ctx-builder-no-decisions-camp' });
+      const systemPrompt = messages.find((m) => m.role === 'system')?.content;
+      expect(systemPrompt).not.toMatch(/RECENT DM DECISIONS/i);
+    });
+
     it('pushes sourceFilter down to searchVectorStore so category searches are not starved by other types', async () => {
       await indexSrdAndJsonData();
 
