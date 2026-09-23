@@ -7,6 +7,10 @@ export interface HitlConfirmationBoxProps {
   onApprove: (proposalId: string) => void;
   onDeny: (proposalId: string) => void;
   isProcessing?: boolean;
+  /** 1-based position of `proposal` in the pending queue. */
+  queuePosition?: number;
+  /** Total number of proposals currently pending for this campaign. */
+  queueTotal?: number;
 }
 
 function formatToolTitle(toolName: string): string {
@@ -22,7 +26,10 @@ export const HitlConfirmationBox: React.FC<HitlConfirmationBoxProps> = ({
   onApprove,
   onDeny,
   isProcessing = false,
+  queuePosition,
+  queueTotal,
 }) => {
+  const hasQueue = !!queueTotal && queueTotal > 1;
   const headingRef = useRef<HTMLHeadingElement>(null);
   const approveBtnRef = useRef<HTMLButtonElement>(null);
   const denyBtnRef = useRef<HTMLButtonElement>(null);
@@ -105,6 +112,7 @@ export const HitlConfirmationBox: React.FC<HitlConfirmationBoxProps> = ({
             }}
           >
             Action Confirmation Required: {formatToolTitle(proposal.toolName)}
+            {hasQueue ? ` (Action ${queuePosition} of ${queueTotal})` : ''}
           </h3>
         </div>
 
@@ -121,7 +129,7 @@ export const HitlConfirmationBox: React.FC<HitlConfirmationBoxProps> = ({
             letterSpacing: '0.05em',
           }}
         >
-          Pending DM Approval
+          Pending DM Approval{hasQueue ? ` (${queuePosition}/${queueTotal})` : ''}
         </span>
       </div>
 

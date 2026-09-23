@@ -119,15 +119,25 @@ export function AssistantOracleModal({
       try {
         const saved = localStorage.getItem(STORAGE_KEY_MODEL);
         if (saved) return saved;
-      } catch {}
+      } catch {
+        // Ignored
+      }
     }
     return 'qwen3.5:9b';
   });
 
-  // Human-in-the-Loop (HITL) proposal state
-  const [pendingProposal, setPendingProposal] = useState<ConfirmationProposal | null>(null);
+  // Human-in-the-Loop (HITL) proposal queue. Multiple write-tool calls in
+  // one turn (or across turns) can each stage their own proposal; the DM
+  // reviews them one at a time, oldest first, via the front of this queue.
+  const [proposalQueue, setProposalQueue] = useState<ConfirmationProposal[]>([]);
+  const pendingProposal = proposalQueue[0] ?? null;
   const [isConfirming, setIsConfirming] = useState(false);
   const [hitlAnnouncement, setHitlAnnouncement] = useState('');
+
+  // Copy-to-clipboard state for chat history messages
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const [copyAnnouncement, setCopyAnnouncement] = useState('');
+  const copyResetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Knowledge passage modal state
   const [selectedPassage, setSelectedPassage] = useState<PassageItem | null>(null);
@@ -149,11 +159,15 @@ export function AssistantOracleModal({
       if (typeof localStorage !== 'undefined') {
         try {
           savedModel = localStorage.getItem(STORAGE_KEY_MODEL);
-        } catch {}
+        } catch {
+          // Ignored
+        }
       }
 
       if (savedModel) {
-        setActiveModel(savedModel);
+        // activeModel's useState initializer already read this same value
+        // from localStorage, so no setState is needed here — just push the
+        // persisted choice to the server so its config matches.
         fetch('/api/assistant/config', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -168,7 +182,9 @@ export function AssistantOracleModal({
               if (typeof localStorage !== 'undefined') {
                 try {
                   localStorage.setItem(STORAGE_KEY_MODEL, data.activeModel);
-                } catch {}
+                } catch {
+                  // Ignored
+                }
               }
             }
           })
@@ -177,42 +193,72 @@ export function AssistantOracleModal({
     }
   }, [isOpen]);
 
-  // Recover a pending proposal on reopen. Escape closes the modal without
-  // denying the proposal (see N-7), so if the DM dismissed the modal with
-  // Escape — or reloaded the page entirely — the proposal is still live
-  // server-side; re-fetch it here rather than leaving it silently
-  // orphaned with no way back to it.
+  // Recover the pending proposal queue on reopen, then decide where focus
+  // goes. Escape closes the modal without denying anything (see N-7), so if
+  // the DM dismissed the modal with Escape — or reloaded the page entirely —
+  // any pending proposals are still live server-side; re-fetch them here
+  // rather than leaving them silently orphaned with no way back to them.
+  //
+  // Recovery and initial focus are done as one sequential flow (rather than
+  // two independent effects racing each other) so the outcome is
+  // deterministic: if a proposal is recovered, its own HitlConfirmationBox
+  // claims focus on mount (see accessibility standard in
+  // docs/HITL_WRITE_TOOLS.md §5 — a proposal's arrival claims focus); only
+  // once we know there's nothing to recover does this effect focus the chat
+  // input/heading itself. `syncedForThisOpenRef` guards against re-running
+  // when `setProposalQueue` below (or a later resolve/deny) changes
+  // `proposalQueue` — this should run once per modal open, not on every
+  // queue change.
+  const syncedForThisOpenRef = useRef(false);
   useEffect(() => {
-    if (!isOpen || pendingProposal || !campaignId) return;
-    let cancelled = false;
-    fetch(`/api/assistant/proposals/pending?campaignId=${encodeURIComponent(campaignId)}`)
-      .then((res) => (res.ok ? res.json() : []))
-      .then((proposals: ConfirmationProposal[]) => {
-        if (cancelled || !Array.isArray(proposals) || proposals.length === 0) return;
-        const restored = proposals[0];
-        setPendingProposal(restored);
-        setHitlAnnouncement(
-          `Restored a pending action proposal from before this window was closed: ${restored.description}. Press Alt+Y to approve, Alt+N to deny.`
-        );
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [isOpen, campaignId, pendingProposal]);
+    if (!isOpen) {
+      syncedForThisOpenRef.current = false;
+      return;
+    }
+    if (syncedForThisOpenRef.current) return;
+    syncedForThisOpenRef.current = true;
 
-  // Focus management when modal opens
-  useEffect(() => {
-    if (isOpen) {
+    let cancelled = false;
+    const focusDefault = () => {
       setTimeout(() => {
+        if (cancelled) return;
         if (initialFocusOnInput && inputRef.current) {
           inputRef.current.focus();
         } else if (headingRef.current) {
           headingRef.current.focus();
         }
       }, 30);
+    };
+
+    if (proposalQueue.length > 0 || !campaignId) {
+      focusDefault();
+      return () => {
+        cancelled = true;
+      };
     }
-  }, [isOpen, initialFocusOnInput]);
+
+    fetch(`/api/assistant/proposals/pending?campaignId=${encodeURIComponent(campaignId)}`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((proposals: ConfirmationProposal[]) => {
+        if (cancelled) return;
+        if (!Array.isArray(proposals) || proposals.length === 0) {
+          focusDefault();
+          return;
+        }
+        setProposalQueue(proposals);
+        const restored = proposals[0];
+        const queueNote = proposals.length > 1 ? ` (${proposals.length} actions pending in total.)` : '';
+        setHitlAnnouncement(
+          `Restored a pending action proposal from before this window was closed: ${restored.description}. Press Alt+Y to approve, Alt+N to deny.${queueNote}`
+        );
+      })
+      .catch(() => {
+        if (!cancelled) focusDefault();
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, campaignId, initialFocusOnInput, proposalQueue]);
 
   // Auto-scroll conversation log
   useEffect(() => {
@@ -241,6 +287,13 @@ export function AssistantOracleModal({
   // (see G-2, G-6).
   const handleProposalApprove = useCallback(async (proposalId: string) => {
     setIsConfirming(true);
+    // Only the chat input should reclaim focus once the queue is empty. If
+    // another proposal is still pending, HitlConfirmationBox's own
+    // proposal.proposalId effect focuses ITS heading as the next proposal
+    // renders (see docs/HITL_WRITE_TOOLS.md §5) — the unconditional focus
+    // timeout below used to always win that race and yank focus back to
+    // the input out from under the next queued proposal.
+    let queueEmptiedByThis = false;
     try {
       const res = await fetch('/api/assistant/confirm', {
         method: 'POST',
@@ -261,16 +314,23 @@ export function AssistantOracleModal({
             timestamp: formatTimestamp(),
           },
         ]);
-        // A failed/expired/already-resolved confirmation means the server
-        // did not accept this decision; the DM must be shown the proposal
-        // again if they still want to act on it, so it's simplest to just
-        // drop it rather than let it sit in a now-inconsistent local state.
-        setPendingProposal(null);
+        // A failed/stale/already-resolved confirmation means the server did
+        // not accept this decision; the DM must be shown the proposal again
+        // if they still want to act on it, so it's simplest to just drop it
+        // from the queue rather than let it sit in a now-inconsistent local
+        // state. The rest of the queue (if any) is untouched and the next
+        // proposal is shown immediately.
+        queueEmptiedByThis = proposalQueue.length - 1 <= 0;
+        setProposalQueue((prev) => prev.filter((p) => p.proposalId !== proposalId));
         return;
       }
 
+      const remaining = proposalQueue.length - 1;
+      queueEmptiedByThis = remaining <= 0;
       const summary = result.executionSummary || 'Action approved and applied.';
-      setHitlAnnouncement(`Action approved: ${summary}. Game state updated successfully.`);
+      setHitlAnnouncement(
+        `Action approved: ${summary}. Game state updated successfully.${remaining > 0 ? ` ${remaining} more action${remaining > 1 ? 's' : ''} pending.` : ''}`
+      );
 
       // Prefer this modal's own campaignId prop, but fall back to the
       // campaign the proposal was actually staged against (now included in
@@ -295,7 +355,7 @@ export function AssistantOracleModal({
         },
       ]);
 
-      setPendingProposal(null);
+      setProposalQueue((prev) => prev.filter((p) => p.proposalId !== proposalId));
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       setHitlAnnouncement(`Error executing action: ${errorMsg}`);
@@ -310,14 +370,20 @@ export function AssistantOracleModal({
       ]);
     } finally {
       setIsConfirming(false);
-      setTimeout(() => {
-        inputRef.current?.focus();
-      }, 30);
+      if (queueEmptiedByThis) {
+        setTimeout(() => {
+          inputRef.current?.focus();
+        }, 30);
+      }
     }
-  }, [campaignId, pendingProposal, refreshCampaign]);
+  }, [campaignId, pendingProposal, proposalQueue.length, refreshCampaign]);
 
   const handleProposalDeny = useCallback(async (proposalId: string) => {
     setIsConfirming(true);
+    // See handleProposalApprove: only reclaim input focus once the queue is
+    // actually empty, so the next queued proposal's own heading-focus
+    // effect isn't overridden.
+    let queueEmptiedByThis = false;
     try {
       const res = await fetch('/api/assistant/confirm', {
         method: 'POST',
@@ -338,12 +404,17 @@ export function AssistantOracleModal({
             timestamp: formatTimestamp(),
           },
         ]);
-        setPendingProposal(null);
+        queueEmptiedByThis = proposalQueue.length - 1 <= 0;
+        setProposalQueue((prev) => prev.filter((p) => p.proposalId !== proposalId));
         return;
       }
 
+      const remaining = proposalQueue.length - 1;
+      queueEmptiedByThis = remaining <= 0;
       const cancelMsg = result.message || 'Action cancelled by user.';
-      setHitlAnnouncement(`Action denied. ${cancelMsg}`);
+      setHitlAnnouncement(
+        `Action denied. ${cancelMsg}${remaining > 0 ? ` ${remaining} more action${remaining > 1 ? 's' : ''} pending.` : ''}`
+      );
 
       setMessages((prev) => [
         ...prev,
@@ -355,17 +426,19 @@ export function AssistantOracleModal({
         },
       ]);
 
-      setPendingProposal(null);
+      setProposalQueue((prev) => prev.filter((p) => p.proposalId !== proposalId));
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       setHitlAnnouncement(`Error cancelling action: ${errorMsg}`);
     } finally {
       setIsConfirming(false);
-      setTimeout(() => {
-        inputRef.current?.focus();
-      }, 30);
+      if (queueEmptiedByThis) {
+        setTimeout(() => {
+          inputRef.current?.focus();
+        }, 30);
+      }
     }
-  }, []);
+  }, [proposalQueue.length]);
 
   // Global window keydown listener while modal is open
   useEffect(() => {
@@ -489,7 +562,9 @@ export function AssistantOracleModal({
     if (typeof localStorage !== 'undefined') {
       try {
         localStorage.setItem(STORAGE_KEY_MODEL, newModel);
-      } catch {}
+      } catch {
+        // Ignored
+      }
     }
     try {
       await fetch('/api/assistant/config', {
@@ -601,6 +676,51 @@ export function AssistantOracleModal({
     }
   };
 
+  // Copy a chat message's text content to the clipboard. Falls back to a
+  // hidden-textarea + execCommand approach for browsers/contexts (e.g. no
+  // secure context) where navigator.clipboard is unavailable, so the button
+  // still works rather than silently failing.
+  const handleCopyMessage = useCallback(async (msg: Message) => {
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(msg.text);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = msg.text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+
+      setCopiedMessageId(msg.id);
+      setCopyAnnouncement(`${msg.sender === 'user' ? 'Your message' : "Oracle's message"} copied to clipboard.`);
+
+      if (copyResetTimeoutRef.current) {
+        clearTimeout(copyResetTimeoutRef.current);
+      }
+      copyResetTimeoutRef.current = setTimeout(() => {
+        setCopiedMessageId((current) => (current === msg.id ? null : current));
+      }, 2000);
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      setCopyAnnouncement(`Could not copy message to clipboard: ${errorMsg}`);
+    }
+  }, []);
+
+  // Clear any pending "Copied!" reset timeout on unmount to avoid a
+  // state update after the component is gone.
+  useEffect(() => {
+    return () => {
+      if (copyResetTimeoutRef.current) {
+        clearTimeout(copyResetTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const handleClosePassageModal = () => {
     setSelectedPassage(null);
     setPassageEntityData(null);
@@ -643,11 +763,31 @@ export function AssistantOracleModal({
 
       const data = await res.json();
 
-      // Handle staged Human-in-the-Loop proposal
-      if (data.proposal && data.proposal.requiresConfirmation) {
-        setPendingProposal(data.proposal);
+      // Handle staged Human-in-the-Loop proposal(s). A single turn can stage
+      // more than one write-tool proposal; each is appended to the existing
+      // queue so nothing already awaiting the DM's review is displaced.
+      const newProposals: ConfirmationProposal[] = Array.isArray(data.proposals)
+        ? data.proposals.filter((p: ConfirmationProposal) => p && p.requiresConfirmation)
+        : [];
+      if (newProposals.length > 0) {
+        // A proposal already recovered into the queue on modal reopen (see
+        // the recovery effect above) can be echoed back by this same chat
+        // response if the DM re-asked before resolving it. Dedupe by
+        // proposalId so it isn't queued twice — an inflated queue length
+        // would both show a wrong "N of M" count and make the approve/deny
+        // handlers below think more proposals are still pending than
+        // actually are, keeping focus away from the chat input after the
+        // real (single) proposal is resolved.
+        setProposalQueue((prev) => {
+          const existingIds = new Set(prev.map((p) => p.proposalId));
+          const deduped = newProposals.filter((p) => !existingIds.has(p.proposalId));
+          return [...prev, ...deduped];
+        });
+        const first = newProposals[0];
+        const extraNote =
+          newProposals.length > 1 ? ` (${newProposals.length} actions proposed; reviewing them one at a time.)` : '';
         setHitlAnnouncement(
-          `Action proposed: ${data.proposal.description}. Press Alt+Y to approve, Alt+N to deny, or review details above input.`
+          `Action proposed: ${first.description}. Press Alt+Y to approve, Alt+N to deny, or review details above input.${extraNote}`
         );
       }
 
@@ -758,6 +898,24 @@ export function AssistantOracleModal({
           {hitlAnnouncement}
         </div>
 
+        {/* Persistent Live Region for Copy-to-Clipboard Announcements */}
+        <div
+          id="copy-message-announcement"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="sr-only"
+          style={{
+            position: 'absolute',
+            width: '1px',
+            height: '1px',
+            overflow: 'hidden',
+            clip: 'rect(0,0,0,0)',
+          }}
+        >
+          {copyAnnouncement}
+        </div>
+
         {/* Header */}
         <div
           style={{
@@ -836,19 +994,46 @@ export function AssistantOracleModal({
                 outline: 'none',
               }}
             >
-              {/* Header hidden from screen readers to prevent duplicate announcement with article aria-label */}
-              <header
-                aria-hidden="true"
+              <div
                 style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'flex-start',
+                  gap: '0.5rem',
                   marginBottom: '0.35rem',
-                  fontSize: '0.8rem',
-                  color: msg.sender === 'user' ? '#e6f2ff' : '#bbb',
                 }}
               >
-                <span style={{ fontWeight: 'bold' }}>
-                  {msg.sender === 'user' ? 'You' : 'Oracle'} {msg.timestamp}
-                </span>
-              </header>
+                {/* Header hidden from screen readers to prevent duplicate announcement with article aria-label */}
+                <header
+                  aria-hidden="true"
+                  style={{
+                    fontSize: '0.8rem',
+                    color: msg.sender === 'user' ? '#e6f2ff' : '#bbb',
+                  }}
+                >
+                  <span style={{ fontWeight: 'bold' }}>
+                    {msg.sender === 'user' ? 'You' : 'Oracle'} {msg.timestamp}
+                  </span>
+                </header>
+
+                <button
+                  type="button"
+                  onClick={() => handleCopyMessage(msg)}
+                  aria-label={`Copy ${msg.sender === 'user' ? 'your' : "the Oracle's"} message from ${msg.timestamp} to clipboard`}
+                  style={{
+                    flexShrink: 0,
+                    background: 'transparent',
+                    color: msg.sender === 'user' ? '#e6f2ff' : '#bbb',
+                    border: '1px solid currentColor',
+                    borderRadius: '4px',
+                    padding: '0.15rem 0.5rem',
+                    fontSize: '0.75rem',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {copiedMessageId === msg.id ? 'Copied!' : 'Copy'}
+                </button>
+              </div>
 
               {msg.sender === 'user' ? (
                 <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{msg.text}</p>
@@ -1154,6 +1339,8 @@ export function AssistantOracleModal({
             onApprove={handleProposalApprove}
             onDeny={handleProposalDeny}
             isProcessing={isConfirming}
+            queuePosition={1}
+            queueTotal={proposalQueue.length}
           />
         )}
 

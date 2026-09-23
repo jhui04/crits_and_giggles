@@ -106,8 +106,8 @@ describe('HITL Manager Proposal Lifecycle Unit Tests', () => {
     });
   });
 
-  describe('Proposal Superseding (M-1)', () => {
-    it('supersedes an earlier still-pending proposal when a new one is staged for the same campaign', () => {
+  describe('Proposal Queueing (multiple pending proposals per campaign)', () => {
+    it('keeps an earlier still-pending proposal pending when a new one is staged for the same campaign, instead of superseding it', () => {
       const a = hitlManager.createProposal({
         toolName: 'move_combatant',
         description: 'Move Goblin to A1',
@@ -121,15 +121,17 @@ describe('HITL Manager Proposal Lifecycle Unit Tests', () => {
         context: { campaignId: 'camp-1' },
       });
 
-      expect(hitlManager.getProposal(a.proposalId).status).toBe('superseded');
+      expect(hitlManager.getProposal(a.proposalId).status).toBe('pending');
       expect(hitlManager.getProposal(b.proposalId).status).toBe('pending');
 
+      // Both are queued, oldest first — the DM reviews them one at a time.
       const pending = hitlManager.listPendingProposals();
-      expect(pending).toHaveLength(1);
-      expect(pending[0].proposalId).toBe(b.proposalId);
+      expect(pending).toHaveLength(2);
+      expect(pending[0].proposalId).toBe(a.proposalId);
+      expect(pending[1].proposalId).toBe(b.proposalId);
     });
 
-    it('does not supersede a pending proposal staged for a different campaign', () => {
+    it('does not mix up pending proposals staged for a different campaign', () => {
       const a = hitlManager.createProposal({
         toolName: 'move_combatant',
         description: 'Move Goblin to A1',
@@ -147,40 +149,307 @@ describe('HITL Manager Proposal Lifecycle Unit Tests', () => {
       expect(hitlManager.getProposal(b.proposalId).status).toBe('pending');
     });
 
-    it('does not supersede any proposal when the new one has no campaignId in context', () => {
+    it('allows both proposals staged for the same campaign to be individually approved/denied', async () => {
+      hitlManager.registerExecutionHandler('queue_probe_tool', async () => ({ executionSummary: 'done' }));
+
       const a = hitlManager.createProposal({
-        toolName: 'move_combatant',
+        toolName: 'queue_probe_tool',
         description: 'Move Goblin to A1',
         payload: {},
-        context: { campaignId: 'camp-1' },
+        context: { campaignId: 'camp-queue' },
       });
       const b = hitlManager.createProposal({
-        toolName: 'move_combatant',
-        description: 'Move Orc to B2',
-        payload: {},
-      });
-
-      expect(hitlManager.getProposal(a.proposalId).status).toBe('pending');
-      expect(hitlManager.getProposal(b.proposalId).status).toBe('pending');
-    });
-
-    it('rejects approving or denying a superseded proposal with ALREADY_RESOLVED', async () => {
-      const a = hitlManager.createProposal({
-        toolName: 'move_combatant',
-        description: 'Move Goblin to A1',
-        payload: {},
-        context: { campaignId: 'camp-1' },
-      });
-      hitlManager.createProposal({
-        toolName: 'move_combatant',
+        toolName: 'queue_probe_tool',
         description: 'Move Goblin to Z9',
         payload: {},
-        context: { campaignId: 'camp-1' },
+        context: { campaignId: 'camp-queue' },
       });
 
-      await expect(hitlManager.resolveProposal(a.proposalId, 'approve')).rejects.toMatchObject({
+      const resultA = await hitlManager.resolveProposal(a.proposalId, 'approve');
+      expect(resultA.success).toBe(true);
+
+      // Resolving A must not have disturbed B, unlike the old supersede
+      // behavior which would have already marked one of them terminal.
+      expect(hitlManager.getProposal(b.proposalId).status).toBe('pending');
+
+      const resultB = await hitlManager.resolveProposal(b.proposalId, 'deny');
+      expect(resultB.success).toBe(true);
+      expect(hitlManager.listPendingProposals()).toHaveLength(0);
+    });
+
+    it('rejects staging further proposals for a campaign once maxPendingPerCampaign is reached', () => {
+      const campaignId = 'camp-overflow';
+      for (let i = 0; i < hitlManager.hitlManager.maxPendingPerCampaign; i++) {
+        hitlManager.createProposal({
+          toolName: 'move_combatant',
+          description: `Action ${i}`,
+          payload: {},
+          context: { campaignId },
+        });
+      }
+
+      expect(() =>
+        hitlManager.createProposal({
+          toolName: 'move_combatant',
+          description: 'One too many',
+          payload: {},
+          context: { campaignId },
+        })
+      ).toThrow(/too many actions/i);
+    });
+  });
+
+  describe('Stale State Detection via Hash Comparison (replaces timer-based expiry)', () => {
+    it('approves normally when the state hash at approval time matches the one captured at staging', async () => {
+      hitlManager.registerExecutionHandler('hash_match_tool', async () => ({ executionSummary: 'applied' }));
+      hitlManager.registerStateHasher('hash_match_tool', async () => 'same-hash');
+
+      const proposal = hitlManager.createProposal({
+        toolName: 'hash_match_tool',
+        description: 'Do the thing',
+        payload: {},
+        stateHash: 'same-hash',
+      });
+
+      const result = await hitlManager.resolveProposal(proposal.proposalId, 'approve');
+      expect(result.success).toBe(true);
+      expect(result.status).toBe('approved');
+    });
+
+    it('rejects approval with STALE_STATE when the current hash no longer matches the staged one, and never invokes the mutation handler', async () => {
+      const mutationHandler = vi.fn().mockResolvedValue({ executionSummary: 'should never run' });
+      hitlManager.registerExecutionHandler('hash_mismatch_tool', mutationHandler);
+      hitlManager.registerStateHasher('hash_mismatch_tool', async () => 'current-hash-after-change');
+
+      const proposal = hitlManager.createProposal({
+        toolName: 'hash_mismatch_tool',
+        description: 'Do the thing',
+        payload: {},
+        stateHash: 'hash-at-staging-time',
+      });
+
+      await expect(hitlManager.resolveProposal(proposal.proposalId, 'approve')).rejects.toMatchObject({
+        code: 'STALE_STATE',
+        status: 'stale',
+      });
+
+      expect(mutationHandler).not.toHaveBeenCalled();
+      expect(hitlManager.getProposal(proposal.proposalId).status).toBe('stale');
+
+      // A proposal rejected as stale is terminal, not retryable.
+      await expect(hitlManager.resolveProposal(proposal.proposalId, 'approve')).rejects.toMatchObject({
         code: 'ALREADY_RESOLVED',
-        status: 'superseded',
+      });
+    });
+
+    it('still allows denial of a proposal whose state has gone stale, without ever checking the hash', async () => {
+      const mutationHandler = vi.fn();
+      hitlManager.registerExecutionHandler('hash_deny_tool', mutationHandler);
+      hitlManager.registerStateHasher('hash_deny_tool', async () => 'changed-hash');
+
+      const proposal = hitlManager.createProposal({
+        toolName: 'hash_deny_tool',
+        description: 'Do the thing',
+        payload: {},
+        stateHash: 'original-hash',
+      });
+
+      const result = await hitlManager.resolveProposal(proposal.proposalId, 'deny');
+      expect(result.success).toBe(true);
+      expect(result.status).toBe('denied');
+      expect(mutationHandler).not.toHaveBeenCalled();
+    });
+
+    it('does not check staleness for tools with no registered state hasher', async () => {
+      const mutationHandler = vi.fn().mockResolvedValue({ executionSummary: 'applied' });
+      hitlManager.registerExecutionHandler('no_hasher_tool', mutationHandler);
+
+      const proposal = hitlManager.createProposal({
+        toolName: 'no_hasher_tool',
+        description: 'Do the thing',
+        payload: {},
+        // No stateHash provided, and no hasher registered for this tool.
+      });
+
+      const result = await hitlManager.resolveProposal(proposal.proposalId, 'approve');
+      expect(result.success).toBe(true);
+      expect(mutationHandler).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('Rebasing queued proposals after an approval (multi-proposal queue + hash staleness)', () => {
+    it('rebases another pending proposal onto the post-mutation hash so approving it does not spuriously reject as stale', async () => {
+      const campaignId = 'camp-rebase';
+      // Simulates a shared piece of state (e.g. "all token positions") whose
+      // hash changes once, as a result of approving proposal A.
+      let sharedState = 'state-v1';
+      hitlManager.registerExecutionHandler('rebase_tool', async () => {
+        sharedState = 'state-v2';
+        return { executionSummary: 'applied' };
+      });
+      hitlManager.registerStateHasher('rebase_tool', async () => sharedState);
+
+      const proposalA = hitlManager.createProposal({
+        toolName: 'rebase_tool',
+        description: 'Move token A',
+        payload: {},
+        context: { campaignId },
+        stateHash: 'state-v1',
+        affectedIds: ['token-a'],
+      });
+      const proposalB = hitlManager.createProposal({
+        toolName: 'rebase_tool',
+        description: 'Move token B',
+        payload: {},
+        context: { campaignId },
+        stateHash: 'state-v1',
+        affectedIds: ['token-b'],
+      });
+
+      const resultA = await hitlManager.resolveProposal(proposalA.proposalId, 'approve');
+      expect(resultA.status).toBe('approved');
+
+      // Proposal B was staged against the same pre-mutation hash as A. If B's
+      // stored hash weren't rebased onto the new state, approving it next
+      // would be rejected as stale purely because A ran — not because
+      // anything invalid happened to B specifically.
+      const resultB = await hitlManager.resolveProposal(proposalB.proposalId, 'approve');
+      expect(resultB.status).toBe('approved');
+    });
+
+    it('still rejects a rebased proposal as stale if the state changes again after the rebase', async () => {
+      const campaignId = 'camp-rebase-then-drift';
+      let sharedState = 'state-v1';
+      hitlManager.registerExecutionHandler('rebase_drift_tool', async () => {
+        sharedState = 'state-v2';
+        return { executionSummary: 'applied' };
+      });
+      hitlManager.registerStateHasher('rebase_drift_tool', async () => sharedState);
+
+      const proposalA = hitlManager.createProposal({
+        toolName: 'rebase_drift_tool',
+        description: 'Move token A',
+        payload: {},
+        context: { campaignId },
+        stateHash: 'state-v1',
+        affectedIds: ['token-a'],
+      });
+      const proposalB = hitlManager.createProposal({
+        toolName: 'rebase_drift_tool',
+        description: 'Move token B',
+        payload: {},
+        context: { campaignId },
+        stateHash: 'state-v1',
+        affectedIds: ['token-b'],
+      });
+
+      await hitlManager.resolveProposal(proposalA.proposalId, 'approve');
+
+      // Something changes the state again after B was rebased (e.g. a manual
+      // DM edit, or a third approval) — B should still correctly go stale.
+      sharedState = 'state-v3-unexpected-drift';
+
+      await expect(hitlManager.resolveProposal(proposalB.proposalId, 'approve')).rejects.toMatchObject({
+        code: 'STALE_STATE',
+      });
+    });
+
+    it('does not rebase pending proposals belonging to a different campaign', async () => {
+      // Each campaign's hash is independent; approving campaign A's proposal
+      // (which changes campaign A's state) should never touch campaign B's
+      // still-pending proposal.
+      const hashesByCampaign = { 'camp-a': 'a-v1', 'camp-b': 'b-v1' };
+      hitlManager.registerExecutionHandler('rebase_scope_tool', async (payload, context) => {
+        hashesByCampaign[context.campaignId] = 'a-v2';
+        return { executionSummary: 'applied' };
+      });
+      hitlManager.registerStateHasher('rebase_scope_tool', async (context) => hashesByCampaign[context.campaignId]);
+
+      const proposalOtherCampaign = hitlManager.createProposal({
+        toolName: 'rebase_scope_tool',
+        description: 'Do something in campaign B',
+        payload: {},
+        context: { campaignId: 'camp-b' },
+        stateHash: 'b-v1',
+      });
+      const proposalThisCampaign = hitlManager.createProposal({
+        toolName: 'rebase_scope_tool',
+        description: 'Do something in campaign A',
+        payload: {},
+        context: { campaignId: 'camp-a' },
+        stateHash: 'a-v1',
+      });
+
+      await hitlManager.resolveProposal(proposalThisCampaign.proposalId, 'approve');
+
+      expect(hitlManager.getProposal(proposalOtherCampaign.proposalId).stateHash).toBe('b-v1');
+    });
+
+    it('does NOT rebase a pending proposal that targets the same resource as the just-approved one, so a genuine conflict still goes stale', async () => {
+      const campaignId = 'camp-rebase-overlap';
+      let sharedState = 'state-v1';
+      hitlManager.registerExecutionHandler('rebase_overlap_tool', async () => {
+        sharedState = 'state-v2';
+        return { executionSummary: 'applied' };
+      });
+      hitlManager.registerStateHasher('rebase_overlap_tool', async () => sharedState);
+
+      // Both proposals target the same combatant ("hero") — e.g. two queued
+      // moves for the same token to different destinations.
+      const proposalA = hitlManager.createProposal({
+        toolName: 'rebase_overlap_tool',
+        description: 'Move hero to A1',
+        payload: {},
+        context: { campaignId },
+        stateHash: 'state-v1',
+        affectedIds: ['hero'],
+      });
+      const proposalB = hitlManager.createProposal({
+        toolName: 'rebase_overlap_tool',
+        description: 'Move hero to T20',
+        payload: {},
+        context: { campaignId },
+        stateHash: 'state-v1',
+        affectedIds: ['hero'],
+      });
+
+      await hitlManager.resolveProposal(proposalA.proposalId, 'approve');
+
+      await expect(hitlManager.resolveProposal(proposalB.proposalId, 'approve')).rejects.toMatchObject({
+        code: 'STALE_STATE',
+      });
+    });
+
+    it('does not rebase a pending proposal when either side never declared affectedIds', async () => {
+      const campaignId = 'camp-rebase-unknown';
+      let sharedState = 'state-v1';
+      hitlManager.registerExecutionHandler('rebase_unknown_tool', async () => {
+        sharedState = 'state-v2';
+        return { executionSummary: 'applied' };
+      });
+      hitlManager.registerStateHasher('rebase_unknown_tool', async () => sharedState);
+
+      const proposalA = hitlManager.createProposal({
+        toolName: 'rebase_unknown_tool',
+        description: 'Do something unspecified',
+        payload: {},
+        context: { campaignId },
+        stateHash: 'state-v1',
+        // No affectedIds declared.
+      });
+      const proposalB = hitlManager.createProposal({
+        toolName: 'rebase_unknown_tool',
+        description: 'Do something else unspecified',
+        payload: {},
+        context: { campaignId },
+        stateHash: 'state-v1',
+        // No affectedIds declared.
+      });
+
+      await hitlManager.resolveProposal(proposalA.proposalId, 'approve');
+
+      await expect(hitlManager.resolveProposal(proposalB.proposalId, 'approve')).rejects.toMatchObject({
+        code: 'STALE_STATE',
       });
     });
   });

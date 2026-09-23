@@ -7,6 +7,7 @@ import { AssistantOracleModal } from './components/AssistantOracleModal';
 import { ShortcutsHelp } from './components/ShortcutsHelp';
 import { DiceRollerModal } from './components/DiceRollerModal';
 import { DiceLogModal } from './components/DiceLogModal';
+import { DebugInfoModal } from './components/DebugInfoModal';
 import { useCampaigns } from './context/CampaignContext';
 import { useWorlds } from './context/WorldContext';
 import type { Campaign } from './types';
@@ -27,6 +28,7 @@ function App() {
   const [isShortcutsHelpOpen, setIsShortcutsHelpOpen] = useState(false);
   const [isDiceRollerOpen, setIsDiceRollerOpen] = useState(false);
   const [isDiceLogOpen, setIsDiceLogOpen] = useState(false);
+  const [isDebugInfoOpen, setIsDebugInfoOpen] = useState(false);
   const [isMainMenuOpen, setIsMainMenuOpen] = useState(false);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [newCampName, setNewCampName] = useState('');
@@ -62,6 +64,7 @@ function App() {
   const lastFocusedBeforeHelp = useRef<HTMLElement | null>(null);
   const lastFocusedBeforeDiceRoller = useRef<HTMLElement | null>(null);
   const lastFocusedBeforeDiceLog = useRef<HTMLElement | null>(null);
+  const lastFocusedBeforeDebugInfo = useRef<HTMLElement | null>(null);
 
   const toggleMode = () => {
     setMode((prevMode) => (prevMode === 'create' ? 'run' : 'create'));
@@ -181,6 +184,22 @@ function App() {
     }, 0);
   };
 
+  const openDebugInfo = () => {
+    lastFocusedBeforeDebugInfo.current = document.activeElement as HTMLElement;
+    setIsDebugInfoOpen(true);
+  };
+
+  const closeDebugInfo = () => {
+    setIsDebugInfoOpen(false);
+    setTimeout(() => {
+      if (lastFocusedBeforeDebugInfo.current && lastFocusedBeforeDebugInfo.current !== document.body && document.body.contains(lastFocusedBeforeDebugInfo.current)) {
+        lastFocusedBeforeDebugInfo.current.focus();
+      } else {
+        mainMenuBtnRef.current?.focus();
+      }
+    }, 0);
+  };
+
   const handleCreate = () => {
     if (newCampName) {
       const selectedCamp = scrapedCampaigns.find(c => c.id === selectedTemplate);
@@ -279,12 +298,14 @@ function App() {
           closeMainMenu();
         } else if (isDiceRollerOpen) {
           closeDiceRoller();
+        } else if (isDebugInfoOpen) {
+          closeDebugInfo();
         }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isCampaignModalOpen, isOracleOpen, isAssistantOpen, isShortcutsHelpOpen, isDiceRollerOpen, isDiceLogOpen, isMainMenuOpen, isCampaignSettingsOpen, mode]);
+  }, [isCampaignModalOpen, isOracleOpen, isAssistantOpen, isShortcutsHelpOpen, isDiceRollerOpen, isDiceLogOpen, isDebugInfoOpen, isMainMenuOpen, isCampaignSettingsOpen, mode]);
 
   if (targetEncounterId) {
     return (
@@ -316,7 +337,7 @@ function App() {
 
   return (
     <React.Fragment>
-      <div className="app-container" aria-hidden={isMainMenuOpen || isCampaignModalOpen || isOracleOpen || isAssistantOpen || isShortcutsHelpOpen || isDiceRollerOpen || isDiceLogOpen}>  
+      <div className="app-container" aria-hidden={isMainMenuOpen || isCampaignModalOpen || isOracleOpen || isAssistantOpen || isShortcutsHelpOpen || isDiceRollerOpen || isDiceLogOpen || isDebugInfoOpen}>
         <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h1 style={{ margin: 0 }}>
             <button
@@ -402,6 +423,7 @@ function App() {
       <ShortcutsHelp isOpen={isShortcutsHelpOpen} onClose={closeShortcutsHelp} />
       <DiceRollerModal isOpen={isDiceRollerOpen} onClose={closeDiceRoller} />
       <DiceLogModal isOpen={isDiceLogOpen} onClose={closeDiceLog} />
+      <DebugInfoModal isOpen={isDebugInfoOpen} onClose={closeDebugInfo} />
 
       {/* Main Menu Modal */}
       {isMainMenuOpen && (
@@ -473,6 +495,13 @@ function App() {
                 style={{ padding: '0.75rem', fontSize: '1.1rem' }}
               >
                 Keyboard Shortcuts (Alt+H)
+              </button>
+              <button
+                type="button"
+                onClick={() => { closeMainMenu(false); openDebugInfo(); }}
+                style={{ padding: '0.75rem', fontSize: '1.1rem' }}
+              >
+                Debug Info (LLM Metrics)
               </button>
               <button
                 type="button"

@@ -138,7 +138,7 @@ test.describe('Tier 5 Deep Adversarial Frontend Probes', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           answer: 'Retrieved defensive spell information.',
-          proposal: mockMovementProposal,
+          proposals: [mockMovementProposal],
           passages: [mockPassageItem],
           toolCalls: [],
           modelUsed: 'mock-model',
@@ -197,7 +197,7 @@ test.describe('Tier 5 Deep Adversarial Frontend Probes', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           answer: 'Proposal ready.',
-          proposal: { ...mockMovementProposal, proposalId: `prop-pathway-${proposalCounter++}` },
+          proposals: [{ ...mockMovementProposal, proposalId: `prop-pathway-${proposalCounter++}` }],
           toolCalls: [],
           modelUsed: 'mock-model',
         }),
@@ -263,7 +263,7 @@ test.describe('Tier 5 Deep Adversarial Frontend Probes', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           answer: 'Proposal ready.',
-          proposal: { ...mockMovementProposal, proposalId: 'prop-conflict-1' },
+          proposals: [{ ...mockMovementProposal, proposalId: 'prop-conflict-1' }],
           toolCalls: [],
           modelUsed: 'mock-model',
         }),
@@ -320,7 +320,7 @@ test.describe('Tier 5 Deep Adversarial Frontend Probes', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           answer: 'Next move staged.',
-          proposal: prop,
+          proposals: [prop],
           toolCalls: [],
           modelUsed: 'mock-model',
         }),
@@ -384,7 +384,7 @@ test.describe('Tier 5 Deep Adversarial Frontend Probes', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           answer: 'Fireball calculated for 5 targets.',
-          proposal: mockMultiTargetDamageProposal,
+          proposals: [mockMultiTargetDamageProposal],
           toolCalls: [],
           modelUsed: 'mock-model',
         }),

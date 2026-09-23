@@ -86,7 +86,7 @@ test.describe('R1: Centralized HITL Write-Tool Framework E2E Tests', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           answer: 'I have prepared the tactical movement for Grog Strongjaw. Please confirm.',
-          proposal: mockMovementProposal,
+          proposals: [mockMovementProposal],
           toolCalls: [],
           modelUsed: 'qwen3.5:9b',
         }),
@@ -149,7 +149,7 @@ test.describe('R1: Centralized HITL Write-Tool Framework E2E Tests', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           answer: 'Tactical movement proposal ready for confirmation.',
-          proposal: mockMovementProposal,
+          proposals: [mockMovementProposal],
           toolCalls: [],
           modelUsed: 'qwen3.5:9b',
         }),
@@ -208,7 +208,7 @@ test.describe('R1: Centralized HITL Write-Tool Framework E2E Tests', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           answer: 'Please confirm character movement.',
-          proposal: mockMovementProposal,
+          proposals: [mockMovementProposal],
           toolCalls: [],
           modelUsed: 'qwen3.5:9b',
         }),
@@ -278,7 +278,7 @@ test.describe('R1: Centralized HITL Write-Tool Framework E2E Tests', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           answer: 'Movement proposal pending.',
-          proposal: mockMovementProposal,
+          proposals: [mockMovementProposal],
           toolCalls: [],
           modelUsed: 'qwen3.5:9b',
         }),
@@ -325,7 +325,7 @@ test.describe('R1: Centralized HITL Write-Tool Framework E2E Tests', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           answer: 'Movement proposal pending.',
-          proposal: mockMovementProposal,
+          proposals: [mockMovementProposal],
           toolCalls: [],
           modelUsed: 'qwen3.5:9b',
         }),
@@ -371,7 +371,7 @@ test.describe('R1: Centralized HITL Write-Tool Framework E2E Tests', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           answer: 'Movement action proposed.',
-          proposal: mockMovementProposal,
+          proposals: [mockMovementProposal],
           toolCalls: [],
           modelUsed: 'qwen3.5:9b',
         }),
@@ -433,7 +433,7 @@ test.describe('R1: Centralized HITL Write-Tool Framework E2E Tests', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           answer: 'Please confirm this action.',
-          proposal: mockMovementProposal,
+          proposals: [mockMovementProposal],
           toolCalls: [],
           modelUsed: 'qwen3.5:9b',
         }),
@@ -462,7 +462,7 @@ test.describe('R1: Centralized HITL Write-Tool Framework E2E Tests', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           answer: 'Environment update proposed.',
-          proposal: mockGenericProposal,
+          proposals: [mockGenericProposal],
           toolCalls: [],
           modelUsed: 'qwen3.5:9b',
         }),

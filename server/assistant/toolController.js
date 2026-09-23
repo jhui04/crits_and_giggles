@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import sharp from 'sharp';
 import { db } from '../db.js';
@@ -335,6 +336,42 @@ function readRunningStateOrDefault(encounterId) {
     } catch {}
   }
   return buildDefaultRunningState(encounterId);
+}
+
+/**
+ * Computes a stable hash of everything about an encounter that the
+ * combatant write tools (move/damage/configure/remove/update) can change:
+ * every encounter_units row plus the combat-progress fields of
+ * running_state. Staged proposals capture this hash and it is recomputed at
+ * approval time (see hitlManager.registerStateHasher) so an approval is
+ * rejected if the state it targeted has actually changed in the meantime —
+ * instead of relying on a fixed timer that would reject an untouched,
+ * still-valid proposal just because the DM took a while to review it.
+ */
+export function computeEncounterStateHash(encounterId) {
+  if (!encounterId) return null;
+
+  const units = db
+    .prepare(
+      'SELECT instanceId, name, monsterId, maxHp, currentHp, tempHp, initiative, isPlayer, position_x, position_y, phase, faction FROM encounter_units WHERE encounter_id = ? ORDER BY instanceId'
+    )
+    .all(encounterId);
+
+  const enc = db.prepare('SELECT running_state FROM encounters WHERE id = ?').get(encounterId);
+  let combatProgress = null;
+  if (enc?.running_state) {
+    try {
+      const rs = JSON.parse(enc.running_state);
+      combatProgress = {
+        isCombatStarted: !!rs.isCombatStarted,
+        round: rs.round ?? 1,
+        turnIndex: rs.turnIndex ?? 0,
+      };
+    } catch {}
+  }
+
+  const canonical = JSON.stringify({ units, combatProgress });
+  return crypto.createHash('sha256').update(canonical).digest('hex');
 }
 
 // Grid coordinate/region helpers (columnIndexToLabel, coordinateToLabel,
@@ -1068,6 +1105,14 @@ export function registerWriteTool(writeToolDef) {
     return await toolObj.executeMutation(execPayload, context);
   });
 
+  // Optionally register a state-hash function so approval can detect and
+  // reject a proposal whose underlying state has changed since staging
+  // (see hitlManager.resolveProposal). Tools that don't provide one are
+  // never rejected for staleness.
+  if (typeof writeToolDef.getStateHash === 'function') {
+    hitlManager.registerStateHasher(name, writeToolDef.getStateHash);
+  }
+
   // Rebuild ASSISTANT_TOOLS export in place
   ASSISTANT_TOOLS.length = 0;
   ASSISTANT_TOOLS.push(
@@ -1107,6 +1152,7 @@ export const MOVE_COMBATANT_TOOL_DEF = {
   description:
     'Propose moving a combatant (player character or monster) to a new grid position on the encounter battlemap. Stages a Human-in-the-Loop confirmation proposal with origin/destination coordinates, map region names, and adjacent allies/enemies.',
   payloadType: 'movement',
+  getStateHash: (context) => computeEncounterStateHash(context.encounterId),
   parameters: {
     type: 'object',
     properties: {
@@ -1246,6 +1292,8 @@ export const MOVE_COMBATANT_TOOL_DEF = {
       payloadType: 'movement',
       payload: proposalPayload,
       executionPayload,
+      stateHash: computeEncounterStateHash(encounterId),
+      affectedIds: [movingUnit.instanceId],
       context: {
         campaignId: encounter.campaign_id,
         encounterId: encounter.id,
@@ -1350,6 +1398,7 @@ export const APPLY_COMBAT_DAMAGE_TOOL_DEF = {
   description:
     'Propose applying damage, healing, or temporary HP to one or more combatants in the active combat encounter. Stages a Human-in-the-Loop confirmation proposal previewing current vs projected HP, temp HP absorption, and resistances before committing.',
   payloadType: 'damage',
+  getStateHash: (context) => computeEncounterStateHash(context.encounterId),
   parameters: {
     type: 'object',
     properties: {
@@ -1475,6 +1524,8 @@ export const APPLY_COMBAT_DAMAGE_TOOL_DEF = {
       payloadType: 'damage',
       payload: proposalPayload,
       executionPayload,
+      stateHash: computeEncounterStateHash(encounterId),
+      affectedIds: executionTargets.map((t) => t.combatantId),
       context: {
         campaignId: encounter.campaign_id,
         encounterId: encounter.id,
@@ -1595,6 +1646,7 @@ export const CONFIGURE_ENCOUNTER_COMBATANTS_TOOL_DEF = {
   description:
     'Analyze scenario/chapter text or structured combatant list to configure participating combatants, starting map coordinates, and encounter phases (e.g. Phase 1 initial wave, Phase 2 reinforcements). Stages a Human-in-the-Loop confirmation proposal before mutating the database or encounter state.',
   payloadType: 'combatant_config',
+  getStateHash: (context) => computeEncounterStateHash(context.encounterId),
   parameters: {
     type: 'object',
     properties: {
@@ -1815,6 +1867,13 @@ export const CONFIGURE_ENCOUNTER_COMBATANTS_TOOL_DEF = {
       payloadType: 'combatant_config',
       payload: proposalPayload,
       executionPayload,
+      stateHash: computeEncounterStateHash(encounterId),
+      // Always adds brand-new combatants with freshly generated instanceIds
+      // at execution time — it never reads or writes an existing
+      // combatant's state, so it can never collide with another pending
+      // proposal by id. An empty (not null) array here is a deliberate
+      // "touches nothing existing" declaration, not "unknown".
+      affectedIds: [],
       context: {
         campaignId: encounter.campaign_id,
         encounterId: encounter.id,
@@ -1941,10 +2000,341 @@ export const CONFIGURE_ENCOUNTER_COMBATANTS_TOOL_DEF = {
   },
 };
 
+export const REMOVE_COMBATANT_TOOL_DEF = {
+  name: 'remove_combatant',
+  description:
+    'Propose removing a single combatant (player character or monster) entirely from the active combat encounter — off the map and out of the initiative order. Use this for precisely deleting one unit; use configure_encounter_combatants to set up a whole roster instead. Stages a Human-in-the-Loop confirmation proposal showing exactly which combatant will be removed before committing.',
+  payloadType: 'generic',
+  getStateHash: (context) => computeEncounterStateHash(context.encounterId),
+  parameters: {
+    type: 'object',
+    properties: {
+      combatantId: {
+        type: 'string',
+        description: 'The unique instanceId of the combatant to remove.',
+      },
+      combatantName: {
+        type: 'string',
+        description: 'The name of the combatant to remove (e.g. "Goblin 2").',
+      },
+      encounterId: {
+        type: 'string',
+        description: 'The ID of the encounter. Optional if the active encounter can be inferred from context.',
+      },
+    },
+  },
+  stageProposal: async (args, context = {}) => {
+    // 1. Resolve encounter (never leaves a known campaign; see resolveEncounterForWrite)
+    const encounter = resolveEncounterForWrite(args, context);
+    if (!encounter) {
+      throw new Error('No encounter found for remove_combatant. Please specify a valid encounterId.');
+    }
+    const encounterId = encounter.id;
+
+    // 2. Gather combatants and resolve the target. No id or name supplied is
+    // an explicit error rather than a silent guess (see move_combatant).
+    const allCombatants = loadEncounterCombatants(encounterId, encounter.running_state);
+    if (!args.combatantId && !args.combatantName) {
+      throw new Error(
+        'remove_combatant: either combatantId or combatantName is required to identify which combatant to remove.'
+      );
+    }
+    const target = resolveCombatantRef(allCombatants, args.combatantId, args.combatantName);
+    if (!target) {
+      throw new Error(
+        `Combatant "${args.combatantName || args.combatantId || 'unknown'}" not found in encounter "${encounter.name || encounterId}".`
+      );
+    }
+
+    const positionLabel = target.position
+      ? coordinateToLabel(target.position.x, target.position.y)
+      : 'not yet placed on the grid';
+    const faction = target.faction || (target.isPlayer ? 'ally' : 'enemy');
+    const description = `Remove ${target.name} from encounter "${encounter.name}" (currently at ${positionLabel}, HP ${target.currentHp ?? '?'}/${target.maxHp ?? '?'}).`;
+
+    const proposalPayload = {
+      Combatant: target.name,
+      Faction: faction,
+      Position: positionLabel,
+      HP: `${target.currentHp ?? '?'}/${target.maxHp ?? '?'}`,
+      Encounter: encounter.name,
+    };
+
+    const executionPayload = {
+      encounterId: encounter.id,
+      campaignId: encounter.campaign_id,
+      combatantId: target.instanceId,
+      combatantName: target.name,
+    };
+
+    const proposal = hitlManager.createProposal({
+      toolName: 'remove_combatant',
+      description,
+      payloadType: 'generic',
+      payload: proposalPayload,
+      executionPayload,
+      stateHash: computeEncounterStateHash(encounterId),
+      affectedIds: [target.instanceId],
+      context: {
+        campaignId: encounter.campaign_id,
+        encounterId: encounter.id,
+      },
+    });
+
+    return {
+      proposal,
+      summary: description,
+    };
+  },
+  executeMutation: async (executionPayload, context = {}) => {
+    const { encounterId, combatantId, combatantName } = executionPayload;
+
+    // By the time this runs, hitlManager has already verified the
+    // encounter's state hash still matches what was captured at staging
+    // time (see computeEncounterStateHash / registerStateHasher), so the
+    // combatant is guaranteed to still be exactly where it was when the DM
+    // was shown this proposal — there is no "already removed by someone
+    // else" case left to handle here.
+    db.transaction(() => {
+      db.prepare('DELETE FROM encounter_units WHERE instanceId = ?').run(combatantId);
+
+      const rs = readRunningStateOrDefault(encounterId);
+      const removedIndex = rs.combatants.findIndex((c) => c.instanceId === combatantId);
+      rs.combatants = rs.combatants.filter((c) => c.instanceId !== combatantId);
+
+      // Keep turnIndex pointing at a valid entry after the roster shrinks: a
+      // removal at or before the current turn shifts everyone after it down
+      // by one, and the pointer is clamped back into range if it now falls
+      // off the end of the (shorter) list.
+      if (typeof rs.turnIndex === 'number') {
+        if (removedIndex !== -1 && removedIndex < rs.turnIndex) {
+          rs.turnIndex = Math.max(0, rs.turnIndex - 1);
+        }
+        if (rs.combatants.length === 0) {
+          rs.turnIndex = 0;
+        } else if (rs.turnIndex >= rs.combatants.length) {
+          rs.turnIndex = rs.combatants.length - 1;
+        }
+      }
+
+      if (!Array.isArray(rs.combatLog)) {
+        rs.combatLog = [];
+      }
+      rs.combatLog.push({
+        id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        timestamp: new Date().toISOString(),
+        type: 'combatant_removed',
+        description: `Removed ${combatantName || combatantId} from the encounter.`,
+      });
+      rs.updatedAt = new Date().toISOString();
+
+      db.prepare('UPDATE encounters SET running_state = ? WHERE id = ?').run(JSON.stringify(rs), encounterId);
+    })();
+
+    return {
+      executionSummary: `Removed ${combatantName || combatantId} from the encounter.`,
+      updatedState: { encounterId, combatantId, combatantName },
+    };
+  },
+};
+
+export const UPDATE_COMBATANT_TOOL_DEF = {
+  name: 'update_combatant',
+  description:
+    "Propose editing a single combatant's name and/or faction (ally, enemy, or neutral) without moving it or changing its HP. Use move_combatant for position changes and apply_combat_damage for HP/healing changes. Stages a Human-in-the-Loop confirmation proposal showing exactly which fields will change before committing.",
+  payloadType: 'generic',
+  getStateHash: (context) => computeEncounterStateHash(context.encounterId),
+  parameters: {
+    type: 'object',
+    properties: {
+      combatantId: {
+        type: 'string',
+        description: 'The unique instanceId of the combatant to update.',
+      },
+      combatantName: {
+        type: 'string',
+        description: 'The current name of the combatant to update (e.g. "Goblin 2").',
+      },
+      newName: {
+        type: 'string',
+        description: 'The new name to give the combatant.',
+      },
+      faction: {
+        type: 'string',
+        enum: ['ally', 'enemy', 'neutral'],
+        description: 'The new faction/allegiance for the combatant.',
+      },
+      encounterId: {
+        type: 'string',
+        description: 'The ID of the encounter. Optional if the active encounter can be inferred from context.',
+      },
+    },
+  },
+  stageProposal: async (args, context = {}) => {
+    // 1. Resolve encounter (never leaves a known campaign; see resolveEncounterForWrite)
+    const encounter = resolveEncounterForWrite(args, context);
+    if (!encounter) {
+      throw new Error('No encounter found for update_combatant. Please specify a valid encounterId.');
+    }
+    const encounterId = encounter.id;
+
+    // 2. Gather combatants and resolve the target
+    const allCombatants = loadEncounterCombatants(encounterId, encounter.running_state);
+    if (!args.combatantId && !args.combatantName) {
+      throw new Error(
+        'update_combatant: either combatantId or combatantName is required to identify which combatant to update.'
+      );
+    }
+    const target = resolveCombatantRef(allCombatants, args.combatantId, args.combatantName);
+    if (!target) {
+      throw new Error(
+        `Combatant "${args.combatantName || args.combatantId || 'unknown'}" not found in encounter "${encounter.name || encounterId}".`
+      );
+    }
+
+    // 3. Validate requested changes
+    const requestedName = typeof args.newName === 'string' ? args.newName.trim() : undefined;
+    if (args.newName !== undefined && !requestedName) {
+      throw new Error('update_combatant: newName cannot be blank.');
+    }
+
+    let requestedFaction;
+    if (args.faction !== undefined) {
+      if (!['ally', 'enemy', 'neutral'].includes(args.faction)) {
+        throw new Error(`update_combatant: invalid faction "${args.faction}". Must be "ally", "enemy", or "neutral".`);
+      }
+      requestedFaction = args.faction;
+    }
+
+    if (requestedName === undefined && requestedFaction === undefined) {
+      throw new Error('update_combatant: at least one of newName or faction must be provided.');
+    }
+
+    // 4. Diff against current values. A requested value identical to the
+    // current one is not a real change; reject the call outright rather than
+    // staging a no-op proposal for the DM to confirm.
+    const currentFaction = target.faction || (target.isPlayer ? 'ally' : 'enemy');
+    const changes = [];
+    const proposalPayload = { Combatant: target.name };
+    let finalName;
+    let finalFaction;
+
+    if (requestedName !== undefined && requestedName !== target.name) {
+      changes.push(`renamed to "${requestedName}"`);
+      proposalPayload.Name = `${target.name} → ${requestedName}`;
+      finalName = requestedName;
+    }
+    if (requestedFaction !== undefined && requestedFaction !== currentFaction) {
+      changes.push(`faction changed to "${requestedFaction}"`);
+      proposalPayload.Faction = `${currentFaction} → ${requestedFaction}`;
+      finalFaction = requestedFaction;
+    }
+
+    if (changes.length === 0) {
+      throw new Error(`update_combatant: no changes to make — ${target.name} already matches the requested value(s).`);
+    }
+
+    const description = `Update ${target.name}: ${changes.join(', ')} in encounter "${encounter.name}".`;
+
+    const executionPayload = {
+      encounterId: encounter.id,
+      campaignId: encounter.campaign_id,
+      combatantId: target.instanceId,
+      combatantName: target.name,
+      newName: finalName,
+      faction: finalFaction,
+    };
+
+    const proposal = hitlManager.createProposal({
+      toolName: 'update_combatant',
+      description,
+      payloadType: 'generic',
+      payload: proposalPayload,
+      executionPayload,
+      stateHash: computeEncounterStateHash(encounterId),
+      affectedIds: [target.instanceId],
+      context: {
+        campaignId: encounter.campaign_id,
+        encounterId: encounter.id,
+      },
+    });
+
+    return {
+      proposal,
+      summary: description,
+    };
+  },
+  executeMutation: async (executionPayload, context = {}) => {
+    const { encounterId, combatantId, combatantName, newName, faction } = executionPayload;
+
+    const updateTx = db.transaction(() => {
+      const existing = db.prepare('SELECT instanceId, name, faction FROM encounter_units WHERE instanceId = ?').get(combatantId);
+      if (!existing) {
+        throw new Error(`Combatant "${combatantName || combatantId}" no longer exists in this encounter.`);
+      }
+
+      const setClauses = [];
+      const params = [];
+      if (newName !== undefined) {
+        setClauses.push('name = ?');
+        params.push(newName);
+      }
+      if (faction !== undefined) {
+        setClauses.push('faction = ?');
+        params.push(faction);
+      }
+      if (setClauses.length > 0) {
+        params.push(combatantId);
+        db.prepare(`UPDATE encounter_units SET ${setClauses.join(', ')} WHERE instanceId = ?`).run(...params);
+      }
+
+      const rs = readRunningStateOrDefault(encounterId);
+      const match = rs.combatants.find((c) => c.instanceId === combatantId);
+      if (match) {
+        if (newName !== undefined) match.name = newName;
+        if (faction !== undefined) match.faction = faction;
+      }
+
+      const changeParts = [];
+      if (newName !== undefined) changeParts.push(`name -> "${newName}"`);
+      if (faction !== undefined) changeParts.push(`faction -> "${faction}"`);
+      const finalSummary = `Updated ${existing.name}: ${changeParts.join(', ')}.`;
+
+      if (!Array.isArray(rs.combatLog)) {
+        rs.combatLog = [];
+      }
+      rs.combatLog.push({
+        id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        timestamp: new Date().toISOString(),
+        type: 'combatant_updated',
+        description: finalSummary,
+      });
+      rs.updatedAt = new Date().toISOString();
+
+      db.prepare('UPDATE encounters SET running_state = ? WHERE id = ?').run(JSON.stringify(rs), encounterId);
+
+      return {
+        finalSummary,
+        updatedUnit: db.prepare('SELECT * FROM encounter_units WHERE instanceId = ?').get(combatantId),
+      };
+    });
+
+    const { finalSummary, updatedUnit } = updateTx();
+
+    return {
+      executionSummary: finalSummary,
+      updatedState: { encounterId, combatantId, name: updatedUnit?.name, faction: updatedUnit?.faction },
+      combatant: updatedUnit,
+    };
+  },
+};
+
 export function registerBuiltInWriteTools() {
   registerWriteTool(MOVE_COMBATANT_TOOL_DEF);
   registerWriteTool(APPLY_COMBAT_DAMAGE_TOOL_DEF);
   registerWriteTool(CONFIGURE_ENCOUNTER_COMBATANTS_TOOL_DEF);
+  registerWriteTool(REMOVE_COMBATANT_TOOL_DEF);
+  registerWriteTool(UPDATE_COMBATANT_TOOL_DEF);
 }
 
 export {

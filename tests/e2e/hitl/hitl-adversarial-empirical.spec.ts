@@ -48,7 +48,7 @@ test.describe('Adversarial Frontend & Shortcut Probes', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           answer: 'Tactical move ready.',
-          proposal: mockProposal,
+          proposals: [mockProposal],
           toolCalls: [],
           modelUsed: 'mock-model',
         }),
@@ -106,7 +106,7 @@ test.describe('Adversarial Frontend & Shortcut Probes', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           answer: 'Tactical move ready.',
-          proposal: { ...mockProposal, proposalId: 'prop-rapid-hammer-1' },
+          proposals: [{ ...mockProposal, proposalId: 'prop-rapid-hammer-1' }],
           toolCalls: [],
           modelUsed: 'mock-model',
         }),
@@ -156,7 +156,7 @@ test.describe('Adversarial Frontend & Shortcut Probes', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           answer: 'Tactical move ready.',
-          proposal: { ...mockProposal, proposalId: 'prop-escape-test-1' },
+          proposals: [{ ...mockProposal, proposalId: 'prop-escape-test-1' }],
           toolCalls: [],
           modelUsed: 'mock-model',
         }),
@@ -198,7 +198,7 @@ test.describe('Adversarial Frontend & Shortcut Probes', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           answer: 'Tactical move ready.',
-          proposal: { ...mockProposal, proposalId: 'prop-live-region-1' },
+          proposals: [{ ...mockProposal, proposalId: 'prop-live-region-1' }],
           toolCalls: [],
           modelUsed: 'mock-model',
         }),

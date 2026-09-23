@@ -2,7 +2,7 @@ import { getConfig } from './config.js';
 import { executeChatCompletion, separateThinkingAndContent } from './llmClient.js';
 import { searchVectorStore } from './vectorStore.js';
 import { getAuthoritativeGameState, buildChatMessages, estimateTokenCount } from './contextBuilder.js';
-import { ASSISTANT_TOOLS, executeTool, isWriteTool } from './toolController.js';
+import { ASSISTANT_TOOLS, executeTool } from './toolController.js';
 
 /**
  * Handles the complete RAG + State + Tool Execution pipeline for user queries.
@@ -105,7 +105,14 @@ export async function handleAssistantChat({
     // 5. Handle structured tool calls if the model invoked any
     let iterations = 0;
     const maxToolIterations = config.maxToolIterations || 20;
-    let stagedProposal = null;
+    // Every write-tool call in this turn gets its own staged proposal — the
+    // DM reviews them one at a time in a queue (see HitlConfirmationBox)
+    // rather than only ever being shown the single most recent one. Staging
+    // is still read-only (see docs/HITL_WRITE_TOOLS.md); nothing here
+    // mutates state, so there is no ordering hazard in staging several in a
+    // row. hitlManager itself still caps how many can be pending at once
+    // per campaign, so a runaway tool-call loop can't queue unboundedly.
+    const stagedProposals = [];
 
     while (assistantMessage?.tool_calls && assistantMessage.tool_calls.length > 0 && iterations < maxToolIterations) {
       iterations++;
@@ -118,18 +125,6 @@ export async function handleAssistantChat({
         const fnArgs = toolCall.function?.arguments;
 
         try {
-          // Only one write-tool proposal can be surfaced to the DM per turn
-          // (the confirmation box shows a single pending proposal). Reject
-          // any further write-tool call with a tool-level error rather than
-          // silently staging it: an orphaned proposal that never reaches the
-          // DM, while the model tells them everything was staged, is worse
-          // than a clear "resolve the pending one first" message (see G-8).
-          if (stagedProposal && isWriteTool(fnName)) {
-            throw new Error(
-              `A write action is already staged for the Dungeon Master's confirmation this turn ("${stagedProposal.description}"). Only one write action may be staged per turn. Wait for the DM to approve or deny it before proposing another.`
-            );
-          }
-
           const toolResult = await executeTool(fnName, fnArgs, {
             campaignId,
             encounterId,
@@ -145,8 +140,8 @@ export async function handleAssistantChat({
           });
 
           const isProposal = !!(toolResult && toolResult.requiresConfirmation && toolResult.proposal);
-          if (isProposal && !stagedProposal) {
-            stagedProposal = toolResult.proposal;
+          if (isProposal) {
+            stagedProposals.push(toolResult.proposal);
           }
 
           // Prepare tool response content for the LLM
@@ -270,7 +265,7 @@ export async function handleAssistantChat({
 
     return {
       answer: finalAnswer,
-      proposal: stagedProposal || null,
+      proposals: stagedProposals,
       thinking: finalThinking || null,
       passages,
       gameState,

@@ -732,55 +732,64 @@ describe('Tier 5 Adversarial Coverage Hardening: Backend & HITL Security Invaria
   // =========================================================================
   // 4. CONCURRENT PROPOSALS, STALE/EXPIRED PROPOSALS & REPLAY INVARIANTS
   // =========================================================================
-  describe('4. Proposal Lifecycle, Concurrency & Expiration Security', () => {
-    it('4.1 expires stale proposals after TTL and rejects confirmation with 409 Conflict', async () => {
+  describe('4. Proposal Lifecycle, Concurrency & Stale-State Security', () => {
+    it('4.1 rejects approval with 409 Conflict when a live move_combatant proposal is staged, then the target roster changes before approval', async () => {
       let mutationRan = false;
-      hitlManager.registerExecutionHandler('test_expire_tool', async () => {
+      hitlManager.registerExecutionHandler('test_stale_tool', async () => {
         mutationRan = true;
         return { executionSummary: 'Should never run' };
       });
+      // Simulate a hasher whose answer changes once the "encounter" is
+      // touched, standing in for computeEncounterStateHash actually
+      // observing a real DB change between staging and approval.
+      let liveHash = 'hash-at-staging-time';
+      hitlManager.registerStateHasher('test_stale_tool', async () => liveHash);
 
-      // Create proposal with tiny TTL (10ms)
       const proposal = createProposal({
-        toolName: 'test_expire_tool',
-        description: 'Expiring probe',
-        ttlMs: 10,
+        toolName: 'test_stale_tool',
+        description: 'Stale probe',
+        stateHash: liveHash,
       });
 
       expect(proposal.status).toBe('pending');
       expect(listPendingProposals().length).toBe(1);
 
-      // Sleep 25ms to ensure expiration
-      await new Promise((r) => setTimeout(r, 25));
+      // Something else (another approved proposal, a manual DM edit) changes
+      // the encounter's state before this proposal is resolved.
+      liveHash = 'hash-after-someone-else-changed-the-encounter';
 
-      // Expired proposals must be excluded from pending list
-      expect(listPendingProposals().length).toBe(0);
+      // A changed-state proposal is still visible in the pending queue right
+      // up until someone tries to resolve it — unlike a timer, staleness is
+      // only detected at the moment of approval, not proactively.
+      expect(listPendingProposals().length).toBe(1);
 
-      // Attempt to approve expired proposal via API -> 409 Conflict
+      // Attempt to approve the now-stale proposal via API -> 409 Conflict
       const approveRes = await request(app)
         .post('/api/assistant/confirm')
         .send({ proposalId: proposal.proposalId, action: 'approve' });
 
       expect(approveRes.status).toBe(409);
-      expect(approveRes.body.error).toContain('expired');
-      expect(approveRes.body.status).toBe('expired');
+      expect(approveRes.body.error).toMatch(/state.*changed/i);
+      expect(approveRes.body.status).toBe('stale');
       expect(mutationRan).toBe(false);
+      expect(getProposal(proposal.proposalId).status).toBe('stale');
 
-      // Attempt to deny expired proposal via API -> 409 Conflict
+      // A stale rejection is terminal: a second attempt (approve or deny)
+      // must not retry the hash check or run the mutation, just report
+      // it's already resolved.
       const denyRes = await request(app)
         .post('/api/assistant/confirm')
         .send({ proposalId: proposal.proposalId, action: 'deny' });
 
       expect(denyRes.status).toBe(409);
+      expect(denyRes.body.status).toBe('stale');
       expect(mutationRan).toBe(false);
     });
 
     it('4.2 supports multiple concurrent, independent proposals across tools without collision, scoped to different campaigns', async () => {
-      // Staging a proposal for one campaign no longer leaves an earlier
-      // pending proposal for the *same* campaign untouched (see M-1: it's
-      // superseded). To exercise genuinely independent, non-colliding
-      // proposals — unique IDs, isolated resolution, no cross-talk — each
-      // one here is staged against its own campaign/encounter.
+      // Each proposal here is staged against its own campaign/encounter to
+      // exercise genuinely independent, non-colliding proposals — unique
+      // IDs, isolated resolution, no cross-talk.
       const campA = 'tier5-concurrent-camp-a';
       const campB = 'tier5-concurrent-camp-b';
       const campC = 'tier5-concurrent-camp-c';
@@ -858,7 +867,7 @@ describe('Tier 5 Adversarial Coverage Hardening: Backend & HITL Security Invaria
       expect(unitB.currentHp).toBe(30); // untouched!
     });
 
-    it('4.2b staging a new proposal for the same campaign supersedes an earlier still-pending one (M-1)', async () => {
+    it('4.2b staging a second proposal for the same campaign no longer supersedes the earlier one — both queue, and approving the first correctly makes a conflicting second one stale', async () => {
       const resA = await executeTool(
         'move_combatant',
         { combatantId: heroId, destination: 'A1', encounterId },
@@ -870,28 +879,34 @@ describe('Tier 5 Adversarial Coverage Hardening: Backend & HITL Security Invaria
         { campaignId }
       );
 
-      // Only the newer proposal (B) is pending; recovery/listing can never
-      // hand back the abandoned A ahead of what the DM most recently asked for.
+      // Both proposals are queued — the DM reviews them one at a time, and
+      // an older one is never silently discarded just because a newer one
+      // came in.
       const pending = listPendingProposals();
-      expect(pending).toHaveLength(1);
-      expect(pending[0].proposalId).toBe(resB.proposal.proposalId);
+      expect(pending).toHaveLength(2);
+      expect(pending[0].proposalId).toBe(resA.proposal.proposalId);
+      expect(pending[1].proposalId).toBe(resB.proposal.proposalId);
 
-      const recordA = getProposal(resA.proposal.proposalId);
-      expect(recordA.status).toBe('superseded');
-
-      // The superseded proposal can no longer be approved or denied.
+      // Approving A actually moves the hero, which changes the encounter
+      // state B's proposal was staged against (they target the same
+      // combatant). B must now be rejected as stale rather than blindly
+      // applied on top of a state it no longer reflects.
       const approveA = await request(app)
         .post('/api/assistant/confirm')
         .send({ proposalId: resA.proposal.proposalId, action: 'approve' });
-      expect(approveA.status).toBe(409);
-      expect(approveA.body.status).toBe('superseded');
+      expect(approveA.status).toBe(200);
+      expect(approveA.body.status).toBe('approved');
 
-      // Approving B still works normally.
       const approveB = await request(app)
         .post('/api/assistant/confirm')
         .send({ proposalId: resB.proposal.proposalId, action: 'approve' });
-      expect(approveB.status).toBe(200);
-      expect(approveB.body.status).toBe('approved');
+      expect(approveB.status).toBe(409);
+      expect(approveB.body.status).toBe('stale');
+
+      // The hero ends up at A1 (from the approved proposal), not T20.
+      const hero = db.prepare('SELECT position_x, position_y FROM encounter_units WHERE instanceId = ?').get(heroId);
+      expect(hero.position_x).toBe(0);
+      expect(hero.position_y).toBe(0);
     });
 
     it('4.2c does not supersede pending proposals across different campaigns', async () => {

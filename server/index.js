@@ -497,6 +497,9 @@ app.post('/api/assistant/confirm', async (req, res) => {
     if (err.code === 'ALREADY_RESOLVED') {
       return res.status(409).json({ error: err.message, status: err.status });
     }
+    if (err.code === 'STALE_STATE') {
+      return res.status(409).json({ error: err.message, status: err.status });
+    }
     if (err.code === 'INVALID_ACTION') {
       return res.status(400).json({ error: err.message });
     }
@@ -505,11 +508,13 @@ app.post('/api/assistant/confirm', async (req, res) => {
 });
 
 // GET /api/assistant/proposals/pending
-// Lets a client that lost its local proposal state (e.g. the DM dismissed
-// the Oracle modal with Escape, or reloaded the page) recover a still-live
-// pending proposal instead of it being orphaned with no way back to it.
-// Optionally scoped to a campaignId; unscoped only returns proposals with
-// no campaign context (matches the lack of confirm-endpoint scoping
+// Lets a client that lost its local proposal queue (e.g. the DM dismissed
+// the Oracle modal with Escape, or reloaded the page) recover every still-
+// pending proposal instead of any of them being orphaned with no way back
+// to them. Multiple proposals can be pending at once for the same campaign
+// (the DM reviews them one at a time); this returns the whole queue, oldest
+// first. Optionally scoped to a campaignId; unscoped only returns proposals
+// with no campaign context (matches the lack of confirm-endpoint scoping
 // documented in docs/HITL_WRITE_TOOLS.md).
 app.get('/api/assistant/proposals/pending', (req, res) => {
   try {
@@ -634,6 +639,21 @@ if (process.env.NODE_ENV === 'test') {
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
+  });
+
+  // Proposals staged via the route above go through the real hitlManager
+  // and, with the fixed-TTL expiry replaced by hash-based staleness
+  // detection (see docs/HITL_WRITE_TOOLS.md §8), no longer expire on their
+  // own. A spec file that stages a proposal in one test but only asserts on
+  // its rendering (never approving/denying it) leaves it pending
+  // indefinitely, where a later test's "recover pending proposals on
+  // reopen" fetch (see AssistantOracleModal) would pick it up and steal
+  // focus onto it instead of the input the later test expects. Test files
+  // that exercise real staged proposals should call this in beforeEach to
+  // start every test from an empty queue.
+  app.delete('/api/test/proposals', (req, res) => {
+    hitlManager.clearProposals();
+    res.status(204).send();
   });
 }
 

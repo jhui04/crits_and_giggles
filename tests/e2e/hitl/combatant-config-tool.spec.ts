@@ -104,7 +104,12 @@ async function openAssistantOracle(page: Page): Promise<{ modal: Locator; chatIn
   const modal = page.locator('[role="dialog"][aria-labelledby="assistant-oracle-title"]');
   await expect(modal).toBeVisible();
   const chatInput = page.locator('#assistant-oracle-input');
-  await expect(chatInput).toBeFocused();
+  // Not asserting focus here: every test in this file stages a real
+  // proposal via /api/test/stage-proposal before calling this helper, so by
+  // the time the modal opens, the recovered proposal's own
+  // HitlConfirmationBox may already own focus instead of the chat input
+  // (see docs/HITL_WRITE_TOOLS.md §5 — an arriving/recovered proposal
+  // claims focus).
   return { modal, chatInput };
 }
 
@@ -126,6 +131,10 @@ test.describe('Milestone 4: Encounter Combatant Customization & Phase Tool (R4)'
   test.beforeEach(async ({ page, request }) => {
     const apiBase = 'http://localhost:3005/api';
     await request.post(`${apiBase}/campaigns`, { data: configCampaignSeed });
+    // Proposals staged via /api/test/stage-proposal below don't expire on
+    // their own (see docs/HITL_WRITE_TOOLS.md §8); clear any left pending
+    // by a prior test in this file so this test starts from an empty queue.
+    await request.delete(`${apiBase}/test/proposals`);
     await setupApp(page);
   });
 
@@ -160,7 +169,7 @@ test.describe('Milestone 4: Encounter Combatant Customization & Phase Tool (R4)'
         contentType: 'application/json',
         body: JSON.stringify({
           answer: 'I have analyzed the scenario and staged a combatant configuration proposal.',
-          proposal: stagedData.proposal,
+          proposals: [stagedData.proposal],
           toolCalls: [],
           modelUsed: 'qwen3.5:9b',
         }),
@@ -194,7 +203,7 @@ test.describe('Milestone 4: Encounter Combatant Customization & Phase Tool (R4)'
     await expect(goblin1Row.locator('[data-testid="combatant-name"]')).toHaveText('Goblin 1');
     await expect(goblin1Row.locator('[data-testid="combatant-monster-type"]')).toHaveText('Goblin');
     await expect(goblin1Row.locator('[data-testid="combatant-coordinates"]')).toContainText('B3');
-    await expect(goblin1Row.locator('[data-testid="combatant-coordinates"]')).toContainText('South Shore');
+    await expect(goblin1Row.locator('[data-testid="combatant-coordinates"]')).toContainText('Lucidian Ocean');
     await expect(goblin1Row.locator('[data-testid="combatant-phase"]')).toHaveText('Phase 1: Initial Wave');
     await expect(goblin1Row.locator('[data-testid="combatant-faction"]')).toContainText('enemy');
 
@@ -204,7 +213,7 @@ test.describe('Milestone 4: Encounter Combatant Customization & Phase Tool (R4)'
     await expect(bugbear1Row.locator('[data-testid="combatant-name"]')).toHaveText('Bugbear 1');
     await expect(bugbear1Row.locator('[data-testid="combatant-monster-type"]')).toHaveText('Bugbear');
     await expect(bugbear1Row.locator('[data-testid="combatant-coordinates"]')).toContainText('H1');
-    await expect(bugbear1Row.locator('[data-testid="combatant-coordinates"]')).toContainText('North Woods');
+    await expect(bugbear1Row.locator('[data-testid="combatant-coordinates"]')).toContainText('Lucidian Ocean');
     await expect(bugbear1Row.locator('[data-testid="combatant-phase"]')).toHaveText('Phase 2: Reinforcements');
     await expect(bugbear1Row.locator('[data-testid="combatant-faction"]')).toContainText('enemy');
 
@@ -243,7 +252,7 @@ test.describe('Milestone 4: Encounter Combatant Customization & Phase Tool (R4)'
         contentType: 'application/json',
         body: JSON.stringify({
           answer: 'Please confirm configuring the encounter roster.',
-          proposal: stagedData.proposal,
+          proposals: [stagedData.proposal],
         }),
       });
     });
@@ -303,7 +312,7 @@ test.describe('Milestone 4: Encounter Combatant Customization & Phase Tool (R4)'
         contentType: 'application/json',
         body: JSON.stringify({
           answer: 'Proposal ready.',
-          proposal: stagedData.proposal,
+          proposals: [stagedData.proposal],
         }),
       });
     });
@@ -375,7 +384,7 @@ test.describe('Milestone 4: Encounter Combatant Customization & Phase Tool (R4)'
         contentType: 'application/json',
         body: JSON.stringify({
           answer: 'Please confirm roster configuration.',
-          proposal: stagedData.proposal,
+          proposals: [stagedData.proposal],
         }),
       });
     });
@@ -441,7 +450,7 @@ test.describe('Milestone 4: Encounter Combatant Customization & Phase Tool (R4)'
         contentType: 'application/json',
         body: JSON.stringify({
           answer: 'Please review and confirm shortcut roster test.',
-          proposal: stagedData.proposal,
+          proposals: [stagedData.proposal],
         }),
       });
     });

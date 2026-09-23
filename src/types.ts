@@ -289,7 +289,7 @@ export interface MagicItemFilters {
 // ============================================================================
 
 export type HitlAction = 'approve' | 'deny';
-export type ProposalStatus = 'pending' | 'approved' | 'denied' | 'expired';
+export type ProposalStatus = 'pending' | 'approved' | 'denied' | 'stale';
 export type HitlPayloadType = 'movement' | 'damage' | 'combatant_config' | 'generic';
 
 export interface MovementProposalPayload {
@@ -380,7 +380,6 @@ export interface ConfirmationProposal<T = ToolProposalPayload> {
   requiresConfirmation: true;
   status: ProposalStatus;
   createdAt: number;
-  expiresAt?: number;
   payloadType: HitlPayloadType | string;
   payload: T;
   context?: {

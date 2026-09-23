@@ -192,29 +192,34 @@ In accordance with `GEMINI.md` and WCAG 2.1/2.2 AAA guidelines:
 ## 6. Clean Denial & Rollback Semantics
 
 - **Denial (`Alt+N`)**: Discards the staged proposal from memory. 0 database queries or modifications occur. Clean confirmation is returned to the client and logged to the chat log.
-- **Rollback on Approval Error**: If an approved mutation fails during execution (e.g. SQLite constraint violation or stale combatant), the SQLite transaction rolls back completely, preserving encounter integrity. Returns HTTP 500 with error details.
+- **Stale Rejection**: If the game state a proposal was staged against has changed by approval time, it is rejected before the mutation handler ever runs — 0 database queries or modifications occur, same as a denial. See §8 for the hash-based mechanism that replaced the old fixed-TTL expiry.
+- **Rollback on Approval Error**: If an approved mutation fails during execution (e.g. SQLite constraint violation), the SQLite transaction rolls back completely, preserving encounter integrity. Returns HTTP 500 with error details.
 
 ---
 
 ## 7. HTTP API Reference
 
 ### `POST /api/assistant/chat`
-- Emits prompt query. If the model invokes a write tool, the response contains:
+- Emits prompt query. A single turn may invoke more than one write tool (e.g. "move the goblin to C4 and have it hit Grog for 6"); each staged proposal is returned in a `proposals` array, oldest first, rather than only surfacing the first one:
   ```json
   {
-    "answer": "I have staged the movement for Grog Strongjaw. Please confirm above.",
-    "proposal": {
-      "proposalId": "prop_1790043552_8a7f9b2c",
-      "toolName": "move_combatant",
-      "description": "Move Grog Strongjaw from L8 (Shoreline) to M9 (Shoreline)",
-      "requiresConfirmation": true,
-      "status": "pending",
-      "createdAt": 1790043552000,
-      "payloadType": "movement",
-      "payload": { ... }
-    }
+    "answer": "I've staged the move and the damage. Please confirm above.",
+    "proposals": [
+      {
+        "proposalId": "prop_1790043552_8a7f9b2c",
+        "toolName": "move_combatant",
+        "description": "Move Grog Strongjaw from L8 (Shoreline) to M9 (Shoreline)",
+        "requiresConfirmation": true,
+        "status": "pending",
+        "createdAt": 1790043552000,
+        "payloadType": "movement",
+        "payload": { ... }
+      },
+      { "proposalId": "prop_...", "toolName": "apply_combat_damage", "...": "..." }
+    ]
   }
   ```
+  Multiple proposals for the same campaign can be pending at once (capped at `hitlManager.maxPendingPerCampaign`, currently 25, to bound memory if an agent stages faster than the DM resolves); the client shows them to the DM one at a time and advances the queue as each is approved or denied. `GET /api/assistant/proposals/pending?campaignId=` returns the full queue, not just the most recent proposal.
 
 ### `POST /api/assistant/confirm`
 - **Request Body**:
@@ -227,8 +232,8 @@ In accordance with `GEMINI.md` and WCAG 2.1/2.2 AAA guidelines:
 - **Responses**:
   - `200 OK`: Successful approval (`{ success: true, status: 'approved', executionSummary, updatedState }`) or denial (`{ success: true, status: 'denied', cancelled: true, message }`).
   - `400 Bad Request`: Missing `proposalId` or invalid `action`.
-  - `404 Not Found`: Proposal missing or expired (TTL: 15 minutes).
-  - `409 Conflict`: Proposal has already been resolved (replay attack defense).
+  - `404 Not Found`: Proposal missing.
+  - `409 Conflict`, `status: '<terminal-status>'`: either the proposal has already been resolved (replay attack defense), or — for `status: 'stale'` — the game state it was staged against has changed since (see §8, "Staleness Detection" below, which replaces the old fixed-TTL expiry).
   - `500 Internal Server Error`: Mutation execution failed (rolled back).
 
 > **No auth/campaign scoping (by design, for now).** This endpoint has no
@@ -241,3 +246,32 @@ In accordance with `GEMINI.md` and WCAG 2.1/2.2 AAA guidelines:
 > authorization (session/user identity checked against the proposal's
 > campaign) before this endpoint could be exposed to multiple users or over
 > an untrusted network.
+
+---
+
+## 8. Staleness Detection (Hash Comparison, Not a Timer)
+
+Proposals do **not** expire on a fixed timer. A staged proposal stays pending — potentially indefinitely — until the DM approves it, denies it, or it is rejected as stale. This is a deliberate choice: a proposal a DM took twenty minutes to get back to and one they resolved in twenty seconds are equally valid to apply, *provided the state it was staged against hasn't actually changed*. What matters is not how much time passed, but whether the game state moved.
+
+### How it works
+1. **At staging time**, a write tool that opts in computes a hash of the game state it depends on and passes it to `hitlManager.createProposal({ ..., stateHash })`. For the five built-in combatant tools this is `computeEncounterStateHash(encounterId)` in `toolController.js`: a SHA-256 hash over every `encounter_units` row for that encounter (name, HP, position, faction, initiative, etc.) plus the combat-progress fields of `running_state` (round, turnIndex, isCombatStarted).
+2. **At approval time**, `hitlManager.resolveProposal` recomputes the hash via the same tool's registered hasher (`registerWriteTool({ ..., getStateHash })` → `hitlManager.registerStateHasher`) and compares it to the one captured at staging. If they differ, the proposal's status becomes `'stale'` (terminal — it cannot be retried), the mutation handler is never invoked, and the confirm endpoint returns `409 { status: 'stale' }` with a message telling the DM/model to ask again against current state.
+3. **If a tool never registers a hasher** (or a proposal was staged with no `stateHash`), it is never rejected for staleness — this mechanism is opt-in per tool, not a blanket gate.
+
+### Rebasing the rest of the queue after an approval
+Because the hash covers the *whole* encounter, approving one proposal changes the serialized state every *other* still-pending proposal for the same encounter was hashed against — even one that doesn't touch the same combatant. Left alone, that would make the second proposal in a queued multi-tool turn (see §9) fail its own staleness check purely because the first one was approved, not because anything invalid happened to it. That defeats the point of queueing: since the assistant has no chat history to fall back on and lost the ability to re-stage anything it couldn't call in the same turn, silently rejecting the rest of its own queue on the DM's first approval would be exactly the tool-call loss queueing was built to avoid.
+
+But a blanket "rebase everything on every approval" would be wrong too: it would just as happily paper over a *genuine* conflict, e.g. two queued proposals that both move the same combatant to different destinations — approving the first should still make the second go stale, because applying it now means re-applying a plan that was computed against that combatant's old position/HP/etc. The two cases (harmless side effect on the shared encounter hash vs. an actual conflict) look identical from the whole-encounter hash alone; telling them apart needs to know *which specific resource(s)* each proposal actually targets.
+
+That's what `affectedIds` is for. A write tool can optionally pass `affectedIds: string[]` (e.g. `[combatantId]`, or the list of target ids for a multi-target damage call) to `hitlManager.createProposal`. After a successful approval, `resolveProposal` calls `rebaseOtherPendingProposals(resolvedRecord)`, which walks every other still-`pending` proposal for the same campaign and rebases (recomputes and overwrites its stored `stateHash`) **only** the ones where both proposals declared `affectedIds` and those id sets don't intersect. If either side never declared `affectedIds`, or they share an id, the pending proposal is left untouched and keeps failing staleness the old way — the conservative default, since there's no way to prove the overlap is safe. `configure_encounter_combatants` declares `affectedIds: []` (not `null`) because it only ever creates brand-new combatants with freshly generated ids and never reads or writes an existing one, so it's provably safe to rebase everything else around it.
+
+This all runs synchronously before `resolveProposal` returns, so — given Node's single-threaded event loop and `better-sqlite3`'s synchronous transactions — nothing else can mutate state in the gap between the handler finishing and the rebase running; "the hash right after this approval" is unambiguous. A rebased proposal is therefore only ever rejected as stale for a change that happens *after* that point.
+
+### Writing a new stateful write tool
+If a new write tool mutates encounter/combatant state, register a `getStateHash: (context) => computeEncounterStateHash(context.encounterId)` alongside its `stageProposal`/`executeMutation` (see any of the five built-in tools in `toolController.js` for the pattern), pass the same `computeEncounterStateHash(encounterId)` value as `stateHash` when calling `hitlManager.createProposal`, and — if the tool knows which specific combatant(s) it targets at staging time — also pass `affectedIds` so unrelated queued proposals aren't needlessly invalidated by this one's approval (see "Rebasing the rest of the queue" above). A tool whose state lives outside `encounter_units`/`running_state` should write its own hash function over whatever it actually depends on instead of reusing `computeEncounterStateHash`.
+
+---
+
+## 9. Proposal Queueing (Multiple Pending Proposals Per Campaign)
+
+A single chat turn can invoke more than one write tool, and separate turns can each stage more proposals before the DM gets to any of them. Rather than only ever keeping the single most recent proposal alive (superseding older ones), every staged proposal for a campaign stays pending until it's individually approved, denied, or found stale. `hitlManager.listPendingProposals()` / `GET /api/assistant/proposals/pending?campaignId=` return the full queue, oldest first, and `AssistantOracleModal` shows the DM one at a time via `HitlConfirmationBox`, advancing to the next as each is resolved. A capped `maxPendingPerCampaign` (25) still bounds how many can accumulate if the DM falls behind an active agent.

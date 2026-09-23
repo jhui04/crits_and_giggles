@@ -105,7 +105,12 @@ async function openAssistantOracle(page: Page): Promise<{ modal: Locator; chatIn
   const modal = page.locator('[role="dialog"][aria-labelledby="assistant-oracle-title"]');
   await expect(modal).toBeVisible();
   const chatInput = page.locator('#assistant-oracle-input');
-  await expect(chatInput).toBeFocused();
+  // Not asserting focus here: every test in this file stages a real
+  // proposal via /api/test/stage-proposal before calling this helper, so by
+  // the time the modal opens, the recovered proposal's own
+  // HitlConfirmationBox may already own focus instead of the chat input
+  // (see docs/HITL_WRITE_TOOLS.md §5 — an arriving/recovered proposal
+  // claims focus).
   return { modal, chatInput };
 }
 
@@ -127,6 +132,10 @@ test.describe('Milestone 3: Combat Damage Application Tool (R3)', () => {
   test.beforeEach(async ({ page, request }) => {
     const apiBase = 'http://localhost:3005/api';
     await request.post(`${apiBase}/campaigns`, { data: damageCampaignSeed });
+    // Proposals staged via /api/test/stage-proposal below don't expire on
+    // their own (see docs/HITL_WRITE_TOOLS.md §8); clear any left pending
+    // by a prior test in this file so this test starts from an empty queue.
+    await request.delete(`${apiBase}/test/proposals`);
     await setupApp(page);
   });
 
@@ -171,7 +180,7 @@ test.describe('Milestone 3: Combat Damage Application Tool (R3)', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           answer: 'I propose applying combat damage to Grog and the Goblin. Please review the projection.',
-          proposal: stagedData.proposal,
+          proposals: [stagedData.proposal],
           toolCalls: [],
           modelUsed: 'qwen3.5:9b',
         }),
@@ -246,7 +255,7 @@ test.describe('Milestone 3: Combat Damage Application Tool (R3)', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           answer: 'Damage application proposal ready for review.',
-          proposal: stagedData.proposal,
+          proposals: [stagedData.proposal],
           toolCalls: [],
           modelUsed: 'qwen3.5:9b',
         }),
@@ -298,7 +307,7 @@ test.describe('Milestone 3: Combat Damage Application Tool (R3)', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           answer: 'Please review and confirm 15 damage to Grog Strongjaw.',
-          proposal: stagedData.proposal,
+          proposals: [stagedData.proposal],
           toolCalls: [],
           modelUsed: 'qwen3.5:9b',
         }),
@@ -375,7 +384,7 @@ test.describe('Milestone 3: Combat Damage Application Tool (R3)', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           answer: 'Please confirm 25 damage to Grog.',
-          proposal: stagedData.proposal,
+          proposals: [stagedData.proposal],
           toolCalls: [],
           modelUsed: 'qwen3.5:9b',
         }),
@@ -445,7 +454,7 @@ test.describe('Milestone 3: Combat Damage Application Tool (R3)', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           answer: 'Please confirm 5 healing to Grog.',
-          proposal: stagedData.proposal,
+          proposals: [stagedData.proposal],
           toolCalls: [],
           modelUsed: 'qwen3.5:9b',
         }),

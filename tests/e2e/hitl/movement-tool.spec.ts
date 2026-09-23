@@ -117,7 +117,12 @@ async function openAssistantOracle(page: Page): Promise<{ modal: Locator; chatIn
   const modal = page.locator('[role="dialog"][aria-labelledby="assistant-oracle-title"]');
   await expect(modal).toBeVisible();
   const chatInput = page.locator('#assistant-oracle-input');
-  await expect(chatInput).toBeFocused();
+  // Not asserting focus here: every test in this file stages a real
+  // proposal via /api/test/stage-proposal before calling this helper, so by
+  // the time the modal opens, the recovered proposal's own
+  // HitlConfirmationBox may already own focus instead of the chat input
+  // (see docs/HITL_WRITE_TOOLS.md §5 — an arriving/recovered proposal
+  // claims focus).
   return { modal, chatInput };
 }
 
@@ -139,6 +144,10 @@ test.describe('Milestone 2: Character Movement Tool with Rich Context (R2)', () 
   test.beforeEach(async ({ page, request }) => {
     const apiBase = 'http://localhost:3005/api';
     await request.post(`${apiBase}/campaigns`, { data: movementCampaignSeed });
+    // Proposals staged via /api/test/stage-proposal below don't expire on
+    // their own (see docs/HITL_WRITE_TOOLS.md §8); clear any left pending
+    // by a prior test in this file so this test starts from an empty queue.
+    await request.delete(`${apiBase}/test/proposals`);
     await setupApp(page);
   });
 
@@ -172,7 +181,7 @@ test.describe('Milestone 2: Character Movement Tool with Rich Context (R2)', () 
         contentType: 'application/json',
         body: JSON.stringify({
           answer: 'I propose moving Grog Strongjaw to the Northern Bridge (R1). Please review and confirm.',
-          proposal: stagedData.proposal,
+          proposals: [stagedData.proposal],
           toolCalls: [],
           modelUsed: 'qwen3.5:9b',
         }),
@@ -244,7 +253,7 @@ test.describe('Milestone 2: Character Movement Tool with Rich Context (R2)', () 
         contentType: 'application/json',
         body: JSON.stringify({
           answer: 'Tactical movement proposal ready for review.',
-          proposal: stagedData.proposal,
+          proposals: [stagedData.proposal],
           toolCalls: [],
           modelUsed: 'qwen3.5:9b',
         }),
@@ -299,7 +308,7 @@ test.describe('Milestone 2: Character Movement Tool with Rich Context (R2)', () 
         contentType: 'application/json',
         body: JSON.stringify({
           answer: 'Please confirm moving Grog Strongjaw to R1.',
-          proposal: stagedData.proposal,
+          proposals: [stagedData.proposal],
           toolCalls: [],
           modelUsed: 'qwen3.5:9b',
         }),
@@ -380,7 +389,7 @@ test.describe('Milestone 2: Character Movement Tool with Rich Context (R2)', () 
         contentType: 'application/json',
         body: JSON.stringify({
           answer: 'Please confirm moving Grog Strongjaw to A1.',
-          proposal: stagedData.proposal,
+          proposals: [stagedData.proposal],
           toolCalls: [],
           modelUsed: 'qwen3.5:9b',
         }),

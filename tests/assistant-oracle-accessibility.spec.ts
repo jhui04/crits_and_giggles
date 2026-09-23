@@ -629,4 +629,153 @@ test.describe('Assistant Oracle Accessibility & Interaction', () => {
     await page.keyboard.press('Escape');
     await expect(modal).not.toBeVisible();
   });
+
+  test('Copy button on chat messages copies message text to the clipboard and announces success', async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+
+    await page.route('**/api/assistant/chat', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          answer: 'Fireball is a 3rd-level evocation spell that deals 8d6 fire damage.',
+          passages: [],
+          toolCalls: [],
+          modelUsed: 'qwen3.5:9b',
+        }),
+      });
+    });
+
+    await page.keyboard.press('Alt+a');
+    const modal = page.locator('[role="dialog"][aria-labelledby="assistant-oracle-title"]');
+    await expect(modal).toBeVisible();
+
+    const chatInput = page.locator('#assistant-oracle-input');
+    await chatInput.fill('Tell me about Fireball');
+    await modal.getByRole('button', { name: 'Ask' }).click();
+
+    const logRegion = modal.locator('[role="log"][aria-label="Assistant Oracle Conversation History"]');
+    const oracleResponses = logRegion.locator('article.oracle-message');
+    await expect(oracleResponses.last()).toBeVisible();
+
+    // Copy the oracle's response
+    const oracleMessage = oracleResponses.last();
+    const oracleCopyBtn = oracleMessage.getByRole('button', { name: /Copy the Oracle's message/ });
+    await expect(oracleCopyBtn).toBeVisible();
+    await oracleCopyBtn.click();
+
+    // Button label flips to confirm the action for sighted users
+    await expect(oracleCopyBtn).toHaveText('Copied!');
+
+    // Clipboard actually contains the message text
+    const oracleClipboardText = await page.evaluate(() => navigator.clipboard.readText());
+    expect(oracleClipboardText).toBe('Fireball is a 3rd-level evocation spell that deals 8d6 fire damage.');
+
+    // Screen reader announcement fires via the dedicated live region
+    const copyAnnouncement = page.locator('#copy-message-announcement');
+    await expect(copyAnnouncement).toHaveText("Oracle's message copied to clipboard.");
+
+    // Copy the user's own message too
+    const userMessage = logRegion.locator('article.user-message').last();
+    const userCopyBtn = userMessage.getByRole('button', { name: /Copy your message/ });
+    await userCopyBtn.click();
+    const userClipboardText = await page.evaluate(() => navigator.clipboard.readText());
+    expect(userClipboardText).toBe('Tell me about Fireball');
+    await expect(copyAnnouncement).toHaveText('Your message copied to clipboard.');
+
+    // Copy button remains outside the aria-hidden header so it stays in the accessibility tree
+    await expect(oracleCopyBtn).not.toHaveAttribute('aria-hidden', 'true');
+
+    await checkA11y(page, 'Assistant Oracle with copy buttons on messages');
+
+    await page.keyboard.press('Escape');
+    await expect(modal).not.toBeVisible();
+  });
+
+  test('Staging multiple write-tool proposals in one turn queues them and shows them to the DM one at a time', async ({ page }) => {
+    await page.route('**/api/assistant/chat', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          answer: "I've staged the move and the damage. Please confirm above.",
+          proposals: [
+            {
+              proposalId: 'prop_queue_1',
+              toolName: 'move_combatant',
+              description: 'Move Grog Strongjaw from L8 to M9.',
+              requiresConfirmation: true,
+              status: 'pending',
+              createdAt: Date.now(),
+              payloadType: 'generic',
+              payload: { Combatant: 'Grog Strongjaw' },
+            },
+            {
+              proposalId: 'prop_queue_2',
+              toolName: 'apply_combat_damage',
+              description: 'Apply 6 damage to Grog Strongjaw.',
+              requiresConfirmation: true,
+              status: 'pending',
+              createdAt: Date.now(),
+              payloadType: 'generic',
+              payload: { Combatant: 'Grog Strongjaw', Amount: '6' },
+            },
+          ],
+          passages: [],
+          toolCalls: [],
+          modelUsed: 'qwen3.5:9b',
+        }),
+      });
+    });
+
+    let confirmCallCount = 0;
+    await page.route('**/api/assistant/confirm', async (route) => {
+      confirmCallCount++;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          status: 'approved',
+          executionSummary: `Approved action #${confirmCallCount}`,
+          updatedState: null,
+        }),
+      });
+    });
+
+    await page.keyboard.press('Alt+a');
+    const modal = page.locator('[role="dialog"][aria-labelledby="assistant-oracle-title"]');
+    await expect(modal).toBeVisible();
+
+    const chatInput = page.locator('#assistant-oracle-input');
+    await chatInput.fill('Move the goblin then hit it');
+    await modal.getByRole('button', { name: 'Ask' }).click();
+
+    const hitlBox = page.locator('#hitl-confirmation-box');
+    await expect(hitlBox).toBeVisible();
+
+    // The first proposal is shown, with a queue indicator noting a second is waiting.
+    await expect(hitlBox).toContainText('Move Grog Strongjaw from L8 to M9');
+    await expect(hitlBox).toContainText('Action 1 of 2');
+    await expect(hitlBox.getByRole('heading', { name: /Action 1 of 2/ })).toBeFocused();
+
+    await checkA11y(page, 'Assistant Oracle with queued HITL proposal (1 of 2)');
+
+    // Approving the first advances to the second (now the only one pending),
+    // which regains heading focus. With only one left, the "N of M" queue
+    // indicator drops away rather than showing a redundant "1 of 1".
+    await hitlBox.getByRole('button', { name: /Approve action/ }).click();
+    await expect(hitlBox).toContainText('Apply 6 damage to Grog Strongjaw');
+    await expect(hitlBox).not.toContainText(/Action \d+ of \d+/);
+    await expect(hitlBox.getByRole('heading', { name: 'Action Confirmation Required: Apply Combat Damage' })).toBeFocused();
+
+    // Resolving the last proposal clears the queue entirely.
+    await hitlBox.getByRole('button', { name: /Deny action/ }).click();
+    await expect(hitlBox).not.toBeVisible();
+
+    expect(confirmCallCount).toBe(2);
+
+    await page.keyboard.press('Escape');
+    await expect(modal).not.toBeVisible();
+  });
 });

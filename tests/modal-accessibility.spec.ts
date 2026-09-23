@@ -94,6 +94,71 @@ test.describe('Global / App Level Accessibility', () => {
     await checkA11y(page, 'Keyboard Shortcuts');
     await verifyModalClosed(page, mainMenuTrigger);
   });
+
+  test('Debug Info Modal renders LLM metrics as accessible tables with no charts', async ({ page }) => {
+    await page.route('**/api/assistant/metrics/summary', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([
+          {
+            model_name: 'qwen3.5:9b',
+            request_count: 12,
+            avg_cold_start_ms: 850.5,
+            avg_generation_time_ms: 2200.25,
+            avg_tokens_per_second: 38.4,
+            max_vram_bytes: 6000000000,
+            max_total_bytes: 6500000000,
+            latest_timestamp: '2026-09-20T10:00:00.000Z',
+          },
+        ]),
+      });
+    });
+    await page.route('**/api/assistant/metrics?*', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([
+          {
+            id: 1,
+            model_name: 'qwen3.5:9b',
+            cold_start_ms: 850.5,
+            generation_time_ms: 2200.25,
+            tokens_per_second: 38.4,
+            vram_bytes: 6000000000,
+            total_bytes: 6500000000,
+            eval_count: 84,
+            timestamp: '2026-09-20T10:00:00.000Z',
+          },
+        ]),
+      });
+    });
+
+    const mainMenuTrigger = page.getByRole('button', { name: 'Open Main Menu' });
+    await mainMenuTrigger.click();
+    await page.getByRole('button', { name: /Debug Info/ }).click();
+    await verifyModalOpen(page, 'Debug Info: LLM Comparison Metrics');
+
+    // No canvas/svg chart elements should be present anywhere in the modal —
+    // metrics must remain screen-reader-readable text/tables only.
+    const modal = page.locator('[role="dialog"][aria-labelledby="debug-info-title"]');
+    await expect(modal.locator('canvas')).toHaveCount(0);
+    await expect(modal.locator('svg')).toHaveCount(0);
+
+    // Model comparison summary table is a real, labeled <table>
+    const summaryTable = modal.getByRole('region', { name: 'Model comparison summary table' }).locator('table');
+    await expect(summaryTable).toBeVisible();
+    await expect(summaryTable).toContainText('qwen3.5:9b');
+    await expect(summaryTable.locator('th[scope="col"]').first()).toBeVisible();
+
+    // Recent requests table is also a real, labeled <table>
+    const recentTable = modal.getByRole('region', { name: 'Recent LLM requests table' }).locator('table');
+    await expect(recentTable).toBeVisible();
+    await expect(recentTable).toContainText('qwen3.5:9b');
+
+    await checkA11y(page, 'Debug Info Modal');
+    await verifyModalClosed(page, mainMenuTrigger, 'Debug Info: LLM Comparison Metrics');
+  });
 });
 
 test.describe('Create Mode Accessibility', () => {

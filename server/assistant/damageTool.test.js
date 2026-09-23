@@ -276,7 +276,7 @@ describe('R3: apply_combat_damage Tool Backend & State Integration', () => {
     expect(lastLog.targets[0].combatantId).toBe(grogId);
   });
 
-  it('rebuilds the approval summary from what was actually applied, not the stale staging-time snapshot (N-5)', async () => {
+  it('rejects approval as stale when HP changed between staging and approval, instead of silently re-projecting onto the new value', async () => {
     // Stage a proposal while Grog is at 40 HP / 10 temp HP.
     const result = await executeTool(
       'apply_combat_damage',
@@ -305,27 +305,26 @@ describe('R3: apply_combat_damage Tool Backend & State Integration', () => {
       .post('/api/assistant/confirm')
       .send({ proposalId, action: 'approve' });
 
-    expect(confirmRes.status).toBe(200);
-    // The summary must describe the re-projected 20 -> 5 change, not the
-    // stale staged 40 -> 35 sentence.
-    expect(confirmRes.body.executionSummary).toMatch(/HP: 20 -> 5/);
-    expect(confirmRes.body.executionSummary).not.toMatch(/40/);
+    // The encounter's state hash no longer matches what was captured at
+    // staging time, so the approval is rejected outright rather than
+    // silently re-projecting the damage onto Grog's new HP.
+    expect(confirmRes.status).toBe(409);
+    expect(confirmRes.body.status).toBe('stale');
 
+    // Grog's HP is exactly what the out-of-band edit set it to — untouched
+    // by this proposal.
     const updatedGrogUnit = db
       .prepare('SELECT currentHp FROM encounter_units WHERE instanceId = ?')
       .get(grogId);
-    expect(updatedGrogUnit.currentHp).toBe(5);
+    expect(updatedGrogUnit.currentHp).toBe(20);
 
-    // The combat log entry written alongside the mutation must match too.
+    // No combat log entry was written for this rejected approval.
     const finalEnc = db.prepare('SELECT running_state FROM encounters WHERE id = ?').get(encounterId);
     const finalRs = JSON.parse(finalEnc.running_state);
-    const lastLog = finalRs.combatLog[finalRs.combatLog.length - 1];
-    expect(lastLog.description).toMatch(/HP: 20 -> 5/);
-    expect(lastLog.targets[0].previousHp).toBe(20);
-    expect(lastLog.targets[0].newHp).toBe(5);
+    expect(finalRs.combatLog.some((l) => l.type === 'combat_damage')).toBe(false);
   });
 
-  it('reports (and does not crash on) a target removed from the encounter between staging and approval (N-5)', async () => {
+  it('rejects approval as stale when a target is removed from the encounter between staging and approval, rather than silently skipping it', async () => {
     const result = await executeTool(
       'apply_combat_damage',
       {
@@ -350,17 +349,18 @@ describe('R3: apply_combat_damage Tool Backend & State Integration', () => {
       .post('/api/assistant/confirm')
       .send({ proposalId, action: 'approve' });
 
-    expect(confirmRes.status).toBe(200);
-    expect(confirmRes.body.success).toBe(true);
-    // Grog's damage still applies (5 damage fully absorbed by his 10 temp HP)...
+    // The roster changed since staging (the goblin is gone), so the state
+    // hash no longer matches and the whole proposal is rejected — including
+    // Grog's half, even though he's untouched — rather than partially
+    // applying it and reporting the goblin as skipped.
+    expect(confirmRes.status).toBe(409);
+    expect(confirmRes.body.status).toBe('stale');
+
     const updatedGrogUnit = db
       .prepare('SELECT currentHp, tempHp FROM encounter_units WHERE instanceId = ?')
       .get(grogId);
     expect(updatedGrogUnit.currentHp).toBe(40);
-    expect(updatedGrogUnit.tempHp).toBe(5);
-    // ...and the skipped goblin is called out, not silently dropped.
-    expect(confirmRes.body.executionSummary).toMatch(/Skipped 1 target/i);
-    expect(confirmRes.body.executionSummary).toMatch(/Goblin Scout/);
+    expect(updatedGrogUnit.tempHp).toBe(10);
   });
 
   it('cancels mutation cleanly on denial: leaves encounter_units and running_state completely unchanged', async () => {
