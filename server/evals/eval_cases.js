@@ -4,7 +4,12 @@
  * - id: unique test case identifier
  * - query: user prompt given to the assistant
  * - campaignId / encounterId: contextual authoritative state
- * - expectedTool: the tool that the model MUST execute (deterministic assertion)
+ * - expectedTool: the tool that the model MUST execute (deterministic assertion), or null for
+ *   judge-only cases (e.g. ideation) where no particular tool is required
+ * - screen: optional client screen id (see server/assistant/contextProfiles.js) the request is
+ *   sent from; omitted = general profile (today's behavior)
+ * - chapterId: optional active chapter id
+ * - forbiddenTools: optional tools that MUST NOT be executed (e.g. hidden by the screen profile)
  * - expectedFact: the core truth that the judge model must verify in the final answer
  * - category: grouping (e.g. 'core', 'bonus-tool')
  */
@@ -15,6 +20,7 @@ export const BASE_EVAL_CASES = [
     query: 'Look at the tactical map for Palma Flora. Who is closest to Grog?',
     campaignId: 'test-campaign',
     encounterId: 'enc-palma-flora',
+    screen: 'run.combat',
     expectedTool: 'get_current_map',
     expectedFact: 'A Sahuagin Raider is closest to Grog.',
     category: 'core',
@@ -127,4 +133,81 @@ export const BONUS_EVAL_CASES = [
   },
 ];
 
-export const ALL_EVAL_CASES = [...BASE_EVAL_CASES, ...BONUS_EVAL_CASES];
+/** Combat tools that story/world/encounter-builder screens must never execute. */
+export const LIVE_COMBAT_TOOLS = [
+  'move_combatant',
+  'apply_combat_damage',
+  'remove_combatant',
+  'update_combatant',
+  'get_character_hp',
+  'get_entity_position',
+  'get_initiative_order',
+  'get_current_map',
+];
+
+/** Screen-aware context profile cases (docs/CONTEXT_AWARE_ASSISTANT.md, section 6.3). */
+export const CONTEXT_EVAL_CASES = [
+  {
+    id: 'ctx-1a-hp-from-combat',
+    query: 'How much HP does the Sahuagin Raider have right now?',
+    campaignId: 'test-campaign',
+    encounterId: 'enc-palma-flora',
+    screen: 'run.combat',
+    expectedTool: 'get_monster_hp',
+    acceptableTools: ['get_character_hp'],
+    expectedFact: 'The Sahuagin Raider has 22 hit points.',
+    category: 'context',
+  },
+  {
+    id: 'ctx-1b-hp-from-story',
+    query: 'How much HP does the Sahuagin Raider have?',
+    campaignId: 'test-campaign',
+    screen: 'create.chapters',
+    expectedTool: 'lookup_monster',
+    forbiddenTools: ['get_monster_hp', 'get_character_hp'],
+    expectedFact: 'The answer gives stat block hit points for the Sahuagin Raider and does not claim a live current HP.',
+    category: 'context',
+  },
+  {
+    id: 'ctx-2-ideate-twist',
+    query: "Ideate a twist for this chapter's ambush.",
+    campaignId: 'test-campaign',
+    screen: 'create.chapters',
+    expectedTool: null,
+    forbiddenTools: LIVE_COMBAT_TOOLS,
+    expectedFact: 'The answer offers story twist ideas for the ambush without changing any combat state.',
+    category: 'context',
+  },
+  {
+    id: 'ctx-3-move-from-story',
+    query: 'Move Grog to C4.',
+    campaignId: 'test-campaign',
+    screen: 'create.chapters',
+    expectedTool: null,
+    forbiddenTools: ['move_combatant'],
+    expectedFact: 'The answer tells the DM to open the Assistant from the Combat screen to move Grog.',
+    category: 'context',
+  },
+  {
+    id: 'ctx-4-move-from-combat',
+    query: 'Move Grog to C4.',
+    campaignId: 'test-campaign',
+    encounterId: 'enc-palma-flora',
+    screen: 'run.combat',
+    expectedTool: 'move_combatant',
+    expectedFact: 'A move for Grog to C4 is staged and awaiting DM approval.',
+    category: 'context',
+  },
+  {
+    id: 'ctx-5-design-encounter',
+    query: 'Design a fair encounter for four level-3 PCs.',
+    campaignId: 'test-campaign',
+    screen: 'create.encounter_builder',
+    expectedTool: null,
+    forbiddenTools: ['move_combatant', 'apply_combat_damage', 'remove_combatant', 'update_combatant', 'configure_encounter_combatants'],
+    expectedFact: 'The answer proposes an encounter composition suited to four level-3 characters.',
+    category: 'context',
+  },
+];
+
+export const ALL_EVAL_CASES = [...BASE_EVAL_CASES, ...BONUS_EVAL_CASES, ...CONTEXT_EVAL_CASES];

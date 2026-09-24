@@ -8,6 +8,13 @@ import type { Spell, Monster, MagicItem, ConfirmationProposal } from '../types';
 import { HitlConfirmationBox } from './hitl/HitlConfirmationBox';
 import { useCampaigns } from '../context/CampaignContext';
 import { useAnnouncer } from './uiHelpers';
+import { useAssistantScreenStore } from '../context/AssistantScreenContext';
+import {
+  formatContextChangeNotice,
+  formatContextLine,
+  getScreenInfo,
+} from '../utils/assistantScreens';
+import type { AssistantScreenId } from '../utils/assistantScreens';
 
 export interface PassageItem {
   id?: string;
@@ -114,6 +121,39 @@ export function AssistantOracleModal({
     },
   ]);
   const [inputQuery, setInputQuery] = useState('');
+
+  // Screen context. The screen the DM was on is read ONCE when the modal opens: the dialog is
+  // aria-modal, so the screen underneath cannot change while it is open, and an approved HITL
+  // proposal refreshing the campaign must not flip the context mid-conversation. This uses the
+  // "adjust state while rendering" pattern so the very first open render already shows the right
+  // context line (no stale flash) and needs no effect.
+  const screenStore = useAssistantScreenStore();
+  const [wasOpen, setWasOpen] = useState(false);
+  const [openScreen, setOpenScreen] = useState<AssistantScreenId | null>(null);
+  // undefined = never opened yet, so the first open never shows a "context changed" notice.
+  const [lastOpenScreen, setLastOpenScreen] = useState<AssistantScreenId | null | undefined>(undefined);
+  if (isOpen !== wasOpen) {
+    setWasOpen(isOpen);
+    if (isOpen) {
+      const current = screenStore.getCurrent();
+      setOpenScreen(current);
+      if (lastOpenScreen !== undefined && lastOpenScreen !== current) {
+        // Appended to the role="log" region, which announces it politely; the server is stateless
+        // per turn, so this only prevents the DM being confused by stale-looking history.
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `context-change-${Date.now()}`,
+            sender: 'oracle',
+            text: formatContextChangeNotice(current),
+            timestamp: formatTimestamp(),
+          },
+        ]);
+      }
+      setLastOpenScreen(current);
+    }
+  }
+  const screenInfo = getScreenInfo(openScreen);
   const [isLoading, setIsLoading] = useState(false);
   const [activeModel, setActiveModel] = useState<string>(() => {
     if (typeof localStorage !== 'undefined') {
@@ -126,6 +166,10 @@ export function AssistantOracleModal({
     }
     return 'qwen3.5:9b';
   });
+
+  // null until the first fetch resolves; [] means nothing is installed.
+  const [installedModels, setInstalledModels] = useState<string[] | null>(null);
+  const noModels = installedModels !== null && installedModels.length === 0;
 
   // Human-in-the-Loop (HITL) proposal queue. Multiple write-tool calls in
   // one turn (or across turns) can each stage their own proposal; the DM
@@ -152,6 +196,43 @@ export function AssistantOracleModal({
   const headingRef = useRef<HTMLHeadingElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
+
+  // Load the models actually installed on the LLM server each time the modal
+  // opens. If the current choice isn't installed, fall back to the first one.
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    fetch('/api/assistant/models')
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled) return;
+        const models: string[] = Array.isArray(data.models) ? data.models : [];
+        setInstalledModels(models);
+        if (models.length > 0) {
+          setActiveModel((current) => {
+            if (models.includes(current)) return current;
+            const next = models[0];
+            try {
+              localStorage.setItem(STORAGE_KEY_MODEL, next);
+            } catch {
+              // Ignored
+            }
+            fetch('/api/assistant/config', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ activeModel: next }),
+            }).catch(() => {});
+            return next;
+          });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setInstalledModels([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
 
   // Fetch active model config on mount or sync persisted model choice
   useEffect(() => {
@@ -757,7 +838,7 @@ export function AssistantOracleModal({
   const handleSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const query = inputQuery.trim();
-    if (!query || isLoading) return;
+    if (!query || isLoading || noModels) return;
 
     const userMessage: Message = {
       id: `user-${Date.now()}`,
@@ -782,6 +863,7 @@ export function AssistantOracleModal({
           chapterName,
           worldId,
           worldName,
+          screen: openScreen,
           model: activeModel,
         }),
       });
@@ -870,12 +952,16 @@ export function AssistantOracleModal({
 
   if (!isOpen) return null;
 
+  // The welcome message reflects the screen the assistant was opened from.
+  const displayMessages = messages.map((m) => (m.id === 'welcome' ? { ...m, text: screenInfo.welcome } : m));
+
   return (
     <div
       className="modal-overlay assistant-oracle-overlay"
       role="dialog"
       aria-modal="true"
       aria-labelledby="assistant-oracle-title"
+      aria-describedby="assistant-oracle-context"
       onKeyDown={handleKeyDown}
       style={{
         position: 'fixed',
@@ -968,6 +1054,9 @@ export function AssistantOracleModal({
             >
               Oracle AI
             </h2>
+            <p id="assistant-oracle-context" style={{ margin: '0.25rem 0 0 0', fontSize: '0.9rem' }}>
+              {formatContextLine(openScreen)}
+            </p>
           </div>
 
           <button
@@ -1006,7 +1095,7 @@ export function AssistantOracleModal({
             gap: '1rem',
           }}
         >
-          {messages.map((msg) => (
+          {displayMessages.map((msg) => (
             <article
               key={msg.id}
               id={msg.id}
@@ -1398,7 +1487,7 @@ export function AssistantOracleModal({
                 handleSend();
               }
             }}
-            placeholder="Ask rules, spells, monsters, or live state (Alt+A to focus, Enter to send)..."
+            placeholder={screenInfo.placeholder}
             rows={2}
             disabled={isLoading}
             style={{
@@ -1415,16 +1504,16 @@ export function AssistantOracleModal({
           />
           <button
             type="submit"
-            disabled={isLoading || !inputQuery.trim()}
+            disabled={isLoading || noModels || !inputQuery.trim()}
             style={{
-              backgroundColor: isLoading || !inputQuery.trim() ? '#444' : '#0066cc',
+              backgroundColor: isLoading || noModels || !inputQuery.trim() ? '#444' : '#0066cc',
               color: 'white',
               border: 'none',
               borderRadius: '4px',
               padding: '0 1.5rem',
               fontWeight: 'bold',
               fontSize: '1rem',
-              cursor: isLoading || !inputQuery.trim() ? 'not-allowed' : 'pointer',
+              cursor: isLoading || noModels || !inputQuery.trim() ? 'not-allowed' : 'pointer',
             }}
           >
             {isLoading ? 'Asking...' : 'Ask'}
@@ -1435,9 +1524,14 @@ export function AssistantOracleModal({
         <div style={{ display: 'flex', justifyContent: 'flex-start', marginTop: '0.5rem' }}>
           <select
             id="assistant-model-select"
-            value={activeModel}
+            value={noModels ? '' : activeModel}
             onChange={handleModelChange}
-            aria-label={`Current Model: ${getModelDisplayName(activeModel)}`}
+            disabled={noModels || installedModels === null}
+            aria-label={
+              noModels
+                ? 'Model: no models installed'
+                : `Current Model: ${getModelDisplayName(activeModel)}`
+            }
             style={{
               background: '#222',
               color: '#ccc',
@@ -1445,12 +1539,18 @@ export function AssistantOracleModal({
               borderRadius: '4px',
               padding: '0.25rem 0.6rem',
               fontSize: '0.85rem',
-              cursor: 'pointer',
+              cursor: noModels || installedModels === null ? 'not-allowed' : 'pointer',
             }}
           >
-            <option value="qwen3.5:9b">Qwen3.5-9B (Primary - ~6GB VRAM)</option>
-            <option value="qwen3.5:4b">Qwen3.5-4B (Fallback - ~3GB VRAM)</option>
-            <option value="llama3">Llama 3 (8B) - ~5.5GB VRAM</option>
+            {noModels && <option value="">No models installed</option>}
+            {installedModels === null && (
+              <option value={activeModel}>{getModelDisplayName(activeModel)}</option>
+            )}
+            {(installedModels ?? []).map((m) => (
+              <option key={m} value={m}>
+                {getModelDisplayName(m)}
+              </option>
+            ))}
           </select>
         </div>
       </div>

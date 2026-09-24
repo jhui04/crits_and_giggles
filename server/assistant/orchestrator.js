@@ -2,11 +2,12 @@ import { getConfig } from './config.js';
 import { executeChatCompletion, separateThinkingAndContent } from './llmClient.js';
 import { searchVectorStore } from './vectorStore.js';
 import { EmbeddingUnavailableError } from './embedder.js';
-import { getAuthoritativeGameState, buildChatMessages, estimateTokenCount } from './contextBuilder.js';
-import { ASSISTANT_TOOLS, executeTool } from './toolController.js';
+import { getAuthoritativeGameState, buildChatMessages, estimateTokenCount, estimateToolTokens } from './contextBuilder.js';
+import { executeTool, ASSISTANT_TOOLS } from './toolController.js';
+import { resolveProfile, getToolsForProfile, getProfileToolNames } from './contextProfiles.js';
 
 /** Chat-log reply for a turn that was short-circuited because the embedding model is unavailable. */
-function embeddingUnavailableResult(err, modelUsed, gameState = null) {
+function embeddingUnavailableResult(err, modelUsed, gameState = null, profile = null) {
   console.warn('[Orchestrator] Embedding model unavailable:', err.message);
   return {
     answer: `**Oracle could not search its knowledge base.**
@@ -23,6 +24,8 @@ Once the model is installed, ask again.`,
     isOffline: true,
     embeddingUnavailable: true,
     error: err.message,
+    contextProfile: profile?.id ?? 'general',
+    screen: profile?.screen ?? null,
   };
 }
 
@@ -37,6 +40,7 @@ export async function handleAssistantChat({
   chapterName = null,
   worldId = null,
   worldName = null,
+  screen = null,
   model = null,
   mockResponse = false,
 }) {
@@ -47,6 +51,14 @@ export async function handleAssistantChat({
   const config = getConfig();
   const chosenModel = model || config.activeModel;
 
+  // Screen-aware context profile. `screen` is untrusted client input: it is allow-list
+  // validated (unknown -> general) and only ever SUBTRACTS tools / narrows the prompt.
+  const profile = resolveProfile(config.contextProfilesEnabled === false ? null : screen);
+  const profileTools = getToolsForProfile(profile, ASSISTANT_TOOLS);
+  const allowedToolNames = getProfileToolNames(profile);
+  // Only offer tools the model can actually call this turn (also drives the prompt's tool rules).
+  const toolTokens = estimateToolTokens(profileTools);
+
   // 1. Vector Search for Top-K passages with relevance filtering to prevent noise
   let rawPassages;
   try {
@@ -55,7 +67,7 @@ export async function handleAssistantChat({
       limit: config.topKPassages || 3,
     });
   } catch (err) {
-    if (err instanceof EmbeddingUnavailableError) return embeddingUnavailableResult(err, chosenModel);
+    if (err instanceof EmbeddingUnavailableError) return embeddingUnavailableResult(err, chosenModel, null, profile);
     throw err;
   }
   const minScore = config.minPassageScore ?? 0.68;
@@ -69,6 +81,8 @@ export async function handleAssistantChat({
     chapterName,
     worldId,
     worldName,
+    // Story/world screens (and the encounter builder without a known encounter) get no combat state.
+    includeEncounter: profile.gameState === 'full' || (profile.gameState === 'encounter' && !!encounterId),
   });
 
   // 3. Build Prompt Messages with Context
@@ -78,6 +92,8 @@ export async function handleAssistantChat({
     gameState,
     maxContextTokens: config.maxContextTokens,
     campaignId,
+    profile,
+    toolTokens,
   });
 
   if (mockResponse) {
@@ -102,6 +118,8 @@ export async function handleAssistantChat({
       executedTools: [],
       modelUsed: chosenModel,
       estimatedTokens,
+      contextProfile: profile.id,
+      screen: profile.screen,
       metrics: {
         load_duration: 50000000,
         total_duration: 250000000,
@@ -120,7 +138,7 @@ export async function handleAssistantChat({
   try {
     let completionResult = await executeChatCompletion({
       messages,
-      tools: ASSISTANT_TOOLS,
+      tools: profileTools,
       model: chosenModel,
     });
 
@@ -162,6 +180,8 @@ export async function handleAssistantChat({
             chapterName,
             worldId,
             worldName,
+            allowedToolNames,
+            screenLabel: profile.screenLabel,
           });
           executedToolCalls.push({
             toolName: fnName,
@@ -256,7 +276,7 @@ export async function handleAssistantChat({
       // Re-invoke model with tool execution results
       completionResult = await executeChatCompletion({
         messages,
-        tools: ASSISTANT_TOOLS,
+        tools: profileTools,
         model: completionResult.modelUsed,
       });
 
@@ -333,7 +353,9 @@ export async function handleAssistantChat({
       modelUsed: completionResult.modelUsed,
       isFallback: completionResult.isFallback || false,
       metrics: completionResult.metrics || completionResult.response?.metrics || null,
-      estimatedTokens: messages.reduce((s, m) => {
+      contextProfile: profile.id,
+      screen: profile.screen,
+      estimatedTokens: toolTokens + messages.reduce((s, m) => {
         let text = '';
         let imageCount = 0;
         if (typeof m.content === 'string') {
@@ -350,7 +372,7 @@ export async function handleAssistantChat({
     };
   } catch (err) {
     if (err instanceof EmbeddingUnavailableError) {
-      const result = embeddingUnavailableResult(err, chosenModel, gameState);
+      const result = embeddingUnavailableResult(err, chosenModel, gameState, profile);
       result.proposals = stagedProposals;
       result.toolCalls = executedToolCalls;
       result.executedTools = executedToolCalls.map((tc) => tc.toolName);
@@ -394,6 +416,8 @@ export async function handleAssistantChat({
       isOffline: true,
       error: err.message,
       estimatedTokens,
+      contextProfile: profile.id,
+      screen: profile.screen,
     };
   }
 }

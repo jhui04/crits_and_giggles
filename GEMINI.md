@@ -34,6 +34,8 @@ The app alternates between two primary layouts (`src/App.tsx`):
 - **The Oracle (`Alt+O`, `src/components/Oracle.tsx`)**: A static, deterministic quick-lookup hub. It searches local JSON (spells, monsters, magic items) directly in the browser — no network call, no LLM.
 - **Assistant Oracle (`Alt+A`, `src/components/AssistantOracleModal.tsx`)**: A conversational AI co-DM backed by the Express `/api/assistant/chat` endpoint. It can answer rules/lore questions using retrieval over the SRD and campaign data, and can *propose* game-state changes (move a combatant, apply damage, reconfigure combatants) via write tools — but every proposal must be confirmed by the DM before anything is persisted.
 
+The Assistant is **screen-aware**: screens register themselves (`useAssistantScreen`), the modal sends a single allow-listed `screen` id, and the server maps it to a context profile (`server/assistant/contextProfiles.js`) that narrows the prompt and the model-visible tools. Profiles only ever *subtract* tools; they never touch the HITL flow. Design and invariants: `docs/CONTEXT_AWARE_ASSISTANT.md`.
+
 ### 3. Human-in-the-Loop (HITL) Write Protocol
 This is the most important architectural invariant in the assistant subsystem, and it is **non-negotiable**: the LLM can never mutate state directly.
 - Phase 1: a tool call stages a proposal (`hitlManager`) — validation only, zero DB writes.

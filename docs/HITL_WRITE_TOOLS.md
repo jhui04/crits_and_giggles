@@ -272,6 +272,12 @@ If a new write tool mutates encounter/combatant state, register a `getStateHash:
 
 ---
 
+## 8b. Screen-Aware Context Profiles Do Not Affect HITL
+
+The assistant filters the tools it shows the model per screen (see `docs/CONTEXT_AWARE_ASSISTANT.md`). This is strictly subtractive: the effective set is the profile's tools intersected with `ALLOWED_TOOL_NAMES`, `executeTool` rejects (before dispatch, with an audit-log entry) any tool the orchestrator did not offer, and `/api/assistant/confirm` ignores `screen` entirely. A new write tool must be assigned to a `TOOL_GROUPS` entry in `toolController.js`; unassigned tools are offered to the `general` profile only.
+
+---
+
 ## 9. Proposal Queueing (Multiple Pending Proposals Per Campaign)
 
 A single chat turn can invoke more than one write tool, and separate turns can each stage more proposals before the DM gets to any of them. Rather than only ever keeping the single most recent proposal alive (superseding older ones), every staged proposal for a campaign stays pending until it's individually approved, denied, or found stale. `hitlManager.listPendingProposals()` / `GET /api/assistant/proposals/pending?campaignId=` return the full queue, oldest first, and `AssistantOracleModal` shows the DM one at a time via `HitlConfirmationBox`, advancing to the next as each is resolved. A capped `maxPendingPerCampaign` (25) still bounds how many can accumulate if the DM falls behind an active agent.

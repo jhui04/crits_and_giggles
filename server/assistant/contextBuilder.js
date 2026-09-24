@@ -1,5 +1,7 @@
 import { db } from '../db.js';
 import { hitlManager } from './hitlManager.js';
+import { getProfileToolNames } from './contextProfiles.js';
+import { WRITE_TOOL_NAMES } from './toolController.js';
 
 /**
  * Accurate and conservative token estimator.
@@ -24,10 +26,15 @@ export function getAuthoritativeGameState({
   chapterName,
   worldId,
   worldName,
+  includeEncounter = true,
 } = {}) {
   let encounter = null;
 
-  if (encounterId && campaignId) {
+  // Story/world screens have no use for combat state (and it nudges small models toward combat
+  // behavior), so a profile can opt out of the encounter lookup entirely.
+  if (!includeEncounter) {
+    encounter = null;
+  } else if (encounterId && campaignId) {
     encounter = db.prepare('SELECT id, name, running_state, campaign_id FROM encounters WHERE id = ? AND campaign_id = ?').get(encounterId, campaignId);
   } else if (encounterId) {
     encounter = db.prepare('SELECT id, name, running_state, campaign_id FROM encounters WHERE id = ?').get(encounterId);
@@ -129,6 +136,18 @@ export function getAuthoritativeGameState({
     }
   }
 
+  const encounterFields = includeEncounter
+    ? {
+        activeEncounter: encounter ? encounter.name : null,
+        encounterId: encounter ? encounter.id : null,
+        isCombatStarted,
+        round,
+        turnIndex,
+        combatants,
+        note: !encounter ? 'No active combat encounter loaded.' : undefined,
+      }
+    : {};
+
   return {
     campaign: campaign ? { id: campaign.id, name: campaign.name } : null,
     activeChapter: (chapter || chapterId || chapterName) ? {
@@ -142,19 +161,96 @@ export function getAuthoritativeGameState({
       sampleAssets: worldAssetSummary,
     } : null,
     campaignAssets: campaignAssetSummary.length > 0 ? campaignAssetSummary : undefined,
-    activeEncounter: encounter ? encounter.name : null,
-    encounterId: encounter ? encounter.id : null,
-    isCombatStarted,
-    round,
-    turnIndex,
-    combatants,
-    note: !encounter ? 'No active combat encounter loaded.' : undefined,
+    ...encounterFields,
   };
+}
+
+/** Estimated token cost of a tool-schema list (the tools ride along on every model call). */
+export function estimateToolTokens(tools) {
+  if (!Array.isArray(tools) || tools.length === 0) return 0;
+  return estimateTokenCount(JSON.stringify(tools));
+}
+
+const PROMPT_INTRO = `You are the Assistant Oracle for "Crits & Giggles", a high-performance, accessible assistant for Dungeon Masters.
+Your top priority is SPEED OF INFORMATION. Be direct, clear, and concise.
+
+STRICT OPERATIONAL RULES:`;
+
+const RULE_GAME_STATE =
+  'AUTHORITATIVE GAME STATE: The JSON below is a high-level overview. Never guess or hallucinate stats or positions. For tactical map inspection, distances, spell details, or monster stats, you must use the appropriate tools.';
+
+const RULE_PROPOSE_ALL_WRITES =
+  "PROPOSE, NEVER EXECUTE: You have five write tools — move_combatant, apply_combat_damage, configure_encounter_combatants, remove_combatant, and update_combatant. Calling one of them NEVER directly changes HP, positions, rosters, or database records: it only stages a Human-in-the-Loop confirmation proposal that is shown to the DM, who must explicitly approve it before anything is applied. When the DM asks you to move a combatant, apply damage/healing, set up an encounter's roster, delete a single combatant, or rename/reassign a single combatant's faction, call the matching write tool to propose it, then tell the DM the proposal is staged and awaiting their approval. Never claim an action has already happened just because you staged the proposal — it has not, until the DM approves it. If a single request genuinely needs more than one write action (e.g. \"move the goblin to C4 and have it hit Grog for 6\"), you may call multiple write tools in the same turn — each is queued as its own proposal and the DM reviews them one at a time, in order. Be aware that approving an earlier proposal changes the encounter, which can invalidate a later one staged against the old state (it will be rejected as stale rather than silently misapplied); do not stage a long chain of dependent actions when a shorter one will do.";
+
+const RULE_GROUNDING = 'GROUNDING: Base answers on official SRD 5.2.1 rules and provided lore passages.';
+
+const RULE_FAILSAFE =
+  'FAILSAFE: If you cannot answer a question based on the available context or tools, you MUST reply with a textual explanation of what information is missing. NEVER return an empty response.';
+
+const BULLET_NO_RETRY =
+  '   - NEVER get stuck in retry loops. If an exact lookup yields no matches or suggests semantic search, use semantic_search or answer with the closest verified match. Do not hallucinate stats or abilities.';
+
+/**
+ * Tool-selection bullets in their canonical order. A bullet is included when the
+ * profile offers at least one of its `any` tools (and none of its `unless` tools).
+ * `profileOnly` bullets are skipped for the historical general prompt.
+ */
+const TOOL_BULLETS = [
+  { any: ['lookup_spell', 'lookup_monster', 'lookup_magic_item'], text: '   - For EXACT NAMES of spells, monsters, or magic items: use lookup_spell, lookup_monster, or lookup_magic_item.' },
+  { any: ['get_character_hp', 'get_entity_position', 'get_initiative_order'], text: '   - For LIVE COMBATANT state (HP, conditions, positions): use get_character_hp, get_entity_position, or get_initiative_order.' },
+  { any: ['get_monster_hp'], unless: ['get_character_hp'], profileOnly: true, text: '   - For the LIVE HP of a monster in an encounter: use get_monster_hp.' },
+  { any: ['search_assets_and_lore'], text: '   - For EXACT KEYWORD or typo searches across campaign notes and assets: use search_assets_and_lore.' },
+  { any: ['semantic_search'], text: '   - For CONCEPTUAL, BIOME, THEMATIC, or DESCRIPTIVE queries (e.g. "desert monster that burrows into sand", "spells to slow down enemies", "stealthy ambush tactics"): use the semantic_search tool.' },
+  { any: ['get_chapter_outline'], text: '   - For CHAPTER STRUCTURE and section outline: use get_chapter_outline.' },
+  { any: ['read_chapter_section'], text: '   - For READING SPECIFIC SECTIONS of a chapter: use read_chapter_section.' },
+  { any: ['get_current_map'], text: '   - For SPATIAL, TACTICAL, or MAP queries (e.g., "where are the tokens", "look at the map", "look at the tactical map", "show me the map", "tactical map", "closest", "who is closest"): use the get_current_map tool. CRITICAL: Whenever the user query mentions "tactical map" or asks to look at the map, you MUST call get_current_map before answering. Do not answer a tactical map query without calling get_current_map.' },
+  { any: ['move_combatant'], text: '   - To MOVE a combatant on the battlemap (e.g. "move Grog to C4", "have the goblin retreat"): use move_combatant.' },
+  { any: ['apply_combat_damage'], text: '   - To APPLY DAMAGE, HEALING, or TEMPORARY HP to one or more combatants (e.g. "the fireball deals 22 fire damage to the goblins", "heal Grog for 10"): use apply_combat_damage.' },
+  { any: ['configure_encounter_combatants'], text: '   - To SET UP or ADD TO an encounter\'s roster and starting positions from narrative text or an explicit list (e.g. "set up the ambush described in this room", "add 3 goblins at B3 and B4"): use configure_encounter_combatants.' },
+  { any: ['remove_combatant'], text: '   - To DELETE a single combatant from the encounter entirely (e.g. "remove the dead goblin", "take Grog\'s hireling off the map"): use remove_combatant. Do not use this to set HP to 0 — that is apply_combat_damage; remove_combatant takes the unit off the map and out of initiative completely.' },
+  { any: ['update_combatant'], text: '   - To RENAME a combatant or CHANGE ITS FACTION/ALLEGIANCE without moving it or changing its HP (e.g. "rename Goblin 3 to Bandit Scout", "the charmed guard is now fighting for the party"): use update_combatant.' },
+];
+
+const WRITE_TOOL_ORDER = ['move_combatant', 'apply_combat_damage', 'configure_encounter_combatants', 'remove_combatant', 'update_combatant'];
+
+/** PROPOSE-NEVER-EXECUTE rule for a profile that offers only a subset of the write tools. */
+function buildProposeRule(writeNames) {
+  const one = writeNames.length === 1;
+  return `PROPOSE, NEVER EXECUTE: Your only write tool${one ? ' is' : 's are'} ${writeNames.join(', ')}. Calling ${one ? 'it' : 'one of them'} NEVER directly changes HP, positions, rosters, or database records: it only stages a Human-in-the-Loop confirmation proposal that is shown to the DM, who must explicitly approve it before anything is applied. Call ${one ? 'it' : 'one'} only when the DM asks for that action, then tell the DM the proposal is staged and awaiting their approval. Never claim an action has already happened just because you staged the proposal — it has not, until the DM approves it.`;
+}
+
+/**
+ * Composes the operating rules. With no profile (or `general`) this is the
+ * historical prompt, verbatim. Other profiles get only the rules and tool
+ * bullets for the tools they actually offer, plus their addendum.
+ */
+function buildRulesPrompt(profile) {
+  const isGeneral = !profile || profile.id === 'general';
+  let rules;
+  if (isGeneral) {
+    const bullets = TOOL_BULLETS.filter((b) => !b.profileOnly).map((b) => b.text);
+    rules = [RULE_GAME_STATE, RULE_PROPOSE_ALL_WRITES, RULE_GROUNDING, `TOOL SELECTION STRATEGY:\n${[...bullets, BULLET_NO_RETRY].join('\n')}`, RULE_FAILSAFE];
+  } else {
+    const names = getProfileToolNames(profile);
+    const writeNames = WRITE_TOOL_ORDER.filter((n) => names.has(n) && WRITE_TOOL_NAMES.has(n));
+    const bullets = TOOL_BULLETS.filter((b) => b.any.some((n) => names.has(n)) && !(b.unless || []).some((n) => names.has(n))).map((b) => b.text);
+    rules = [RULE_GAME_STATE];
+    if (writeNames.length === WRITE_TOOL_ORDER.length) rules.push(RULE_PROPOSE_ALL_WRITES);
+    else if (writeNames.length > 0) rules.push(buildProposeRule(writeNames));
+    rules.push(RULE_GROUNDING, `TOOL SELECTION STRATEGY:\n${[...bullets, BULLET_NO_RETRY].join('\n')}`, RULE_FAILSAFE);
+  }
+  let prompt = `${PROMPT_INTRO}\n${rules.map((r, i) => `${i + 1}. ${r}`).join('\n')}`;
+  if (!isGeneral && profile.addendum) {
+    prompt += `\n\n[SCREEN CONTEXT: ${profile.id}]\n${profile.addendum}`;
+  }
+  return prompt;
 }
 
 /**
  * Builds the complete prompt message array with minimal context retrieval and state injection.
- * Enforces strict 8K token budget.
+ * Enforces strict 8K token budget on the message text (pruning behavior is unchanged from before
+ * profiles existed). `toolTokens`, the estimated cost of the tool schemas sent alongside, is NOT
+ * charged against that budget but is included in the reported `estimatedTokens`.
  */
 export function buildChatMessages({
   query,
@@ -162,32 +258,16 @@ export function buildChatMessages({
   gameState = null,
   maxContextTokens = 8192,
   campaignId = null,
+  profile = null,
+  toolTokens = 0,
 }) {
-  let systemPrompt = `You are the Assistant Oracle for "Crits & Giggles", a high-performance, accessible assistant for Dungeon Masters.
-Your top priority is SPEED OF INFORMATION. Be direct, clear, and concise.
-
-STRICT OPERATIONAL RULES:
-1. AUTHORITATIVE GAME STATE: The JSON below is a high-level overview. Never guess or hallucinate stats or positions. For tactical map inspection, distances, spell details, or monster stats, you must use the appropriate tools.
-2. PROPOSE, NEVER EXECUTE: You have five write tools — move_combatant, apply_combat_damage, configure_encounter_combatants, remove_combatant, and update_combatant. Calling one of them NEVER directly changes HP, positions, rosters, or database records: it only stages a Human-in-the-Loop confirmation proposal that is shown to the DM, who must explicitly approve it before anything is applied. When the DM asks you to move a combatant, apply damage/healing, set up an encounter's roster, delete a single combatant, or rename/reassign a single combatant's faction, call the matching write tool to propose it, then tell the DM the proposal is staged and awaiting their approval. Never claim an action has already happened just because you staged the proposal — it has not, until the DM approves it. If a single request genuinely needs more than one write action (e.g. "move the goblin to C4 and have it hit Grog for 6"), you may call multiple write tools in the same turn — each is queued as its own proposal and the DM reviews them one at a time, in order. Be aware that approving an earlier proposal changes the encounter, which can invalidate a later one staged against the old state (it will be rejected as stale rather than silently misapplied); do not stage a long chain of dependent actions when a shorter one will do.
-3. GROUNDING: Base answers on official SRD 5.2.1 rules and provided lore passages.
-4. TOOL SELECTION STRATEGY:
-   - For EXACT NAMES of spells, monsters, or magic items: use lookup_spell, lookup_monster, or lookup_magic_item.
-   - For LIVE COMBATANT state (HP, conditions, positions): use get_character_hp, get_entity_position, or get_initiative_order.
-   - For EXACT KEYWORD or typo searches across campaign notes and assets: use search_assets_and_lore.
-   - For CONCEPTUAL, BIOME, THEMATIC, or DESCRIPTIVE queries (e.g. "desert monster that burrows into sand", "spells to slow down enemies", "stealthy ambush tactics"): use the semantic_search tool.
-   - For CHAPTER STRUCTURE and section outline: use get_chapter_outline.
-   - For READING SPECIFIC SECTIONS of a chapter: use read_chapter_section.
-   - For SPATIAL, TACTICAL, or MAP queries (e.g., "where are the tokens", "look at the map", "look at the tactical map", "show me the map", "tactical map", "closest", "who is closest"): use the get_current_map tool. CRITICAL: Whenever the user query mentions "tactical map" or asks to look at the map, you MUST call get_current_map before answering. Do not answer a tactical map query without calling get_current_map.
-   - To MOVE a combatant on the battlemap (e.g. "move Grog to C4", "have the goblin retreat"): use move_combatant.
-   - To APPLY DAMAGE, HEALING, or TEMPORARY HP to one or more combatants (e.g. "the fireball deals 22 fire damage to the goblins", "heal Grog for 10"): use apply_combat_damage.
-   - To SET UP or ADD TO an encounter's roster and starting positions from narrative text or an explicit list (e.g. "set up the ambush described in this room", "add 3 goblins at B3 and B4"): use configure_encounter_combatants.
-   - To DELETE a single combatant from the encounter entirely (e.g. "remove the dead goblin", "take Grog's hireling off the map"): use remove_combatant. Do not use this to set HP to 0 — that is apply_combat_damage; remove_combatant takes the unit off the map and out of initiative completely.
-   - To RENAME a combatant or CHANGE ITS FACTION/ALLEGIANCE without moving it or changing its HP (e.g. "rename Goblin 3 to Bandit Scout", "the charmed guard is now fighting for the party"): use update_combatant.
-   - NEVER get stuck in retry loops. If an exact lookup yields no matches or suggests semantic search, use semantic_search or answer with the closest verified match. Do not hallucinate stats or abilities.
-5. FAILSAFE: If you cannot answer a question based on the available context or tools, you MUST reply with a textual explanation of what information is missing. NEVER return an empty response.`;
+  const isGeneral = !profile || profile.id === 'general';
+  let systemPrompt = buildRulesPrompt(profile);
 
   if (gameState) {
-    systemPrompt += `\n\n[AUTHORITATIVE CURRENT GAME STATE (READ-ONLY)]\n${JSON.stringify(gameState, null, 2)}`;
+    // The historical general prompt pretty-prints the state; profiles use compact JSON to save tokens.
+    const stateJson = isGeneral ? JSON.stringify(gameState, null, 2) : JSON.stringify(gameState);
+    systemPrompt += `\n\n[AUTHORITATIVE CURRENT GAME STATE (READ-ONLY)]\n${stateJson}`;
     if (gameState.activeChapter) {
       systemPrompt += `\n\n[ACTIVE CHAPTER FOCUS]\nActive Chapter ID: "${gameState.activeChapter.id}", Title: "${gameState.activeChapter.title}".`;
       if (gameState.activeChapter.contentPreview) {
@@ -233,9 +313,9 @@ STRICT OPERATIONAL RULES:
   if (totalTokens > maxContextTokens) {
     console.warn(`Context tokens (${totalTokens}) exceed ${maxContextTokens}. Pruning context...`);
     if (passages && passages.length > 1) {
-      return buildChatMessages({ query, passages: passages.slice(0, passages.length - 1), gameState, maxContextTokens, campaignId });
+      return buildChatMessages({ query, passages: passages.slice(0, passages.length - 1), gameState, maxContextTokens, campaignId, profile, toolTokens });
     } else if (passages && passages.length === 1) {
-      return buildChatMessages({ query, passages: [], gameState, maxContextTokens, campaignId });
+      return buildChatMessages({ query, passages: [], gameState, maxContextTokens, campaignId, profile, toolTokens });
     } else {
       // Passages already empty: compact game state and prevent any recursion
       const compactState = gameState ? {
@@ -246,18 +326,30 @@ STRICT OPERATIONAL RULES:
       if (compactState) {
         compactSystem += `\n[GAME STATE]\n${JSON.stringify(compactState)}`;
       }
+      // The pruned fallback must never drop the HITL rule while write tools are offered.
+      const offeredWrites = isGeneral
+        ? WRITE_TOOL_ORDER.filter((n) => WRITE_TOOL_NAMES.has(n))
+        : WRITE_TOOL_ORDER.filter((n) => getProfileToolNames(profile).has(n) && WRITE_TOOL_NAMES.has(n));
+      if (offeredWrites.length > 0) {
+        compactSystem += `
+PROPOSE, NEVER EXECUTE: the write tools (${offeredWrites.join(', ')}) only stage a Human-in-the-Loop proposal that the DM must approve; nothing changes until they do. Never claim an action happened before approval.`;
+      }
+      // Keep the screen focus/scope even in the pruned fallback.
+      if (!isGeneral && profile.addendum) {
+        compactSystem += `\n[SCREEN CONTEXT: ${profile.id}]\n${profile.addendum}`;
+      }
       return {
         messages: [
           { role: 'system', content: compactSystem },
           { role: 'user', content: query.slice(0, 1000) },
         ],
-        estimatedTokens: estimateTokenCount(compactSystem) + estimateTokenCount(query.slice(0, 1000)),
+        estimatedTokens: estimateTokenCount(compactSystem) + estimateTokenCount(query.slice(0, 1000)) + toolTokens,
       };
     }
   }
 
   return {
     messages,
-    estimatedTokens: totalTokens,
+    estimatedTokens: totalTokens + toolTokens,
   };
 }

@@ -1,12 +1,9 @@
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
-import { db } from '../db.js';
+import { metricsDb as db, METRICS_JSONL_PATH } from './metricsDb.js';
 import { getConfig } from './config.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const JSONL_PATH = path.join(__dirname, '../../data/llm_metrics.jsonl');
+const JSONL_PATH = METRICS_JSONL_PATH;
 
 /**
  * Extracts base URL for native Ollama endpoints (strips /v1)
@@ -151,7 +148,7 @@ export function recordLlmMetric({
   };
 
   // 2. Append to JSONL log file for offline analysis/export
-  try {
+  if (JSONL_PATH) try {
     const dir = path.dirname(JSONL_PATH);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });

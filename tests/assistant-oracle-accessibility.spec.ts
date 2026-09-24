@@ -181,7 +181,28 @@ test.describe('Assistant Oracle Accessibility & Interaction', () => {
     await expect(modal).not.toBeVisible();
   });
 
+  test('Model picker is disabled and says "No models installed" when none are installed', async ({ page }) => {
+    await page.route('**/api/assistant/models', (route) =>
+      route.fulfill({ json: { models: [] } })
+    );
+    await page.keyboard.press('Alt+a');
+
+    const modal = page.locator('[role="dialog"][aria-labelledby="assistant-oracle-title"]');
+    await expect(modal).toBeVisible();
+
+    const modelSelect = modal.locator('#assistant-model-select');
+    await expect(modelSelect).toBeDisabled();
+    await expect(modelSelect).toHaveAttribute('aria-label', 'Model: no models installed');
+    await expect(modelSelect.locator('option')).toHaveText(['No models installed']);
+    await modal.locator('textarea').fill('Hello');
+    await expect(modal.getByRole('button', { name: 'Ask' })).toBeDisabled();
+    await checkA11y(page, 'Assistant Oracle with no models installed');
+  });
+
   test('Model switcher allows switching between Qwen3.5-9B, Qwen3.5-4B, and Llama 3 with accessible name', async ({ page }) => {
+    await page.route('**/api/assistant/models', (route) =>
+      route.fulfill({ json: { models: ['llama3', 'qwen3.5:4b', 'qwen3.5:9b'] } })
+    );
     await page.keyboard.press('Alt+a');
 
     const modal = page.locator('[role="dialog"][aria-labelledby="assistant-oracle-title"]');

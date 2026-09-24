@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
 import { db, initDb } from './db.js';
-import { getConfig, setConfig } from './assistant/config.js';
+import { getConfig, setConfig, listInstalledModels } from './assistant/config.js';
 import { handleAssistantChat } from './assistant/orchestrator.js';
 import { searchVectorStore, indexSrdAndJsonData, indexCampaignLore, invalidateVectorCache, removeCampaignFromVectorCache } from './assistant/vectorStore.js';
 import { getToolAuditLog, executeTool } from './assistant/toolController.js';
@@ -407,6 +407,11 @@ app.get('/api/assistant/config', (req, res) => {
   res.json(getConfig());
 });
 
+// GET /api/assistant/models — chat models currently installed on the LLM server
+app.get('/api/assistant/models', async (req, res) => {
+  res.json({ models: await listInstalledModels() });
+});
+
 // PUT /api/assistant/config
 app.put('/api/assistant/config', (req, res) => {
   try {
@@ -428,6 +433,7 @@ app.post('/api/assistant/chat', async (req, res) => {
       chapterName,
       worldId,
       worldName,
+      screen,
       model,
       mockResponse,
     } = req.body;
@@ -442,6 +448,7 @@ app.post('/api/assistant/chat', async (req, res) => {
       chapterName,
       worldId,
       worldName,
+      screen,
       model,
       mockResponse: mockResponse ?? (process.env.NODE_ENV === 'test' && req.body.mock !== false),
     });
@@ -656,11 +663,6 @@ app.delete('/api/danger/reset', async (req, res) => {
     db.prepare('DELETE FROM campaigns').run();
     db.prepare('DELETE FROM worlds').run();
     db.prepare('DELETE FROM vector_chunks').run();
-    try {
-      db.prepare('DELETE FROM llm_metrics').run();
-    } catch {
-      // Table might not exist in uninitialized test db
-    }
     clearLlmMetrics();
     invalidateVectorCache();
     await indexSrdAndJsonData();

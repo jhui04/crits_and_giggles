@@ -182,23 +182,6 @@ export function initDb(targetDb = db) {
     );
     CREATE INDEX IF NOT EXISTS idx_vector_chunks_source ON vector_chunks (source);
     CREATE INDEX IF NOT EXISTS idx_vector_chunks_campaign ON vector_chunks (campaign_id);
-
-    CREATE TABLE IF NOT EXISTS llm_metrics (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      model_name TEXT NOT NULL,
-      cold_start_ms REAL NOT NULL,
-      generation_time_ms REAL NOT NULL,
-      tokens_per_second REAL NOT NULL,
-      vram_bytes INTEGER DEFAULT 0,
-      total_bytes INTEGER DEFAULT 0,
-      eval_count INTEGER DEFAULT 0,
-      eval_duration INTEGER DEFAULT 0,
-      load_duration INTEGER DEFAULT 0,
-      total_duration INTEGER DEFAULT 0,
-      timestamp TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_llm_metrics_model ON llm_metrics (model_name);
-    CREATE INDEX IF NOT EXISTS idx_llm_metrics_timestamp ON llm_metrics (timestamp);
   `);
 
   // Migration for existing tables:

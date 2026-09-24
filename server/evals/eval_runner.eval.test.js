@@ -3,9 +3,9 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { initMemoryDatabaseFromSeed } from './dbCloner.js';
-import { BASE_EVAL_CASES, BONUS_EVAL_CASES, ALL_EVAL_CASES } from './eval_cases.js';
+import { BASE_EVAL_CASES, BONUS_EVAL_CASES, CONTEXT_EVAL_CASES, ALL_EVAL_CASES } from './eval_cases.js';
 import { parseJudgeJson, judgeAnswer } from './judge.js';
-import { runGenerationPhase, runJudgingPhase, runEvalSuite } from './run_evals.js';
+import { runGenerationPhase, runJudgingPhase, runEvalSuite, assessToolUsage } from './run_evals.js';
 import { seedEvalDatabase } from '../../tools/seed_eval_db.js';
 import { db } from '../db.js';
 
@@ -75,6 +75,44 @@ describe('Live-Data LLM Evaluation Implementation (plan.md)', () => {
       expect(expectedTools).toContain('lookup_magic_item');
       expect(expectedTools).toContain('get_campaign_asset');
       expect(expectedTools).toContain('get_chapter_outline');
+    });
+  });
+
+  describe('Screen-aware context profile cases', () => {
+    it('defines context cases with screens, judge-only and forbidden-tool variants', () => {
+      expect(CONTEXT_EVAL_CASES.length).toBeGreaterThanOrEqual(6);
+      expect(CONTEXT_EVAL_CASES.every((c) => c.category === 'context' && c.screen)).toBe(true);
+      expect(CONTEXT_EVAL_CASES.some((c) => c.expectedTool === null)).toBe(true);
+      expect(CONTEXT_EVAL_CASES.some((c) => c.forbiddenTools?.includes('move_combatant'))).toBe(true);
+      expect(ALL_EVAL_CASES).toEqual(expect.arrayContaining(CONTEXT_EVAL_CASES));
+    });
+
+    it('assessToolUsage: expected/acceptable tools, judge-only, and forbidden tools', () => {
+      expect(assessToolUsage({ expectedTool: 'lookup_spell' }, ['lookup_spell']).toolPassed).toBe(true);
+      expect(assessToolUsage({ expectedTool: 'lookup_spell' }, []).toolPassed).toBe(false);
+      expect(assessToolUsage({ expectedTool: 'a', acceptableTools: ['b'] }, ['b']).toolPassed).toBe(true);
+      expect(assessToolUsage({ expectedTool: null }, []).toolPassed).toBe(true);
+      const forbidden = { expectedTool: null, screen: 'create.chapters', forbiddenTools: ['move_combatant'] };
+      expect(assessToolUsage(forbidden, ['lookup_spell']).toolPassed).toBe(true);
+      const bad = assessToolUsage(forbidden, ['move_combatant']);
+      expect(bad.toolPassed).toBe(false);
+      expect(bad.errorReason).toMatch(/Forbidden tool/);
+      // a forbidden tool fails even when the expected tool was also called
+      expect(assessToolUsage({ expectedTool: 'lookup_monster', forbiddenTools: ['get_monster_hp'] }, ['lookup_monster', 'get_monster_hp']).toolPassed).toBe(false);
+    });
+
+    it('mock generation phase passes context cases and records the screen', async () => {
+      const results = await runGenerationPhase({
+        cases: CONTEXT_EVAL_CASES,
+        mock: true,
+        cachePath: TEST_CACHE_PATH,
+        seedPath: TEST_SEED_PATH,
+      });
+      expect(results).toHaveLength(CONTEXT_EVAL_CASES.length);
+      expect(results.every((r) => r.toolPassed)).toBe(true);
+      expect(results.find((r) => r.id === 'ctx-2-ideate-twist').executedTools).toEqual([]);
+      expect(results.find((r) => r.id === 'ctx-3-move-from-story').screen).toBe('create.chapters');
+      if (fs.existsSync(TEST_CACHE_PATH)) fs.unlinkSync(TEST_CACHE_PATH);
     });
   });
 

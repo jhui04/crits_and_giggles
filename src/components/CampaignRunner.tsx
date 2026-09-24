@@ -8,10 +8,12 @@ import { SpellDetail } from './SpellBrowser';
 import { MagicItemDetail } from './MagicItemBrowser';
 import { dataService } from '../services/DataService';
 import { isInteractiveTarget } from './uiHelpers';
+import { useAssistantScreen } from '../context/AssistantScreenContext';
 
 export function CampaignRunner() {
   const { activeCampaign, activeChapterId, setActiveChapterId } = useCampaigns();
   const { activeWorld } = useWorlds();
+  useAssistantScreen('run.story');
   const [selectedAsset, setSelectedAsset] = useState<{ id: string; tagType: string; name?: string } | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 

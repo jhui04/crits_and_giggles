@@ -12,6 +12,7 @@ import { useCampaigns } from './context/CampaignContext';
 import { useWorlds } from './context/WorldContext';
 import type { Campaign } from './types';
 import { isInteractiveTarget, useFocusRestore } from './components/uiHelpers';
+import { useAssistantScreen } from './context/AssistantScreenContext';
 
 type AppMode = 'create' | 'run';
 
@@ -41,6 +42,10 @@ function App() {
   // Multi-tab Encounter Support
   const urlParams = new URLSearchParams(window.location.search);
   const targetEncounterId = urlParams.get('encounter');
+
+  // Create mode with no campaign is the only screen App itself owns; every other screen registers
+  // from its own component (see useAssistantScreen).
+  useAssistantScreen(!targetEncounterId && mode === 'create' && !activeCampaign ? 'create.no_campaign' : null);
 
   useEffect(() => {
     fetch('/data/scraped_campaign.json')

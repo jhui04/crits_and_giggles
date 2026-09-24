@@ -18,6 +18,8 @@ export const DEFAULT_CONFIG = {
   maxContextTokens: 8192,
   topKPassages: 3,
   maxToolIterations: 20,
+  // Kill switch for screen-aware context profiles (docs/CONTEXT_AWARE_ASSISTANT.md). false forces `general`.
+  contextProfilesEnabled: process.env.ASSISTANT_CONTEXT_PROFILES !== 'false',
   keepAlive: process.env.OLLAMA_KEEP_ALIVE || '30m',
   maxTokens: Math.min(parseInt(process.env.LLM_MAX_TOKENS, 10) || 4096, MAX_TOKENS_LIMIT),
   numCtx: Math.min(parseInt(process.env.LLM_NUM_CTX, 10) || 16384, NUM_CTX_LIMIT),
@@ -89,6 +91,37 @@ export function validateModel(modelName) {
   return true;
 }
 
+/**
+ * Lists chat models installed on the configured OpenAI-compatible endpoint
+ * (Ollama serves this at /v1/models). Embedding models and models rejected by
+ * the VRAM guard are omitted so every entry returned is actually selectable.
+ * Returns [] when the server is unreachable.
+ */
+export async function listInstalledModels() {
+  const { baseURL, apiKey } = currentConfig;
+  try {
+    const res = await fetch(`${baseURL.replace(/\/+$/, '')}/models`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return [];
+    const body = await res.json();
+    const ids = (body.data || []).map((m) => m && m.id).filter((id) => typeof id === 'string');
+    return ids
+      .filter((id) => !/embed/i.test(id))
+      .filter((id) => {
+        try {
+          return validateModel(id);
+        } catch {
+          return false;
+        }
+      })
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
 export function getConfig() {
   return { ...currentConfig, allowedModels: [...ALLOWED_MODELS] };
 }
@@ -123,6 +156,9 @@ export function setConfig(newConfig = {}) {
   }
   if (newConfig.maxToolIterations !== undefined && newConfig.maxToolIterations !== null) {
     currentConfig.maxToolIterations = clamp(Math.floor(toFiniteNumber('maxToolIterations', newConfig.maxToolIterations)), 1, 50);
+  }
+  if (newConfig.contextProfilesEnabled !== undefined && newConfig.contextProfilesEnabled !== null) {
+    currentConfig.contextProfilesEnabled = Boolean(newConfig.contextProfilesEnabled);
   }
   if (newConfig.keepAlive !== undefined) {
     currentConfig.keepAlive = String(newConfig.keepAlive).trim();

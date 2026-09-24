@@ -1334,6 +1334,21 @@ export function isReadTool(toolName) {
   return READ_TOOL_NAMES.has(toolName);
 }
 
+/**
+ * Tool groups used by the screen-aware context profiles (see
+ * contextProfiles.js and docs/CONTEXT_AWARE_ASSISTANT.md). Profiles can only
+ * SUBTRACT tools from the model-visible list; grouping never registers a
+ * handler or widens what a tool can do. A tool that is not listed in any group
+ * is offered to the `general` profile only (fail-safe default).
+ */
+export const TOOL_GROUPS = Object.freeze({
+  reference: Object.freeze(['lookup_spell', 'lookup_monster', 'lookup_magic_item', 'semantic_search', 'search_assets_and_lore']),
+  campaign: Object.freeze(['get_campaign_asset', 'get_chapter_outline', 'read_chapter_section']),
+  combat_read: Object.freeze(['get_monster_hp', 'get_character_hp', 'get_entity_position', 'get_initiative_order', 'get_current_map']),
+  combat_write: Object.freeze(['move_combatant', 'apply_combat_damage', 'remove_combatant', 'update_combatant']),
+  encounter_setup_write: Object.freeze(['configure_encounter_combatants']),
+});
+
 export const MOVE_COMBATANT_TOOL_DEF = {
   name: 'move_combatant',
   description:
@@ -2562,6 +2577,10 @@ export {
 // Auto-register built-in write tools on module load
 registerBuiltInWriteTools();
 
+function toolIsOfferedOnScreen(toolName, allowedToolNames) {
+  return allowedToolNames instanceof Set ? allowedToolNames.has(toolName) : Array.isArray(allowedToolNames) && allowedToolNames.includes(toolName);
+}
+
 /**
  * Validates tool calls and blocks any unauthorized mutation attempt.
  */
@@ -2601,6 +2620,18 @@ export async function executeTool(toolName, rawArgs, context = {}) {
         throw new Error(message);
       }
     }
+  }
+
+  // Screen-aware profile enforcement (defense in depth). The orchestrator passes
+  // the set of tools it actually offered the model; anything outside it (e.g. a
+  // tool name hallucinated from training data) is rejected BEFORE dispatch, so a
+  // hidden write tool can never even reach stageProposal. This check can only
+  // reject; when no set is supplied (internal/test callers) behavior is unchanged.
+  if (context.allowedToolNames && !toolIsOfferedOnScreen(toolName, context.allowedToolNames)) {
+    const where = typeof context.screenLabel === 'string' && context.screenLabel ? ` (${context.screenLabel})` : '';
+    const message = `Tool "${toolName}" is not available on this screen${where}. Tell the DM which screen it belongs to (live combat actions need the Assistant opened from the Combat screen) instead of retrying.`;
+    pushToolAuditLog({ timestamp, toolName, args, success: false, error: message });
+    throw new Error(message);
   }
 
   validateToolCall(toolName, args);

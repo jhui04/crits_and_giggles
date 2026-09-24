@@ -3,6 +3,7 @@ import { MonsterBrowser } from './MonsterBrowser';
 import type { Monster, EncounterUnit, Encounter } from '../types';
 import { useCampaigns } from '../context/CampaignContext';
 import { isInteractiveTarget } from './uiHelpers';
+import { useAssistantScreen } from '../context/AssistantScreenContext';
 
 interface EncounterBuilderProps {
   initialEncounter: Encounter | null;
@@ -12,6 +13,7 @@ interface EncounterBuilderProps {
 
 export function EncounterBuilder({ initialEncounter, chapterId, onClose }: EncounterBuilderProps) {
   const { activeCampaign, updateCampaign } = useCampaigns();
+  useAssistantScreen('create.encounter_builder');
   const [encounterName, setEncounterName] = useState(initialEncounter ? initialEncounter.name : 'New Encounter');
   const [dmMapUrl, setDmMapUrl] = useState(initialEncounter?.dmMapUrl || '');
   const [playerMapUrl, setPlayerMapUrl] = useState(initialEncounter?.playerMapUrl || '');

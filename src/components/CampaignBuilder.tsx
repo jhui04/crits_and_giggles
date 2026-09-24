@@ -12,6 +12,8 @@ import { AssetInsertionModal } from './AssetInsertionModal';
 import { WorldBuilder } from './WorldBuilder';
 import { parseMentionedAssets } from '../utils/assetUtils';
 import { isInteractiveTarget, useFocusRestore } from './uiHelpers';
+import { useAssistantScreen } from '../context/AssistantScreenContext';
+import type { AssistantScreenId } from '../utils/assistantScreens';
 
 interface CampaignBuilderProps {
   isCampaignSettingsOpen: boolean;
@@ -63,6 +65,18 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
 
   // View & Chapter Context State
   const [viewMode, setViewMode] = useState<'chapters' | 'all' | 'world'>('chapters');
+
+  // Tell the Assistant Oracle which screen this is. While an encounter is being created/edited,
+  // EncounterBuilder takes over and registers itself, so this yields (null).
+  const assistantScreen: AssistantScreenId | null =
+    isCreatingEncounter || editingEncounter
+      ? null
+      : viewMode === 'chapters'
+        ? 'create.chapters'
+        : viewMode === 'all'
+          ? 'create.campaign_overview'
+          : 'create.world';
+  useAssistantScreen(assistantScreen);
   const [dataLoaded, setDataLoaded] = useState(false);
   const selectedChapterId = (activeChapterId && activeCampaign?.chapters?.some(c => c.id === activeChapterId))
     ? activeChapterId

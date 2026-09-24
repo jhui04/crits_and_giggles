@@ -8,6 +8,7 @@ import { DiceLogModal } from './DiceLogModal';
 import { autoDeployUnits } from '../utils/mapUtils';
 import type { Encounter, EncounterUnit, EncounterRunningState, Campaign, Position, MapSize } from '../types';
 import { useCampaigns } from '../context/CampaignContext';
+import { useAssistantScreen } from '../context/AssistantScreenContext';
 import { dataService } from '../services/DataService';
 import { mapGridService } from '../services/MapGridService';
 import { isInteractiveTarget, useAnnouncer, useFocusTrap } from './uiHelpers';
@@ -75,6 +76,7 @@ function visibleOf(list: EncounterUnit[], phases: number[]) {
 export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: string | null }) {
   const { campaigns, activeCampaign, setActiveCampaignId, updateCampaign } = useCampaigns();
   const [activeEncounter, setActiveEncounter] = useState<Encounter | null>(null);
+  useAssistantScreen(activeEncounter ? 'run.combat' : 'run.encounter_picker');
   const [combatants, setCombatants] = useState<EncounterUnit[]>([]);
   const [turnIndex, setTurnIndex] = useState(0);
   const [round, setRound] = useState(1);
