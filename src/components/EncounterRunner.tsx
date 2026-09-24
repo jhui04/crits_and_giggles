@@ -326,11 +326,14 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   };
 
   useEffect(() => {
-    // Focus heading on mount or when view changes
+    // Focus heading on mount or when view changes. Keyed on the encounter id (not object identity,
+    // which changes on every campaign refresh) and skipped while a modal owns focus, so a
+    // background refresh after a HITL approval can't steal focus from the open dialog.
     setTimeout(() => {
+      if (document.activeElement?.closest('[role="dialog"]')) return;
       runnerHeadingRef.current?.focus();
     }, 0);
-  }, [activeEncounter]);
+  }, [activeEncounter?.id]);
 
   const lastLoadedId = useRef<string | null>(null);
 

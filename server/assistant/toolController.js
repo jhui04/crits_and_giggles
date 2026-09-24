@@ -1037,7 +1037,7 @@ export const READ_TOOLS = [
     type: 'function',
     function: {
       name: 'get_monster_hp',
-      description: 'Look up the HP of a monster: retrieves live HP if the monster is in the active encounter, or default stat block HP from the monster manual.',
+      description: 'Look up the HP of a monster (preferred over get_character_hp for any monster): retrieves live HP if the monster is in the active encounter, or default stat block HP from the monster manual.',
       parameters: {
         type: 'object',
         properties: {
@@ -1071,7 +1071,7 @@ export const READ_TOOLS = [
     type: 'function',
     function: {
       name: 'get_entity_position',
-      description: 'Read the authoritative current X, Y combat map grid position of a combatant from the database.',
+      description: 'Read the authoritative current X, Y combat map grid position of a single named combatant from the database. Prefer this over get_current_map when asked where one specific creature or character is.',
       parameters: {
         type: 'object',
         properties: {

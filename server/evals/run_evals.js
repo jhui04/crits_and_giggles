@@ -77,7 +77,10 @@ export async function runGenerationPhase({
 
       const durationMs = Math.round(performance.now() - start);
       const executedTools = response.executedTools || (response.toolCalls || []).map((t) => t.toolName);
-      const toolPassed = executedTools.includes(testCase.expectedTool);
+      // Some tools overlap by design; a case may list equivalent alternatives that return the
+      // same authoritative data. The judge phase still verifies the final answer's facts.
+      const acceptedTools = [testCase.expectedTool, ...(testCase.acceptableTools || [])];
+      const toolPassed = acceptedTools.some((t) => executedTools.includes(t));
 
       console.log(`  Executed Tools: [${executedTools.join(', ') || 'None'}]`);
       console.log(`  Tool Assertion: ${toolPassed ? 'PASS' : 'FAIL (Tool Selection)'}`);

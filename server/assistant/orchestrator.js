@@ -266,6 +266,32 @@ export async function handleAssistantChat({
       }
     }
 
+    // Reasoning models occasionally burn their whole token budget on thinking and return an
+    // empty answer. Re-ask (bounded) for a direct answer instead of showing a placeholder.
+    const maxEmptyAnswerRetries = 2;
+    for (let attempt = 0; attempt < maxEmptyAnswerRetries; attempt++) {
+      const hasToolCalls = assistantMessage?.tool_calls?.length > 0;
+      const { content: probe } = separateThinkingAndContent(
+        assistantMessage?.content || '',
+        assistantMessage?.thinking || ''
+      );
+      if (hasToolCalls || probe.trim()) break;
+
+      messages.push({
+        role: 'user',
+        content:
+          'You did not provide a final answer. Reply now with a brief, direct answer to my question using the information already gathered. Do not think further and do not call more tools.',
+      });
+      completionResult = await executeChatCompletion({
+        messages,
+        model: completionResult.modelUsed,
+      });
+      assistantMessage = completionResult.response.choices[0]?.message;
+      if (assistantMessage?.thinking && !accumulatedThinking.includes(assistantMessage.thinking)) {
+        accumulatedThinking.push(assistantMessage.thinking);
+      }
+    }
+
     // Separate thoughts from final answer
     const { thinking: finalTurnThinking, content: cleanFinalContent } = separateThinkingAndContent(
       assistantMessage?.content || '',

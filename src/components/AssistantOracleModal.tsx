@@ -296,6 +296,16 @@ export function AssistantOracleModal({
   // server independently computing (and disagreeing on) the same mutation
   // (see G-2, G-6).
   const confirmInFlightRef = useRef(false);
+  // Set when an approve/deny empties the queue; the effect below moves focus to the chat input
+  // once React has committed the box's removal. A fixed timer raced with slow renders (e.g. the
+  // campaign refresh re-rendering the map), leaving focus on <body>.
+  const reclaimInputFocusRef = useRef(false);
+  useEffect(() => {
+    if (reclaimInputFocusRef.current && !isConfirming && proposalQueue.length === 0) {
+      reclaimInputFocusRef.current = false;
+      inputRef.current?.focus();
+    }
+  }, [isConfirming, proposalQueue.length]);
   const handleProposalApprove = useCallback(async (proposalId: string) => {
     if (confirmInFlightRef.current) return;
     confirmInFlightRef.current = true;
@@ -384,11 +394,7 @@ export function AssistantOracleModal({
     } finally {
       confirmInFlightRef.current = false;
       setIsConfirming(false);
-      if (queueEmptiedByThis) {
-        setTimeout(() => {
-          inputRef.current?.focus();
-        }, 30);
-      }
+      if (queueEmptiedByThis) reclaimInputFocusRef.current = true;
     }
   }, [campaignId, pendingProposal, proposalQueue.length, refreshCampaign, setHitlAnnouncement]);
 
@@ -449,11 +455,7 @@ export function AssistantOracleModal({
     } finally {
       confirmInFlightRef.current = false;
       setIsConfirming(false);
-      if (queueEmptiedByThis) {
-        setTimeout(() => {
-          inputRef.current?.focus();
-        }, 30);
-      }
+      if (queueEmptiedByThis) reclaimInputFocusRef.current = true;
     }
   }, [proposalQueue.length, setHitlAnnouncement]);
 
