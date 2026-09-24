@@ -284,46 +284,51 @@ class HitlManager {
       throw err;
     }
 
-    // Staleness check: reject the approval if the game state this proposal
-    // depended on has actually changed since it was staged (another approved
-    // proposal, a manual DM edit, etc.), rather than relying on a fixed
-    // timer that would reject an untouched, still-valid proposal just
-    // because the DM took a while to review it.
-    const stateHasher = this.stateHashers.get(record.toolName);
-    if (stateHasher && record.stateHash != null) {
-      const currentHash = await stateHasher(record.context);
-      if (currentHash !== record.stateHash) {
-        record.status = 'stale';
-        record.resolvedAt = Date.now();
-        this.auditLog.push({
-          timestamp: new Date().toISOString(),
-          event: 'proposal_stale_rejected',
-          proposalId,
-          toolName: record.toolName,
-          description: record.description,
-          campaignId: record.context?.campaignId,
-        });
-
-        const err = new Error(
-          `This action can no longer be applied: the game state it was based on has changed since it was proposed (e.g. combatants moved, HP changed, or the roster was edited). Ask the Oracle to propose the action again against the current state.`
-        );
-        err.code = 'STALE_STATE';
-        err.status = 'stale';
-        throw err;
-      }
-    }
-
-    // Mark status as approved synchronously BEFORE yielding to event loop in handler
+    // Claim the proposal SYNCHRONOUSLY (no await between the status check
+    // above and this line) so a concurrent approve/deny sees a non-pending
+    // status and gets ALREADY_RESOLVED instead of also running the handler.
+    // 'approved' is what clients see while in flight; it is released back to
+    // 'pending' if the staleness hasher or the handler throws (or to 'stale').
     record.status = 'approved';
+    record.inFlight = true;
 
     let mutationResult;
     try {
+      // Staleness check: reject the approval if the game state this proposal
+      // depended on has actually changed since it was staged, rather than
+      // relying on a fixed timer.
+      const stateHasher = this.stateHashers.get(record.toolName);
+      if (stateHasher && record.stateHash != null) {
+        const currentHash = await stateHasher(record.context);
+        if (currentHash !== record.stateHash) {
+          record.status = 'stale';
+          record.resolvedAt = Date.now();
+          this.auditLog.push({
+            timestamp: new Date().toISOString(),
+            event: 'proposal_stale_rejected',
+            proposalId,
+            toolName: record.toolName,
+            description: record.description,
+            campaignId: record.context?.campaignId,
+          });
+
+          const err = new Error(
+            `This action can no longer be applied: the game state it was based on has changed since it was proposed (e.g. combatants moved, HP changed, or the roster was edited). Ask the Oracle to propose the action again against the current state.`
+          );
+          err.code = 'STALE_STATE';
+          err.status = 'stale';
+          throw err;
+        }
+      }
+
       // Execute registered mutation handler
       mutationResult = await handler(record.executionPayload, record.context);
     } catch (err) {
-      // Revert status to pending if mutation handler fails so it can be retried or inspected
-      record.status = 'pending';
+      // Release the claim; revert to pending (unless found stale) so it can be retried or inspected
+      if (record.status === 'approved') record.status = 'pending';
       throw err;
+    } finally {
+      record.inFlight = false;
     }
 
     record.resolvedAt = Date.now();

@@ -68,4 +68,17 @@ describe('DiceService', () => {
     expect(total).toBeGreaterThanOrEqual(6);
     expect(total).toBeLessThanOrEqual(25);
   });
+
+  it('rejects unbounded dice counts and sides with a catchable Error', () => {
+    expect(() => DiceService.roll('1001d6')).toThrow(/out of range/);
+    expect(() => DiceService.roll('1d1000001')).toThrow(/out of range/);
+    expect(() => DiceService.roll('99999999999999999999d6')).toThrow(Error);
+    expect(() => DiceService.roll('600d6+600d6')).toThrow(/Too many dice/);
+    expect(DiceService.roll('1000d6').rolls.length).toBe(1000);
+  });
+
+  it('throws catchable Errors for malformed input', () => {
+    expect(() => DiceService.roll('abc')).toThrow(Error);
+    expect(() => DiceService.roll(undefined as unknown as string)).toThrow(Error);
+  });
 });

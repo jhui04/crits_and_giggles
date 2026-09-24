@@ -12,12 +12,18 @@ export interface DiceResult {
   notation: string;
 }
 
+export const MAX_DICE_COUNT = 1000;
+export const MAX_DICE_SIDES = 1_000_000;
+
 export const DiceService = {
   /**
    * Parses a dice notation string and returns the result.
    * Format: [count]d[sides][+/-modifier] or a flat number
    */
   roll(notation: string): DiceResult {
+    if (typeof notation !== 'string') {
+      throw new Error(`Invalid dice notation: ${String(notation)}`);
+    }
     const cleanNotation = notation.replace(/\s+/g, '').replace(/[−–]/g, '-');
     
     if (!cleanNotation) {
@@ -56,6 +62,14 @@ export const DiceService = {
 
         if (count === 0 || sides === 0) {
           throw new Error(`Invalid dice notation: ${notation}`);
+        }
+        if (!Number.isFinite(count) || !Number.isFinite(sides) || count > MAX_DICE_COUNT || sides > MAX_DICE_SIDES) {
+          throw new Error(
+            `Dice notation out of range (max ${MAX_DICE_COUNT} dice, ${MAX_DICE_SIDES} sides): ${notation}`
+          );
+        }
+        if (rolls.length + count > MAX_DICE_COUNT) {
+          throw new Error(`Too many dice in total (max ${MAX_DICE_COUNT}): ${notation}`);
         }
 
         for (let i = 0; i < count; i++) {

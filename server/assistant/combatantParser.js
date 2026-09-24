@@ -32,6 +32,9 @@ const WORD_TO_NUM = {
 
 let cachedMonsters = null;
 
+/** Upper bound on how many combatants a single scenario clause may spawn. */
+export const MAX_COMBATANTS_PER_CLAUSE = 50;
+
 // Faction keywords must match whole words, not substrings: a plain
 // `.includes('ally')` check would wrongly treat "Finally", "really",
 // "usually", or "rally" as declaring an ally faction.
@@ -143,20 +146,29 @@ export function allocateTokenCoordinates(requestedPos, occupiedCells = new Set()
   const originY = Math.min(Math.max(requestedPos.y, 0), maxRows - 1);
   const maxDist = Math.max(maxCols, maxRows);
 
+  const tryCell = (nx, ny) => {
+    if (inBounds(nx, ny) && !occupiedCells.has(key(nx, ny))) {
+      occupiedCells.add(key(nx, ny));
+      return { x: nx, y: ny, label: coordinateToLabel(nx, ny) };
+    }
+    return null;
+  };
+
+  // Visit only the perimeter of each Chebyshev ring (row-major order), rather
+  // than scanning the whole (2*dist+1)^2 square and discarding the interior.
   for (let dist = 0; dist <= maxDist; dist++) {
     for (let dy = -dist; dy <= dist; dy++) {
-      for (let dx = -dist; dx <= dist; dx++) {
-        if (Math.max(Math.abs(dx), Math.abs(dy)) !== dist) continue;
-        const nx = originX + dx;
-        const ny = originY + dy;
-        if (inBounds(nx, ny) && !occupiedCells.has(key(nx, ny))) {
-          occupiedCells.add(key(nx, ny));
-          return {
-            x: nx,
-            y: ny,
-            label: coordinateToLabel(nx, ny),
-          };
+      const fullRow = dy === -dist || dy === dist;
+      if (fullRow) {
+        for (let dx = -dist; dx <= dist; dx++) {
+          const hit = tryCell(originX + dx, originY + dy);
+          if (hit) return hit;
         }
+      } else {
+        const left = tryCell(originX - dist, originY + dy);
+        if (left) return left;
+        const right = tryCell(originX + dist, originY + dy);
+        if (right) return right;
       }
     }
   }
@@ -470,6 +482,11 @@ export function parseScenarioCombatants(
     if (!monsterName) continue;
 
     count = Math.max(1, count);
+    if (count > MAX_COMBATANTS_PER_CLAUSE) {
+      throw new Error(
+        `Scenario asks for ${count} x "${monsterName}", which exceeds the maximum of ${MAX_COMBATANTS_PER_CLAUSE} combatants per group. Please use a smaller number.`
+      );
+    }
 
     // Resolve monster stats
     let hp = 10;

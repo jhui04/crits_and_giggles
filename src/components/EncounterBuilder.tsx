@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { MonsterBrowser } from './MonsterBrowser';
 import type { Monster, EncounterUnit, Encounter } from '../types';
 import { useCampaigns } from '../context/CampaignContext';
+import { isInteractiveTarget } from './uiHelpers';
 
 interface EncounterBuilderProps {
   initialEncounter: Encounter | null;
@@ -57,12 +58,7 @@ export function EncounterBuilder({ initialEncounter, chapterId, onClose }: Encou
       }
 
       // Prevent default behavior for Enter and Space on non-interactive elements
-      const target = e.target as HTMLElement;
-      const isInteractive = ['BUTTON', 'INPUT', 'TEXTAREA', 'SELECT', 'A'].includes(target.tagName) ||
-                          target.hasAttribute('onclick') ||
-                          target.getAttribute('role') === 'button';
-
-      if ((e.key === 'Enter' || e.key === ' ') && !isInteractive) {
+      if ((e.key === 'Enter' || e.key === ' ') && !isInteractiveTarget(e.target)) {
         e.preventDefault();
       }
     };

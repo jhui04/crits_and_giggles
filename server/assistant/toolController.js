@@ -7,6 +7,7 @@ import { db } from '../db.js';
 import { searchVectorStore } from './vectorStore.js';
 import { hitlManager } from './hitlManager.js';
 import { projectHpApplication } from './combatHpUtils.js';
+import { validateAgainstSchema, formatSchemaErrors } from './schemaValidator.js';
 import {
   parseScenarioCombatants,
   allocateTokenCoordinates,
@@ -111,6 +112,51 @@ export function getMapGrids() {
   return cachedMapGrids;
 }
 
+const MAX_COMBATANT_HP = 10000;
+const MAX_CONFIGURED_COMBATANTS = 50;
+
+/**
+ * Escapes SQL LIKE wildcards so user/LLM-supplied text matches literally.
+ * Use with `LIKE ? ESCAPE '\\'`.
+ */
+function escapeLike(text) {
+  return String(text).replace(/[\\%_]/g, '\\$&');
+}
+
+/**
+ * Auto-numbers combatants that share a name ("Goblin", "Goblin" ->
+ * "Goblin 1", "Goblin 2"), mirroring what parseScenarioCombatants does for
+ * counted groups. Mutates the array in place; unique names are untouched.
+ */
+export function numberDuplicateCombatantNames(combatants) {
+  const totals = new Map();
+  for (const c of combatants) {
+    const k = c.name.toLowerCase();
+    totals.set(k, (totals.get(k) || 0) + 1);
+  }
+  const seen = new Map();
+  for (const c of combatants) {
+    const k = c.name.toLowerCase();
+    if (totals.get(k) > 1) {
+      const n = (seen.get(k) || 0) + 1;
+      seen.set(k, n);
+      c.name = `${c.name} ${n}`;
+    }
+  }
+  return combatants;
+}
+
+/**
+ * Returns the combatants that the client actually shows (and indexes turnIndex
+ * into): those whose phase is in running_state.activePhases (default [1]),
+ * in stored order. See EncounterRunner.tsx `visibleCombatants`.
+ */
+export function getVisibleCombatants(rs) {
+  const combatants = Array.isArray(rs?.combatants) ? rs.combatants : [];
+  const phases = Array.isArray(rs?.activePhases) && rs.activePhases.length > 0 ? rs.activePhases : [1];
+  return combatants.filter((u) => phases.includes(u.phase || 1));
+}
+
 /**
  * Resolves the target encounter for a write tool call, given explicit args and
  * conversation context. Never reaches outside a known campaign: once
@@ -124,11 +170,23 @@ function resolveEncounterForWrite(args, context = {}) {
   const encounterId = args.encounterId || context.encounterId;
 
   if (encounterId) {
-    encounter = db.prepare(`SELECT ${cols} FROM encounters WHERE id = ?`).get(encounterId);
-    if (encounter && context.campaignId && encounter.campaign_id !== context.campaignId) {
-      throw new Error(
-        `Encounter "${encounterId}" does not belong to the active campaign "${context.campaignId}".`
-      );
+    // (id, campaign_id) is the encounters primary key, so id alone is not unique.
+    if (context.campaignId) {
+      encounter = db
+        .prepare(`SELECT ${cols} FROM encounters WHERE id = ? AND campaign_id = ?`)
+        .get(encounterId, context.campaignId);
+      if (!encounter && db.prepare('SELECT 1 FROM encounters WHERE id = ?').get(encounterId)) {
+        throw new Error(
+          `Encounter "${encounterId}" does not belong to the active campaign "${context.campaignId}".`
+        );
+      }
+    } else {
+      encounter = db.prepare(`SELECT ${cols} FROM encounters WHERE id = ?`).get(encounterId);
+    }
+    if (!encounter && args.encounterId) {
+      // An explicitly supplied id that doesn't exist must not silently retarget
+      // a different encounter.
+      throw new Error(`Encounter "${args.encounterId}" was not found.`);
     }
   }
 
@@ -154,7 +212,7 @@ function resolveEncounterForWrite(args, context = {}) {
  * Attaches monster stat blocks (fullData) when missing so resistance/immunity
  * calculations can run.
  */
-function loadEncounterCombatants(encounterId, runningStateJson) {
+function loadEncounterCombatants(encounterId, runningStateJson, campaignId) {
   let allCombatants = [];
   if (runningStateJson) {
     try {
@@ -180,9 +238,9 @@ function loadEncounterCombatants(encounterId, runningStateJson) {
   if (allCombatants.length === 0) {
     const units = db
       .prepare(
-        'SELECT instanceId, name, currentHp, maxHp, tempHp, hpDice, dexMod, initiative, isPlayer, monsterId, faction, position_x, position_y FROM encounter_units WHERE encounter_id = ?'
+        `SELECT instanceId, name, currentHp, maxHp, tempHp, hpDice, dexMod, initiative, isPlayer, monsterId, faction, position_x, position_y FROM encounter_units WHERE encounter_id = ?${campaignId ? ' AND campaign_id = ?' : ''}`
       )
-      .all(encounterId);
+      .all(...(campaignId ? [encounterId, campaignId] : [encounterId]));
     allCombatants = units.map((u) => ({
       instanceId: u.instanceId,
       name: u.name || 'Unknown',
@@ -252,12 +310,89 @@ function resolveCombatantRef(allCombatants, id, rawName) {
 }
 
 /**
+ * Shared combatant lookup for the read-only get_*_hp / get_entity_position
+ * tools. Rejects empty references, then looks in the live running_state of the
+ * scoped encounter(s) and finally the encounter_units table, using
+ * resolveCombatantRef's exact -> partial -> ambiguity rules (ambiguous
+ * references throw). Matching happens in JS, so no SQL LIKE wildcards from
+ * the reference ever reach the database.
+ *
+ * @param {string} nameOrId
+ * @param {{campaignId?: string, encounterId?: string}} scope
+ * @param {(c: object) => boolean} [accept] Extra requirement on a match.
+ * @returns {{combatant: object, encounterName: string|null, source: 'running_state'|'encounter_units'}|null}
+ */
+function lookupCombatantForRead(nameOrId, { campaignId, encounterId } = {}, accept = () => true) {
+  const ref = typeof nameOrId === 'string' ? nameOrId.trim() : '';
+  if (!ref) {
+    throw new Error('name_or_id is required and must not be empty.');
+  }
+
+  let encQuery = 'SELECT id, name, running_state FROM encounters WHERE running_state IS NOT NULL';
+  const encParams = [];
+  if (encounterId) {
+    encQuery += ' AND id = ?';
+    encParams.push(encounterId);
+  }
+  if (campaignId) {
+    encQuery += ' AND campaign_id = ?';
+    encParams.push(campaignId);
+  }
+
+  for (const enc of db.prepare(encQuery).all(...encParams)) {
+    let rs;
+    try {
+      rs = JSON.parse(enc.running_state);
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(rs?.combatants)) continue;
+    const found = resolveCombatantRef(rs.combatants, ref, ref);
+    if (found && accept(found)) {
+      return { combatant: found, encounterName: enc.name, source: 'running_state' };
+    }
+  }
+
+  let unitQuery =
+    'SELECT instanceId, name, currentHp, maxHp, isPlayer, position_x, position_y FROM encounter_units';
+  const unitParams = [];
+  const unitConds = [];
+  if (encounterId) {
+    unitConds.push('encounter_id = ?');
+    unitParams.push(encounterId);
+  }
+  if (campaignId) {
+    unitConds.push('campaign_id = ?');
+    unitParams.push(campaignId);
+  }
+  if (unitConds.length > 0) unitQuery += ` WHERE ${unitConds.join(' AND ')}`;
+  const units = db
+    .prepare(unitQuery)
+    .all(...unitParams)
+    .map((u) => ({
+      instanceId: u.instanceId,
+      name: u.name || 'Unknown',
+      currentHp: u.currentHp,
+      maxHp: u.maxHp,
+      isPlayer: !!u.isPlayer,
+      position: u.position_x !== null && u.position_y !== null ? { x: u.position_x, y: u.position_y } : null,
+    }));
+  const foundUnit = resolveCombatantRef(units, ref, ref);
+  if (foundUnit && accept(foundUnit)) {
+    return { combatant: foundUnit, encounterName: null, source: 'encounter_units' };
+  }
+  return null;
+}
+
+/**
  * Builds a fresh default running_state document for an encounter from its
  * encounter_units rows. Used consistently by every write tool so an
  * approval never implicitly starts combat or drops fields.
  */
-function buildDefaultRunningState(encounterId) {
-  const allUnits = db.prepare('SELECT * FROM encounter_units WHERE encounter_id = ?').all(encounterId);
+function buildDefaultRunningState(encounterId, campaignId) {
+  const allUnits = campaignId
+    ? db.prepare('SELECT * FROM encounter_units WHERE encounter_id = ? AND campaign_id = ?').all(encounterId, campaignId)
+    : db.prepare('SELECT * FROM encounter_units WHERE encounter_id = ?').all(encounterId);
   return {
     isCombatStarted: false,
     round: 1,
@@ -324,18 +459,32 @@ function buildDamageDescription(projectedTargets, skippedTargets = []) {
 }
 
 /**
+ * Campaign scope for a write handler. encounter_units and encounters are keyed
+ * by (id, campaign_id), so a mutation must never run without a campaign.
+ */
+function requireExecutionCampaignId(executionPayload, context) {
+  const campaignId = executionPayload?.campaignId || context?.campaignId;
+  if (!campaignId) {
+    throw new Error('Cannot execute write: no campaignId is available to scope the mutation.');
+  }
+  return campaignId;
+}
+
+/**
  * Reads and parses running_state for an encounter, falling back to a fresh
  * default document (built from encounter_units) when absent or corrupt.
  */
-function readRunningStateOrDefault(encounterId) {
-  const enc = db.prepare('SELECT id, running_state FROM encounters WHERE id = ?').get(encounterId);
+function readRunningStateOrDefault(encounterId, campaignId) {
+  const enc = campaignId
+    ? db.prepare('SELECT id, running_state FROM encounters WHERE id = ? AND campaign_id = ?').get(encounterId, campaignId)
+    : db.prepare('SELECT id, running_state FROM encounters WHERE id = ?').get(encounterId);
   if (enc?.running_state) {
     try {
       const rs = JSON.parse(enc.running_state);
       if (rs && Array.isArray(rs.combatants)) return rs;
     } catch {}
   }
-  return buildDefaultRunningState(encounterId);
+  return buildDefaultRunningState(encounterId, campaignId);
 }
 
 /**
@@ -348,16 +497,18 @@ function readRunningStateOrDefault(encounterId) {
  * instead of relying on a fixed timer that would reject an untouched,
  * still-valid proposal just because the DM took a while to review it.
  */
-export function computeEncounterStateHash(encounterId) {
+export function computeEncounterStateHash(encounterId, campaignId) {
   if (!encounterId) return null;
 
   const units = db
     .prepare(
-      'SELECT instanceId, name, monsterId, maxHp, currentHp, tempHp, initiative, isPlayer, position_x, position_y, phase, faction FROM encounter_units WHERE encounter_id = ? ORDER BY instanceId'
+      `SELECT instanceId, name, monsterId, maxHp, currentHp, tempHp, initiative, isPlayer, position_x, position_y, phase, faction FROM encounter_units WHERE encounter_id = ?${campaignId ? ' AND campaign_id = ?' : ''} ORDER BY instanceId`
     )
-    .all(encounterId);
+    .all(...(campaignId ? [encounterId, campaignId] : [encounterId]));
 
-  const enc = db.prepare('SELECT running_state FROM encounters WHERE id = ?').get(encounterId);
+  const enc = campaignId
+    ? db.prepare('SELECT running_state FROM encounters WHERE id = ? AND campaign_id = ?').get(encounterId, campaignId)
+    : db.prepare('SELECT running_state FROM encounters WHERE id = ?').get(encounterId);
   let combatProgress = null;
   if (enc?.running_state) {
     try {
@@ -393,24 +544,49 @@ export {
 };
 
 /**
- * Resolves a map URL to a local filesystem path.
+ * Compact audit-log summary of a tool result. Strips bulky base64 image data
+ * URIs so the audit log / console never contain (or slice through) image bytes.
+ */
+export function summarizeResultForAudit(result) {
+  let text;
+  try {
+    text = JSON.stringify(result, (key, value) =>
+      key === 'image' && typeof value === 'string' && value.startsWith('data:')
+        ? '[image omitted]'
+        : value
+    );
+  } catch {
+    text = String(result);
+  }
+  return (text ?? '').slice(0, 200);
+}
+
+function isInsideDir(root, candidate) {
+  const rel = path.relative(root, candidate);
+  return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+}
+
+/**
+ * Resolves a map URL to a local filesystem path. Only files inside public/
+ * are ever returned; anything that resolves outside it (".." segments,
+ * absolute paths) yields null.
  */
 export function resolveMapFilePath(mapUrl) {
   if (!mapUrl || typeof mapUrl !== 'string') return null;
   const cleaned = mapUrl.split('?')[0].trim();
+  if (!cleaned) return null;
   const basename = path.basename(cleaned);
 
   // 1. Direct file in public/maps
-  const p1 = path.join(PUBLIC_MAPS_DIR, basename);
-  if (fs.existsSync(p1)) return p1;
+  if (basename) {
+    const p1 = path.resolve(PUBLIC_MAPS_DIR, basename);
+    if (isInsideDir(PUBLIC_MAPS_DIR, p1) && fs.existsSync(p1)) return p1;
+  }
 
   // 2. Relative from public directory
-  const relPath = cleaned.replace(/^\/+/, '');
-  const p2 = path.join(PUBLIC_DIR, relPath);
-  if (fs.existsSync(p2)) return p2;
-
-  // 3. Absolute path or direct match
-  if (fs.existsSync(cleaned)) return cleaned;
+  const relPath = cleaned.replace(/^[/\\]+/, '');
+  const p2 = path.resolve(PUBLIC_DIR, relPath);
+  if (isInsideDir(PUBLIC_DIR, p2) && fs.existsSync(p2)) return p2;
 
   return null;
 }
@@ -742,32 +918,34 @@ export function parseChapterOutline(content) {
  */
 export function resolveChapter(chapterIdentifier, context = {}) {
   const { campaignId, chapterId, chapterName } = context;
+  const cols = 'id, campaign_id, title, content';
 
-  // 1. If explicit identifier provided
+  // 1. If explicit identifier provided, it must resolve (scoped to the active
+  // campaign when one is known) or we report what is available instead of
+  // silently substituting a different chapter.
   if (chapterIdentifier && typeof chapterIdentifier === 'string' && chapterIdentifier.trim()) {
     const raw = chapterIdentifier.trim();
-    // Try exact ID match
-    let ch = db.prepare('SELECT id, campaign_id, title, content FROM chapters WHERE id = ?').get(raw);
+    const lower = raw.toLowerCase();
+
+    let ch = campaignId
+      ? db.prepare(`SELECT ${cols} FROM chapters WHERE id = ? AND campaign_id = ?`).get(raw, campaignId)
+      : db.prepare(`SELECT ${cols} FROM chapters WHERE id = ?`).get(raw);
     if (ch) return ch;
 
-    // Try case-insensitive title match within campaign
-    if (campaignId) {
-      ch = db.prepare('SELECT id, campaign_id, title, content FROM chapters WHERE campaign_id = ? AND LOWER(title) = ?').get(campaignId, raw.toLowerCase());
-      if (ch) return ch;
-      ch = db.prepare('SELECT id, campaign_id, title, content FROM chapters WHERE campaign_id = ? AND LOWER(title) LIKE ?').get(campaignId, `%${raw.toLowerCase()}%`);
-      if (ch) return ch;
-    }
+    const scope = campaignId ? 'campaign_id = ? AND ' : '';
+    const scopeParams = campaignId ? [campaignId] : [];
 
-    // Try case-insensitive title match across all campaigns
-    ch = db.prepare('SELECT id, campaign_id, title, content FROM chapters WHERE LOWER(title) = ?').get(raw.toLowerCase());
+    ch = db.prepare(`SELECT ${cols} FROM chapters WHERE ${scope}LOWER(title) = ?`).get(...scopeParams, lower);
     if (ch) return ch;
-    ch = db.prepare('SELECT id, campaign_id, title, content FROM chapters WHERE LOWER(title) LIKE ?').get(`%${raw.toLowerCase()}%`);
+    ch = db
+      .prepare(`SELECT ${cols} FROM chapters WHERE ${scope}LOWER(title) LIKE ? ESCAPE '\\'`)
+      .get(...scopeParams, `%${escapeLike(lower)}%`);
     if (ch) return ch;
 
     // Fuzzy title match
     const allChaps = campaignId
-      ? db.prepare('SELECT id, campaign_id, title, content FROM chapters WHERE campaign_id = ?').all(campaignId)
-      : db.prepare('SELECT id, campaign_id, title, content FROM chapters').all();
+      ? db.prepare(`SELECT ${cols} FROM chapters WHERE campaign_id = ?`).all(campaignId)
+      : db.prepare(`SELECT ${cols} FROM chapters`).all();
     let bestMatch = null;
     let bestScore = 0;
     for (const c of allChaps) {
@@ -780,32 +958,41 @@ export function resolveChapter(chapterIdentifier, context = {}) {
     if (bestMatch && bestScore >= 0.4) {
       return bestMatch;
     }
+
+    const available = allChaps.slice(0, 25).map((c) => `"${c.title}" (${c.id})`);
+    throw new Error(
+      `Chapter "${raw}" not found. ${
+        available.length > 0 ? `Available chapters: ${available.join(', ')}.` : 'There are no chapters available.'
+      }`
+    );
   }
 
   // 2. Fall back to context.chapterId
   if (chapterId) {
-    const ch = db.prepare('SELECT id, campaign_id, title, content FROM chapters WHERE id = ?').get(chapterId);
+    const ch = campaignId
+      ? db.prepare(`SELECT ${cols} FROM chapters WHERE id = ? AND campaign_id = ?`).get(chapterId, campaignId)
+      : db.prepare(`SELECT ${cols} FROM chapters WHERE id = ?`).get(chapterId);
     if (ch) return ch;
   }
 
   // 3. Fall back to context.chapterName
   if (chapterName) {
     if (campaignId) {
-      const ch = db.prepare('SELECT id, campaign_id, title, content FROM chapters WHERE campaign_id = ? AND LOWER(title) = ?').get(campaignId, chapterName.toLowerCase());
+      const ch = db.prepare(`SELECT ${cols} FROM chapters WHERE campaign_id = ? AND LOWER(title) = ?`).get(campaignId, chapterName.toLowerCase());
+      if (ch) return ch;
+    } else {
+      const ch = db.prepare(`SELECT ${cols} FROM chapters WHERE LOWER(title) = ?`).get(chapterName.toLowerCase());
       if (ch) return ch;
     }
-    const ch = db.prepare('SELECT id, campaign_id, title, content FROM chapters WHERE LOWER(title) = ?').get(chapterName.toLowerCase());
-    if (ch) return ch;
   }
 
-  // 4. Fall back to first chapter of campaign
+  // 4. Fall back to first chapter of the campaign
   if (campaignId) {
-    const ch = db.prepare('SELECT id, campaign_id, title, content FROM chapters WHERE campaign_id = ? ORDER BY order_index LIMIT 1').get(campaignId);
-    if (ch) return ch;
+    return db.prepare(`SELECT ${cols} FROM chapters WHERE campaign_id = ? ORDER BY order_index LIMIT 1`).get(campaignId) || null;
   }
 
-  // 5. Fall back to any chapter in database
-  return db.prepare('SELECT id, campaign_id, title, content FROM chapters ORDER BY id LIMIT 1').get() || null;
+  // 5. Only when no campaign is known at all: any chapter in the database
+  return db.prepare(`SELECT ${cols} FROM chapters ORDER BY id LIMIT 1`).get() || null;
 }
 
 /**
@@ -1152,7 +1339,7 @@ export const MOVE_COMBATANT_TOOL_DEF = {
   description:
     'Propose moving a combatant (player character or monster) to a new grid position on the encounter battlemap. Stages a Human-in-the-Loop confirmation proposal with origin/destination coordinates, map region names, and adjacent allies/enemies.',
   payloadType: 'movement',
-  getStateHash: (context) => computeEncounterStateHash(context.encounterId),
+  getStateHash: (context) => computeEncounterStateHash(context.encounterId, context.campaignId),
   parameters: {
     type: 'object',
     properties: {
@@ -1184,7 +1371,7 @@ export const MOVE_COMBATANT_TOOL_DEF = {
     const encounterId = encounter.id;
 
     // 2. Gather combatants
-    const allCombatants = loadEncounterCombatants(encounterId, encounter.running_state);
+    const allCombatants = loadEncounterCombatants(encounterId, encounter.running_state, encounter.campaign_id);
 
     // 3. Find the moving combatant. No id or name supplied is an explicit error
     // rather than a silent guess (previously defaulted to allCombatants[0]).
@@ -1292,7 +1479,7 @@ export const MOVE_COMBATANT_TOOL_DEF = {
       payloadType: 'movement',
       payload: proposalPayload,
       executionPayload,
-      stateHash: computeEncounterStateHash(encounterId),
+      stateHash: computeEncounterStateHash(encounterId, encounter.campaign_id),
       affectedIds: [movingUnit.instanceId],
       context: {
         campaignId: encounter.campaign_id,
@@ -1308,15 +1495,16 @@ export const MOVE_COMBATANT_TOOL_DEF = {
   executeMutation: async (executionPayload, context = {}) => {
     const { encounterId, combatantId, combatantName, destination } = executionPayload;
     const { x, y } = destination;
+    const campaignId = requireExecutionCampaignId(executionPayload, context);
 
     const updateTx = db.transaction(() => {
       // 1. Update encounter_units table
       db.prepare(
-        'UPDATE encounter_units SET position_x = ?, position_y = ? WHERE instanceId = ?'
-      ).run(x, y, combatantId);
+        'UPDATE encounter_units SET position_x = ?, position_y = ? WHERE instanceId = ? AND campaign_id = ? AND encounter_id = ?'
+      ).run(x, y, combatantId, campaignId, encounterId);
 
       // 2. Update encounters.running_state
-      const enc = db.prepare('SELECT id, running_state FROM encounters WHERE id = ?').get(encounterId);
+      const enc = db.prepare('SELECT id, running_state FROM encounters WHERE id = ? AND campaign_id = ?').get(encounterId, campaignId);
       if (enc) {
         let rs = null;
         if (enc.running_state) {
@@ -1327,7 +1515,7 @@ export const MOVE_COMBATANT_TOOL_DEF = {
         }
         if (!rs) {
           // Initialize running_state with all units from encounter_units
-          rs = buildDefaultRunningState(encounterId);
+          rs = buildDefaultRunningState(encounterId, campaignId);
         }
 
         let found = false;
@@ -1347,7 +1535,7 @@ export const MOVE_COMBATANT_TOOL_DEF = {
           // The combatant exists in encounter_units but hadn't yet appeared in
           // running_state; pull its real stats rather than pushing a bare
           // stub with no HP.
-          const unitRow = db.prepare('SELECT * FROM encounter_units WHERE instanceId = ?').get(combatantId);
+          const unitRow = db.prepare('SELECT * FROM encounter_units WHERE instanceId = ? AND campaign_id = ?').get(combatantId, campaignId);
           rs.combatants.push({
             instanceId: combatantId,
             monsterId: unitRow?.monsterId,
@@ -1365,14 +1553,15 @@ export const MOVE_COMBATANT_TOOL_DEF = {
         }
         rs.updatedAt = new Date().toISOString();
 
-        db.prepare('UPDATE encounters SET running_state = ? WHERE id = ?').run(
+        db.prepare('UPDATE encounters SET running_state = ? WHERE id = ? AND campaign_id = ?').run(
           JSON.stringify(rs),
-          encounterId
+          encounterId,
+          campaignId
         );
       }
 
       // Return updated combatant
-      const updatedUnit = db.prepare('SELECT * FROM encounter_units WHERE instanceId = ?').get(combatantId);
+      const updatedUnit = db.prepare('SELECT * FROM encounter_units WHERE instanceId = ? AND campaign_id = ?').get(combatantId, campaignId);
       return updatedUnit || { instanceId: combatantId, name: combatantName, position_x: x, position_y: y };
     });
 
@@ -1398,7 +1587,7 @@ export const APPLY_COMBAT_DAMAGE_TOOL_DEF = {
   description:
     'Propose applying damage, healing, or temporary HP to one or more combatants in the active combat encounter. Stages a Human-in-the-Loop confirmation proposal previewing current vs projected HP, temp HP absorption, and resistances before committing.',
   payloadType: 'damage',
-  getStateHash: (context) => computeEncounterStateHash(context.encounterId),
+  getStateHash: (context) => computeEncounterStateHash(context.encounterId, context.campaignId),
   parameters: {
     type: 'object',
     properties: {
@@ -1454,7 +1643,7 @@ export const APPLY_COMBAT_DAMAGE_TOOL_DEF = {
     const encounterId = encounter.id;
 
     // 2. Gather combatants
-    const allCombatants = loadEncounterCombatants(encounterId, encounter.running_state);
+    const allCombatants = loadEncounterCombatants(encounterId, encounter.running_state, encounter.campaign_id);
 
     // 3. Process targets. Entries are applied in order against a working copy
     // of each combatant's HP so the same target appearing twice in one call
@@ -1524,7 +1713,7 @@ export const APPLY_COMBAT_DAMAGE_TOOL_DEF = {
       payloadType: 'damage',
       payload: proposalPayload,
       executionPayload,
-      stateHash: computeEncounterStateHash(encounterId),
+      stateHash: computeEncounterStateHash(encounterId, encounter.campaign_id),
       affectedIds: executionTargets.map((t) => t.combatantId),
       context: {
         campaignId: encounter.campaign_id,
@@ -1539,14 +1728,15 @@ export const APPLY_COMBAT_DAMAGE_TOOL_DEF = {
   },
   executeMutation: async (executionPayload, context = {}) => {
     const { encounterId, targets } = executionPayload;
+    const campaignId = requireExecutionCampaignId(executionPayload, context);
 
     const updateTx = db.transaction(() => {
       // Re-project against whatever HP the combatants actually have right
       // now, not the HP snapshot captured when the proposal was staged, so a
       // change that happened in between (a manual edit, another approved
       // proposal) is not silently overwritten. See G-4.
-      const rs = readRunningStateOrDefault(encounterId);
-      const liveCombatants = loadEncounterCombatants(encounterId, JSON.stringify(rs));
+      const rs = readRunningStateOrDefault(encounterId, campaignId);
+      const liveCombatants = loadEncounterCombatants(encounterId, JSON.stringify(rs), campaignId);
 
       const finalTargets = [];
       const skippedTargets = [];
@@ -1574,10 +1764,10 @@ export const APPLY_COMBAT_DAMAGE_TOOL_DEF = {
 
       // 1. Update encounter_units table in SQLite
       const updateUnitStmt = db.prepare(
-        'UPDATE encounter_units SET currentHp = ?, tempHp = ? WHERE instanceId = ?'
+        'UPDATE encounter_units SET currentHp = ?, tempHp = ? WHERE instanceId = ? AND campaign_id = ? AND encounter_id = ?'
       );
       for (const t of finalTargets) {
-        updateUnitStmt.run(t.projectedHp, t.projectedTempHp, t.combatantId);
+        updateUnitStmt.run(t.projectedHp, t.projectedTempHp, t.combatantId, campaignId, encounterId);
       }
 
       // 2. Update encounters.running_state in SQLite
@@ -1613,14 +1803,15 @@ export const APPLY_COMBAT_DAMAGE_TOOL_DEF = {
       });
 
       rs.updatedAt = new Date().toISOString();
-      db.prepare('UPDATE encounters SET running_state = ? WHERE id = ?').run(
+      db.prepare('UPDATE encounters SET running_state = ? WHERE id = ? AND campaign_id = ?').run(
         JSON.stringify(rs),
-        encounterId
+        encounterId,
+        campaignId
       );
 
       // Return refreshed units
       return {
-        units: db.prepare('SELECT * FROM encounter_units WHERE encounter_id = ?').all(encounterId),
+        units: db.prepare('SELECT * FROM encounter_units WHERE encounter_id = ? AND campaign_id = ?').all(encounterId, campaignId),
         finalTargets,
         skippedTargets,
         finalSummary,
@@ -1646,7 +1837,7 @@ export const CONFIGURE_ENCOUNTER_COMBATANTS_TOOL_DEF = {
   description:
     'Analyze scenario/chapter text or structured combatant list to configure participating combatants, starting map coordinates, and encounter phases (e.g. Phase 1 initial wave, Phase 2 reinforcements). Stages a Human-in-the-Loop confirmation proposal before mutating the database or encounter state.',
   payloadType: 'combatant_config',
-  getStateHash: (context) => computeEncounterStateHash(context.encounterId),
+  getStateHash: (context) => computeEncounterStateHash(context.encounterId, context.campaignId),
   parameters: {
     type: 'object',
     properties: {
@@ -1697,8 +1888,8 @@ export const CONFIGURE_ENCOUNTER_COMBATANTS_TOOL_DEF = {
 
     const occupiedCells = new Set();
     const existingUnits = db
-      .prepare('SELECT position_x, position_y FROM encounter_units WHERE encounter_id = ?')
-      .all(encounterId);
+      .prepare('SELECT position_x, position_y FROM encounter_units WHERE encounter_id = ? AND campaign_id = ?')
+      .all(encounterId, encounter.campaign_id);
     for (const u of existingUnits) {
       if (u.position_x !== null && u.position_y !== null) {
         occupiedCells.add(`${u.position_x},${u.position_y}`);
@@ -1719,6 +1910,11 @@ export const CONFIGURE_ENCOUNTER_COMBATANTS_TOOL_DEF = {
     }
 
     if (hasExplicitCombatants) {
+      if (args.combatants.length > MAX_CONFIGURED_COMBATANTS) {
+        throw new Error(
+          `Too many combatants (${args.combatants.length}); at most ${MAX_CONFIGURED_COMBATANTS} may be configured in one proposal.`
+        );
+      }
       for (const raw of args.combatants) {
         if (!raw || typeof raw !== 'object') {
           throw new Error('Invalid combatant entry: must be an object.');
@@ -1765,7 +1961,15 @@ export const CONFIGURE_ENCOUNTER_COMBATANTS_TOOL_DEF = {
         const label = allocated.label || coordinateToLabel(allocated.x, allocated.y);
         const regionName = resolveRegionName(allocated, regions);
 
-        let hp = raw.hp;
+        let hp;
+        if (raw.hp !== undefined && raw.hp !== null && raw.hp !== '') {
+          hp = Number(raw.hp);
+          if (!Number.isInteger(hp) || hp < 1 || hp > MAX_COMBATANT_HP) {
+            throw new Error(
+              `Invalid hp ${JSON.stringify(raw.hp)} for combatant "${raw.name}": hp must be a positive integer no greater than ${MAX_COMBATANT_HP}.`
+            );
+          }
+        }
         let dexMod = 0;
         let hpDice = null;
         let monsterType = raw.monsterType || raw.name;
@@ -1801,6 +2005,10 @@ export const CONFIGURE_ENCOUNTER_COMBATANTS_TOOL_DEF = {
           dexMod,
         });
       }
+    }
+
+    if (hasExplicitCombatants) {
+      numberDuplicateCombatantNames(finalCombatants);
     }
 
     if (finalCombatants.length === 0) {
@@ -1867,7 +2075,7 @@ export const CONFIGURE_ENCOUNTER_COMBATANTS_TOOL_DEF = {
       payloadType: 'combatant_config',
       payload: proposalPayload,
       executionPayload,
-      stateHash: computeEncounterStateHash(encounterId),
+      stateHash: computeEncounterStateHash(encounterId, encounter.campaign_id),
       // Always adds brand-new combatants with freshly generated instanceIds
       // at execution time — it never reads or writes an existing
       // combatant's state, so it can never collide with another pending
@@ -1886,7 +2094,8 @@ export const CONFIGURE_ENCOUNTER_COMBATANTS_TOOL_DEF = {
     };
   },
   executeMutation: async (executionPayload, context = {}) => {
-    const { encounterId, campaignId, combatants, summary } = executionPayload;
+    const { encounterId, combatants, summary } = executionPayload;
+    const campaignId = requireExecutionCampaignId(executionPayload, context);
 
     const updateTx = db.transaction(() => {
       // 1. Insert units into encounter_units in SQLite
@@ -1906,7 +2115,7 @@ export const CONFIGURE_ENCOUNTER_COMBATANTS_TOOL_DEF = {
         insertStmt.run(
           u.instanceId,
           u.encounterId || encounterId,
-          u.campaignId || campaignId,
+          campaignId,
           u.monsterId,
           u.name,
           u.maxHp,
@@ -1926,8 +2135,8 @@ export const CONFIGURE_ENCOUNTER_COMBATANTS_TOOL_DEF = {
 
       // 2. Update encounters.running_state in SQLite
       const enc = db
-        .prepare('SELECT id, running_state FROM encounters WHERE id = ?')
-        .get(encounterId);
+        .prepare('SELECT id, running_state FROM encounters WHERE id = ? AND campaign_id = ?')
+        .get(encounterId, campaignId);
 
       if (enc) {
         let rs = null;
@@ -1938,7 +2147,7 @@ export const CONFIGURE_ENCOUNTER_COMBATANTS_TOOL_DEF = {
         }
 
         if (!rs || !Array.isArray(rs.combatants)) {
-          rs = buildDefaultRunningState(encounterId);
+          rs = buildDefaultRunningState(encounterId, campaignId);
         } else {
           const existingIds = new Set(rs.combatants.map((c) => c.instanceId || c.id));
           for (const u of combatants) {
@@ -1978,13 +2187,14 @@ export const CONFIGURE_ENCOUNTER_COMBATANTS_TOOL_DEF = {
         });
 
         rs.updatedAt = new Date().toISOString();
-        db.prepare('UPDATE encounters SET running_state = ? WHERE id = ?').run(
+        db.prepare('UPDATE encounters SET running_state = ? WHERE id = ? AND campaign_id = ?').run(
           JSON.stringify(rs),
-          encounterId
+          encounterId,
+          campaignId
         );
       }
 
-      return db.prepare('SELECT * FROM encounter_units WHERE encounter_id = ?').all(encounterId);
+      return db.prepare('SELECT * FROM encounter_units WHERE encounter_id = ? AND campaign_id = ?').all(encounterId, campaignId);
     });
 
     const allUnits = updateTx();
@@ -2005,7 +2215,7 @@ export const REMOVE_COMBATANT_TOOL_DEF = {
   description:
     'Propose removing a single combatant (player character or monster) entirely from the active combat encounter — off the map and out of the initiative order. Use this for precisely deleting one unit; use configure_encounter_combatants to set up a whole roster instead. Stages a Human-in-the-Loop confirmation proposal showing exactly which combatant will be removed before committing.',
   payloadType: 'generic',
-  getStateHash: (context) => computeEncounterStateHash(context.encounterId),
+  getStateHash: (context) => computeEncounterStateHash(context.encounterId, context.campaignId),
   parameters: {
     type: 'object',
     properties: {
@@ -2033,7 +2243,7 @@ export const REMOVE_COMBATANT_TOOL_DEF = {
 
     // 2. Gather combatants and resolve the target. No id or name supplied is
     // an explicit error rather than a silent guess (see move_combatant).
-    const allCombatants = loadEncounterCombatants(encounterId, encounter.running_state);
+    const allCombatants = loadEncounterCombatants(encounterId, encounter.running_state, encounter.campaign_id);
     if (!args.combatantId && !args.combatantName) {
       throw new Error(
         'remove_combatant: either combatantId or combatantName is required to identify which combatant to remove.'
@@ -2073,7 +2283,7 @@ export const REMOVE_COMBATANT_TOOL_DEF = {
       payloadType: 'generic',
       payload: proposalPayload,
       executionPayload,
-      stateHash: computeEncounterStateHash(encounterId),
+      stateHash: computeEncounterStateHash(encounterId, encounter.campaign_id),
       affectedIds: [target.instanceId],
       context: {
         campaignId: encounter.campaign_id,
@@ -2088,6 +2298,7 @@ export const REMOVE_COMBATANT_TOOL_DEF = {
   },
   executeMutation: async (executionPayload, context = {}) => {
     const { encounterId, combatantId, combatantName } = executionPayload;
+    const campaignId = requireExecutionCampaignId(executionPayload, context);
 
     // By the time this runs, hitlManager has already verified the
     // encounter's state hash still matches what was captured at staging
@@ -2096,11 +2307,14 @@ export const REMOVE_COMBATANT_TOOL_DEF = {
     // was shown this proposal — there is no "already removed by someone
     // else" case left to handle here.
     db.transaction(() => {
-      db.prepare('DELETE FROM encounter_units WHERE instanceId = ?').run(combatantId);
+      db.prepare('DELETE FROM encounter_units WHERE instanceId = ? AND campaign_id = ? AND encounter_id = ?').run(combatantId, campaignId, encounterId);
 
-      const rs = readRunningStateOrDefault(encounterId);
-      const removedIndex = rs.combatants.findIndex((c) => c.instanceId === combatantId);
+      const rs = readRunningStateOrDefault(encounterId, campaignId);
+      // turnIndex indexes the phase-filtered list the client displays (see
+      // getVisibleCombatants), not the full roster.
+      const removedIndex = getVisibleCombatants(rs).findIndex((c) => c.instanceId === combatantId);
       rs.combatants = rs.combatants.filter((c) => c.instanceId !== combatantId);
+      const visibleAfterCount = getVisibleCombatants(rs).length;
 
       // Keep turnIndex pointing at a valid entry after the roster shrinks: a
       // removal at or before the current turn shifts everyone after it down
@@ -2110,10 +2324,10 @@ export const REMOVE_COMBATANT_TOOL_DEF = {
         if (removedIndex !== -1 && removedIndex < rs.turnIndex) {
           rs.turnIndex = Math.max(0, rs.turnIndex - 1);
         }
-        if (rs.combatants.length === 0) {
+        if (visibleAfterCount === 0) {
           rs.turnIndex = 0;
-        } else if (rs.turnIndex >= rs.combatants.length) {
-          rs.turnIndex = rs.combatants.length - 1;
+        } else if (rs.turnIndex >= visibleAfterCount) {
+          rs.turnIndex = visibleAfterCount - 1;
         }
       }
 
@@ -2128,7 +2342,7 @@ export const REMOVE_COMBATANT_TOOL_DEF = {
       });
       rs.updatedAt = new Date().toISOString();
 
-      db.prepare('UPDATE encounters SET running_state = ? WHERE id = ?').run(JSON.stringify(rs), encounterId);
+      db.prepare('UPDATE encounters SET running_state = ? WHERE id = ? AND campaign_id = ?').run(JSON.stringify(rs), encounterId, campaignId);
     })();
 
     return {
@@ -2143,7 +2357,7 @@ export const UPDATE_COMBATANT_TOOL_DEF = {
   description:
     "Propose editing a single combatant's name and/or faction (ally, enemy, or neutral) without moving it or changing its HP. Use move_combatant for position changes and apply_combat_damage for HP/healing changes. Stages a Human-in-the-Loop confirmation proposal showing exactly which fields will change before committing.",
   payloadType: 'generic',
-  getStateHash: (context) => computeEncounterStateHash(context.encounterId),
+  getStateHash: (context) => computeEncounterStateHash(context.encounterId, context.campaignId),
   parameters: {
     type: 'object',
     properties: {
@@ -2179,7 +2393,7 @@ export const UPDATE_COMBATANT_TOOL_DEF = {
     const encounterId = encounter.id;
 
     // 2. Gather combatants and resolve the target
-    const allCombatants = loadEncounterCombatants(encounterId, encounter.running_state);
+    const allCombatants = loadEncounterCombatants(encounterId, encounter.running_state, encounter.campaign_id);
     if (!args.combatantId && !args.combatantName) {
       throw new Error(
         'update_combatant: either combatantId or combatantName is required to identify which combatant to update.'
@@ -2251,7 +2465,7 @@ export const UPDATE_COMBATANT_TOOL_DEF = {
       payloadType: 'generic',
       payload: proposalPayload,
       executionPayload,
-      stateHash: computeEncounterStateHash(encounterId),
+      stateHash: computeEncounterStateHash(encounterId, encounter.campaign_id),
       affectedIds: [target.instanceId],
       context: {
         campaignId: encounter.campaign_id,
@@ -2266,9 +2480,10 @@ export const UPDATE_COMBATANT_TOOL_DEF = {
   },
   executeMutation: async (executionPayload, context = {}) => {
     const { encounterId, combatantId, combatantName, newName, faction } = executionPayload;
+    const campaignId = requireExecutionCampaignId(executionPayload, context);
 
     const updateTx = db.transaction(() => {
-      const existing = db.prepare('SELECT instanceId, name, faction FROM encounter_units WHERE instanceId = ?').get(combatantId);
+      const existing = db.prepare('SELECT instanceId, name, faction FROM encounter_units WHERE instanceId = ? AND campaign_id = ? AND encounter_id = ?').get(combatantId, campaignId, encounterId);
       if (!existing) {
         throw new Error(`Combatant "${combatantName || combatantId}" no longer exists in this encounter.`);
       }
@@ -2284,11 +2499,11 @@ export const UPDATE_COMBATANT_TOOL_DEF = {
         params.push(faction);
       }
       if (setClauses.length > 0) {
-        params.push(combatantId);
-        db.prepare(`UPDATE encounter_units SET ${setClauses.join(', ')} WHERE instanceId = ?`).run(...params);
+        params.push(combatantId, campaignId, encounterId);
+        db.prepare(`UPDATE encounter_units SET ${setClauses.join(', ')} WHERE instanceId = ? AND campaign_id = ? AND encounter_id = ?`).run(...params);
       }
 
-      const rs = readRunningStateOrDefault(encounterId);
+      const rs = readRunningStateOrDefault(encounterId, campaignId);
       const match = rs.combatants.find((c) => c.instanceId === combatantId);
       if (match) {
         if (newName !== undefined) match.name = newName;
@@ -2311,11 +2526,11 @@ export const UPDATE_COMBATANT_TOOL_DEF = {
       });
       rs.updatedAt = new Date().toISOString();
 
-      db.prepare('UPDATE encounters SET running_state = ? WHERE id = ?').run(JSON.stringify(rs), encounterId);
+      db.prepare('UPDATE encounters SET running_state = ? WHERE id = ? AND campaign_id = ?').run(JSON.stringify(rs), encounterId, campaignId);
 
       return {
         finalSummary,
-        updatedUnit: db.prepare('SELECT * FROM encounter_units WHERE instanceId = ?').get(combatantId),
+        updatedUnit: db.prepare('SELECT * FROM encounter_units WHERE instanceId = ? AND campaign_id = ?').get(combatantId, campaignId),
       };
     });
 
@@ -2371,17 +2586,39 @@ export function validateToolCall(toolName, args) {
  */
 export async function executeTool(toolName, rawArgs, context = {}) {
   let args = rawArgs;
-  if (typeof rawArgs === 'string') {
-    try {
-      args = JSON.parse(rawArgs);
-    } catch {
-      args = {};
+  const timestamp = new Date().toISOString();
+  if (args === undefined || args === null) {
+    args = {};
+  } else if (typeof rawArgs === 'string') {
+    if (rawArgs.trim() === '') {
+      args = {}; // no-argument call
+    } else {
+      try {
+        args = JSON.parse(rawArgs);
+      } catch (parseErr) {
+        const message = `Invalid arguments for tool "${toolName}": the arguments were not valid JSON (${parseErr.message}). Send a single valid JSON object.`;
+        pushToolAuditLog({ timestamp, toolName, args: rawArgs, success: false, error: message });
+        throw new Error(message);
+      }
     }
   }
 
   validateToolCall(toolName, args);
 
-  const timestamp = new Date().toISOString();
+  // Schema validation (required/type/enum/...) happens BEFORE any staging or
+  // tool logic so malformed model output never reaches stageProposal.
+  const toolSchema =
+    WRITE_TOOLS_REGISTRY.get(toolName)?.function?.parameters ||
+    READ_TOOLS.find((t) => t.function.name === toolName)?.function?.parameters;
+  if (toolSchema) {
+    const check = validateAgainstSchema(toolSchema, args, { shallow: isWriteTool(toolName) });
+    if (!check.valid) {
+      const message = formatSchemaErrors(toolName, check.errors);
+      pushToolAuditLog({ timestamp, toolName, args, success: false, error: message });
+      throw new Error(message);
+    }
+    args = check.args;
+  }
 
   // Phase 1: Write Tool Dispatch (Proposal Staging Only)
   if (isWriteTool(toolName)) {
@@ -2562,82 +2799,28 @@ export async function executeTool(toolName, rawArgs, context = {}) {
 
       case 'get_monster_hp': {
         const nameOrId = (args.name_or_id || '').toLowerCase().trim();
-        const campaignId = context.campaignId;
-        const encounterId = context.encounterId;
+        const hit = lookupCombatantForRead(args.name_or_id, context);
 
-        // 1. Check running_state for live combatant first
-        let liveCombatant = null;
-        let encQuery = 'SELECT id, name, running_state FROM encounters WHERE running_state IS NOT NULL';
-        const encParams = [];
-        if (encounterId) {
-          encQuery += ' AND id = ?';
-          encParams.push(encounterId);
-        } else if (campaignId) {
-          encQuery += ' AND campaign_id = ?';
-          encParams.push(campaignId);
-        }
-
-        const activeEncs = db.prepare(encQuery).all(...encParams);
-        for (const enc of activeEncs) {
-          if (enc.running_state) {
-            try {
-              const rs = JSON.parse(enc.running_state);
-              const found = rs.combatants?.find(
-                (cb) =>
-                  cb.instanceId === nameOrId ||
-                  (cb.name && cb.name.toLowerCase() === nameOrId) ||
-                  (cb.name && (cb.name.toLowerCase().includes(nameOrId) || nameOrId.includes(cb.name.toLowerCase())))
-              );
-              if (found) {
-                liveCombatant = {
-                  encounterName: enc.name,
-                  instanceId: found.instanceId,
-                  name: found.name,
-                  currentHp: found.currentHp,
-                  maxHp: found.maxHp,
-                  isLiveCombatant: true,
-                  conditions: found.conditions || [],
-                  status: found.currentHp <= 0 ? 'Dead / Defeated' : 'Alive',
-                };
-                break;
-              }
-            } catch {}
-          }
-        }
-
-        if (liveCombatant) {
-          result = liveCombatant;
-          break;
-        }
-
-        // 2. Check encounter_units table
-        let unitQuery = 'SELECT instanceId, name, currentHp, maxHp, isPlayer FROM encounter_units WHERE (LOWER(name) LIKE ? OR instanceId = ?)';
-        const unitParams = [`%${nameOrId}%`, nameOrId];
-        if (encounterId) {
-          unitQuery += ' AND encounter_id = ?';
-          unitParams.push(encounterId);
-        } else if (campaignId) {
-          unitQuery += ' AND campaign_id = ?';
-          unitParams.push(campaignId);
-        }
-        const unit = db.prepare(unitQuery).get(...unitParams);
-        if (unit) {
+        if (hit) {
+          const c = hit.combatant;
           result = {
-            instanceId: unit.instanceId,
-            name: unit.name,
-            currentHp: unit.currentHp,
-            maxHp: unit.maxHp,
+            ...(hit.encounterName ? { encounterName: hit.encounterName } : {}),
+            instanceId: c.instanceId,
+            name: c.name,
+            currentHp: c.currentHp,
+            maxHp: c.maxHp,
             isLiveCombatant: true,
-            status: unit.currentHp <= 0 ? (unit.isPlayer ? 'Unconscious / Dying' : 'Dead / Defeated') : 'Alive',
+            ...(hit.source === 'running_state' ? { conditions: c.conditions || [] } : {}),
+            status: c.currentHp <= 0 ? (hit.source === 'encounter_units' && c.isPlayer ? 'Unconscious / Dying' : 'Dead / Defeated') : 'Alive',
           };
           break;
         }
 
-        // 3. Fallback to monster manual
+        // Fallback to monster manual (exact name first, then partial)
         const monsters = getMonsters();
         const foundMonster =
-          monsters.find((m) => m.name.toLowerCase() === nameOrId) ||
-          monsters.find((m) => m.name.toLowerCase().includes(nameOrId) || nameOrId.includes(m.name.toLowerCase()));
+          monsters.find((m) => m.name && m.name.toLowerCase() === nameOrId) ||
+          monsters.find((m) => m.name && m.name.toLowerCase().includes(nameOrId));
 
         if (foundMonster) {
           result = {
@@ -2656,75 +2839,18 @@ export async function executeTool(toolName, rawArgs, context = {}) {
       }
 
       case 'get_character_hp': {
-        const nameOrId = (args.name_or_id || '').toLowerCase().trim();
-        const campaignId = context.campaignId;
-        const encounterId = context.encounterId;
-
-        // 1. Check active encounter running_state first
-        let liveCombatant = null;
-        let encQuery = 'SELECT id, name, running_state FROM encounters WHERE running_state IS NOT NULL';
-        const encParams = [];
-        if (encounterId) {
-          encQuery += ' AND id = ?';
-          encParams.push(encounterId);
-        } else if (campaignId) {
-          encQuery += ' AND campaign_id = ?';
-          encParams.push(campaignId);
-        }
-
-        const activeEncs = db.prepare(encQuery).all(...encParams);
-        for (const enc of activeEncs) {
-          if (enc.running_state) {
-            try {
-              const rs = JSON.parse(enc.running_state);
-              const found = rs.combatants?.find(
-                (cb) =>
-                  cb.instanceId === nameOrId ||
-                  (cb.name && cb.name.toLowerCase() === nameOrId) ||
-                  (cb.name && (cb.name.toLowerCase().includes(nameOrId) || nameOrId.includes(cb.name.toLowerCase())))
-              );
-              if (found) {
-                liveCombatant = {
-                  encounterName: enc.name,
-                  instanceId: found.instanceId,
-                  name: found.name,
-                  currentHp: found.currentHp,
-                  maxHp: found.maxHp,
-                  isPlayer: !!found.isPlayer,
-                  conditions: found.conditions || [],
-                  status: found.currentHp <= 0 ? (found.isPlayer ? 'Unconscious / Dying' : 'Dead / Defeated') : 'Alive',
-                };
-                break;
-              }
-            } catch {}
-          }
-        }
-
-        if (liveCombatant) {
-          result = liveCombatant;
-          break;
-        }
-
-        // 2. Fallback to encounter_units
-        let query = 'SELECT instanceId, name, currentHp, maxHp, isPlayer FROM encounter_units WHERE (LOWER(name) LIKE ? OR instanceId = ?)';
-        const params = [`%${nameOrId}%`, nameOrId];
-        if (encounterId) {
-          query += ' AND encounter_id = ?';
-          params.push(encounterId);
-        } else if (campaignId) {
-          query += ' AND campaign_id = ?';
-          params.push(campaignId);
-        }
-
-        const unit = db.prepare(query).get(...params);
-        if (unit) {
+        const hit = lookupCombatantForRead(args.name_or_id, context);
+        if (hit) {
+          const c = hit.combatant;
           result = {
-            instanceId: unit.instanceId,
-            name: unit.name,
-            currentHp: unit.currentHp,
-            maxHp: unit.maxHp,
-            isPlayer: !!unit.isPlayer,
-            status: unit.currentHp <= 0 ? (unit.isPlayer ? 'Unconscious / Dying' : 'Dead / Defeated') : 'Alive',
+            ...(hit.encounterName ? { encounterName: hit.encounterName } : {}),
+            instanceId: c.instanceId,
+            name: c.name,
+            currentHp: c.currentHp,
+            maxHp: c.maxHp,
+            isPlayer: !!c.isPlayer,
+            ...(hit.source === 'running_state' ? { conditions: c.conditions || [] } : {}),
+            status: c.currentHp <= 0 ? (c.isPlayer ? 'Unconscious / Dying' : 'Dead / Defeated') : 'Alive',
           };
         } else {
           result = { error: `Character or combatant "${args.name_or_id}" not found in active encounter.` };
@@ -2733,74 +2859,14 @@ export async function executeTool(toolName, rawArgs, context = {}) {
       }
 
       case 'get_entity_position': {
-        const nameOrId = (args.name_or_id || '').toLowerCase().trim();
-        const campaignId = context.campaignId;
-        const encounterId = context.encounterId;
-
-        // 1. Check active encounter running_state first
-        let livePosition = null;
-        let encQuery = 'SELECT id, name, running_state FROM encounters WHERE running_state IS NOT NULL';
-        const encParams = [];
-        if (encounterId) {
-          encQuery += ' AND id = ?';
-          encParams.push(encounterId);
-        } else if (campaignId) {
-          encQuery += ' AND campaign_id = ?';
-          encParams.push(campaignId);
-        }
-
-        const activeEncs = db.prepare(encQuery).all(...encParams);
-        for (const enc of activeEncs) {
-          if (enc.running_state) {
-            try {
-              const rs = JSON.parse(enc.running_state);
-              const found = rs.combatants?.find(
-                (cb) =>
-                  cb.instanceId === nameOrId ||
-                  (cb.name && cb.name.toLowerCase() === nameOrId) ||
-                  (cb.name && (cb.name.toLowerCase().includes(nameOrId) || nameOrId.includes(cb.name.toLowerCase())))
-              );
-              if (found && found.position) {
-                livePosition = {
-                  encounterName: enc.name,
-                  instanceId: found.instanceId,
-                  name: found.name,
-                  position: {
-                    x: found.position.x,
-                    y: found.position.y,
-                  },
-                };
-                break;
-              }
-            } catch {}
-          }
-        }
-
-        if (livePosition) {
-          result = livePosition;
-          break;
-        }
-
-        // 2. Fallback to encounter_units
-        let query = 'SELECT instanceId, name, position_x, position_y FROM encounter_units WHERE (LOWER(name) LIKE ? OR instanceId = ?)';
-        const params = [`%${nameOrId}%`, nameOrId];
-        if (encounterId) {
-          query += ' AND encounter_id = ?';
-          params.push(encounterId);
-        } else if (campaignId) {
-          query += ' AND campaign_id = ?';
-          params.push(campaignId);
-        }
-
-        const unit = db.prepare(query).get(...params);
-        if (unit && unit.position_x !== null && unit.position_y !== null) {
+        const hit = lookupCombatantForRead(args.name_or_id, context, (c) => !!c.position);
+        if (hit) {
+          const c = hit.combatant;
           result = {
-            instanceId: unit.instanceId,
-            name: unit.name,
-            position: {
-              x: unit.position_x,
-              y: unit.position_y,
-            },
+            ...(hit.encounterName ? { encounterName: hit.encounterName } : {}),
+            instanceId: c.instanceId,
+            name: c.name,
+            position: { x: c.position.x, y: c.position.y },
           };
         } else {
           result = { error: `Entity "${args.name_or_id}" position not found.` };
@@ -2814,7 +2880,9 @@ export async function executeTool(toolName, rawArgs, context = {}) {
 
         // 1. Check running_state first
         let runningEncounter = null;
-        if (encounterId) {
+        if (encounterId && campaignId) {
+          runningEncounter = db.prepare('SELECT id, name, running_state FROM encounters WHERE id = ? AND campaign_id = ?').get(encounterId, campaignId);
+        } else if (encounterId) {
           runningEncounter = db.prepare('SELECT id, name, running_state FROM encounters WHERE id = ?').get(encounterId);
         } else if (campaignId) {
           runningEncounter = db.prepare('SELECT id, name, running_state FROM encounters WHERE campaign_id = ? AND running_state IS NOT NULL ORDER BY id LIMIT 1').get(campaignId);
@@ -2826,8 +2894,11 @@ export async function executeTool(toolName, rawArgs, context = {}) {
           try {
             const rs = JSON.parse(runningEncounter.running_state);
             const combatants = (rs.combatants || []).slice().sort((a, b) => (b.initiative || 0) - (a.initiative || 0));
+            // turnIndex points into the phase-filtered list the client shows
+            // (activePhases, default [1]), not the full roster.
             const currentTurn = rs.turnIndex ?? 0;
-            const currentTurnCombatant = combatants[currentTurn]?.name || null;
+            const currentTurnUnit = getVisibleCombatants(rs)[currentTurn] || null;
+            const currentTurnCombatant = currentTurnUnit?.name || null;
 
             result = {
               encounterName: runningEncounter.name,
@@ -2844,7 +2915,8 @@ export async function executeTool(toolName, rawArgs, context = {}) {
                 currentHp: c.currentHp,
                 maxHp: c.maxHp,
                 isPlayer: !!c.isPlayer,
-                isCurrentTurn: idx === currentTurn,
+                phase: c.phase || 1,
+                isCurrentTurn: !!currentTurnUnit && c.instanceId === currentTurnUnit.instanceId,
                 conditions: c.conditions || [],
                 position: c.position || null,
               })),
@@ -2856,13 +2928,16 @@ export async function executeTool(toolName, rawArgs, context = {}) {
         // 2. Fallback to encounter_units
         let query = 'SELECT instanceId, name, initiative, currentHp, maxHp, isPlayer, position_x, position_y FROM encounter_units';
         const params = [];
+        const conds = [];
         if (encounterId) {
-          query += ' WHERE encounter_id = ?';
+          conds.push('encounter_id = ?');
           params.push(encounterId);
-        } else if (campaignId) {
-          query += ' WHERE campaign_id = ?';
+        }
+        if (campaignId) {
+          conds.push('campaign_id = ?');
           params.push(campaignId);
         }
+        if (conds.length > 0) query += ` WHERE ${conds.join(' AND ')}`;
         query += ' ORDER BY initiative DESC';
 
         const units = db.prepare(query).all(...params);
@@ -3411,11 +3486,10 @@ export async function executeTool(toolName, rawArgs, context = {}) {
         // 1. Locate the active or target encounter
         let encounter = null;
         if (encounterId) {
-          encounter = db
-            .prepare(
-              'SELECT id, campaign_id, name, running_state, dm_map_url, player_map_url, map_size, grid_config FROM encounters WHERE id = ?'
-            )
-            .get(encounterId);
+          const cols = 'id, campaign_id, name, running_state, dm_map_url, player_map_url, map_size, grid_config';
+          encounter = campaignId
+            ? db.prepare(`SELECT ${cols} FROM encounters WHERE id = ? AND campaign_id = ?`).get(encounterId, campaignId)
+            : db.prepare(`SELECT ${cols} FROM encounters WHERE id = ?`).get(encounterId);
         }
 
         if (!encounter && campaignId) {
@@ -3509,9 +3583,9 @@ export async function executeTool(toolName, rawArgs, context = {}) {
         if (allCombatants.length === 0) {
           const units = db
             .prepare(
-              'SELECT instanceId, name, currentHp, maxHp, initiative, isPlayer, position_x, position_y FROM encounter_units WHERE encounter_id = ?'
+              'SELECT instanceId, name, currentHp, maxHp, initiative, isPlayer, position_x, position_y FROM encounter_units WHERE encounter_id = ? AND campaign_id = ?'
             )
-            .all(encounter.id);
+            .all(encounter.id, encounter.campaign_id);
           allCombatants = units.map((u) => ({
             instanceId: u.instanceId,
             name: u.name || 'Unknown',
@@ -3584,7 +3658,7 @@ export async function executeTool(toolName, rawArgs, context = {}) {
       toolName,
       args,
       success: true,
-      resultSummary: JSON.stringify(result).slice(0, 200),
+      resultSummary: summarizeResultForAudit(result),
     };
     pushToolAuditLog(logEntry);
     console.log(`[ToolController Audit] ${toolName}:`, JSON.stringify(args), '=>', logEntry.resultSummary);

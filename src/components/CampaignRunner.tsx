@@ -7,6 +7,7 @@ import { MonsterDetails } from './MonsterDetails';
 import { SpellDetail } from './SpellBrowser';
 import { MagicItemDetail } from './MagicItemBrowser';
 import { dataService } from '../services/DataService';
+import { isInteractiveTarget } from './uiHelpers';
 
 export function CampaignRunner() {
   const { activeCampaign, activeChapterId, setActiveChapterId } = useCampaigns();
@@ -47,12 +48,7 @@ export function CampaignRunner() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Prevent default behavior for Enter and Space on non-interactive elements
-      const target = e.target as HTMLElement;
-      const isInteractive = ['BUTTON', 'INPUT', 'TEXTAREA', 'SELECT', 'A'].includes(target.tagName) || 
-                          target.hasAttribute('onclick') || 
-                          target.getAttribute('role') === 'button';
-      
-      if ((e.key === 'Enter' || e.key === ' ') && !isInteractive) {
+      if ((e.key === 'Enter' || e.key === ' ') && !isInteractiveTarget(e.target)) {
         e.preventDefault();
       }
 

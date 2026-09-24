@@ -4,7 +4,7 @@ import morgan from 'morgan';
 import { db, initDb } from './db.js';
 import { getConfig, setConfig } from './assistant/config.js';
 import { handleAssistantChat } from './assistant/orchestrator.js';
-import { searchVectorStore, indexSrdAndJsonData, indexCampaignLore, invalidateVectorCache } from './assistant/vectorStore.js';
+import { searchVectorStore, indexSrdAndJsonData, indexCampaignLore, invalidateVectorCache, removeCampaignFromVectorCache } from './assistant/vectorStore.js';
 import { getToolAuditLog, executeTool } from './assistant/toolController.js';
 import {
   recordTelemetryAsync,
@@ -34,9 +34,15 @@ function getFullWorld(id) {
   if (!world) return null;
 
   const assets = db.prepare('SELECT id, type, name, description, tags FROM world_assets WHERE world_id = ?').all(id);
+  const connsBySource = new Map();
+  for (const c of db.prepare('SELECT id, source_id, target_id as targetId, relationship FROM world_asset_connections WHERE world_id = ?').all(id)) {
+    const { source_id, ...conn } = c;
+    if (!connsBySource.has(source_id)) connsBySource.set(source_id, []);
+    connsBySource.get(source_id).push(conn);
+  }
   for (const asset of assets) {
     asset.tags = asset.tags ? JSON.parse(asset.tags) : [];
-    asset.connections = db.prepare('SELECT id, target_id as targetId, relationship FROM world_asset_connections WHERE source_id = ? AND world_id = ?').all(asset.id, id);
+    asset.connections = connsBySource.get(asset.id) || [];
   }
   world.assets = assets;
   return world;
@@ -50,20 +56,31 @@ function getFullCampaign(id) {
   campaign.chapters = db.prepare('SELECT id, title, content, order_index as "order" FROM chapters WHERE campaign_id = ? ORDER BY order_index').all(id);
   
   const assets = db.prepare('SELECT id, type, name, description, world_asset_id as worldAssetId FROM assets WHERE campaign_id = ?').all(id);
+  const groupBy = (rows, key, val) => {
+    const m = new Map();
+    for (const r of rows) {
+      if (!m.has(r[key])) m.set(r[key], []);
+      m.get(r[key]).push(val ? val(r) : r);
+    }
+    return m;
+  };
+  const assetChapters = groupBy(db.prepare('SELECT asset_id, chapter_id FROM asset_chapters WHERE campaign_id = ?').all(id), 'asset_id', r => r.chapter_id);
   for (const asset of assets) {
-    asset.chapterIds = db.prepare('SELECT chapter_id FROM asset_chapters WHERE asset_id = ? AND campaign_id = ?').all(asset.id, id).map(r => r.chapter_id);
+    asset.chapterIds = assetChapters.get(asset.id) || [];
   }
   campaign.assets = assets;
 
   campaign.players = db.prepare('SELECT id, name, description FROM players WHERE campaign_id = ?').all(id);
   
   const encounters = db.prepare('SELECT id, name, running_state as runningState, dm_map_url as dmMapUrl, player_map_url as playerMapUrl, map_size as mapSize, grid_config as gridConfig FROM encounters WHERE campaign_id = ?').all(id);
+  const encChapters = groupBy(db.prepare('SELECT encounter_id, chapter_id FROM encounter_chapters WHERE campaign_id = ?').all(id), 'encounter_id', r => r.chapter_id);
+  const encUnits = groupBy(db.prepare('SELECT * FROM encounter_units WHERE campaign_id = ?').all(id), 'encounter_id');
   for (const enc of encounters) {
     enc.runningState = enc.runningState ? JSON.parse(enc.runningState) : null;
     enc.mapSize = enc.mapSize ? JSON.parse(enc.mapSize) : null;
     enc.gridConfig = enc.gridConfig ? JSON.parse(enc.gridConfig) : null;
-    enc.chapterIds = db.prepare('SELECT chapter_id FROM encounter_chapters WHERE encounter_id = ? AND campaign_id = ?').all(enc.id, id).map(r => r.chapter_id);
-    enc.units = db.prepare('SELECT * FROM encounter_units WHERE encounter_id = ? AND campaign_id = ?').all(enc.id, id);
+    enc.chapterIds = encChapters.get(enc.id) || [];
+    enc.units = encUnits.get(enc.id) || [];
     // Convert isPlayer back to boolean and restore position
     enc.units.forEach(u => {
       u.isPlayer = !!u.isPlayer;
@@ -78,6 +95,93 @@ function getFullCampaign(id) {
   campaign.encounters = encounters;
 
   return campaign;
+}
+
+function parseLimit(value, defaultValue, max = 500) {
+  const n = parseInt(value, 10);
+  if (!Number.isFinite(n) || n < 1) return defaultValue;
+  return Math.min(n, max);
+}
+
+// Inserts all child rows (chapters, assets, players, encounters, units) for a campaign.
+// Must be called inside a transaction.
+function insertCampaignChildren(campaignId, data) {
+  if (data.chapters) {
+    const insertChapter = db.prepare('INSERT INTO chapters (id, campaign_id, title, content, order_index) VALUES (?, ?, ?, ?, ?)');
+    data.chapters.forEach(ch => insertChapter.run(ch.id, campaignId, ch.title, ch.content, ch.order));
+  }
+  
+  if (data.assets) {
+    const insertAsset = db.prepare('INSERT INTO assets (id, campaign_id, type, name, description, world_asset_id) VALUES (?, ?, ?, ?, ?, ?)');
+    const insertAssetChapter = db.prepare('INSERT INTO asset_chapters (asset_id, chapter_id, campaign_id) VALUES (?, ?, ?)');
+    data.assets.forEach(as => {
+      insertAsset.run(as.id, campaignId, as.type, as.name, as.description, as.worldAssetId || null);
+      if (as.chapterIds) {
+        as.chapterIds.forEach(chapId => insertAssetChapter.run(as.id, chapId, campaignId));
+      }
+    });
+  }
+  
+  if (data.players) {
+    const insertPlayer = db.prepare('INSERT INTO players (id, campaign_id, name, description) VALUES (?, ?, ?, ?)');
+    data.players.forEach(pl => insertPlayer.run(pl.id, campaignId, pl.name, pl.description));
+  }
+  
+  if (data.encounters) {
+    const insertEncounter = db.prepare('INSERT INTO encounters (id, campaign_id, name, running_state, dm_map_url, player_map_url, map_size, grid_config) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    const insertEncounterChapter = db.prepare('INSERT INTO encounter_chapters (encounter_id, chapter_id, campaign_id) VALUES (?, ?, ?)');
+    const insertUnit = db.prepare(`
+      INSERT INTO encounter_units (instanceId, encounter_id, campaign_id, monsterId, playerId, name, maxHp, currentHp, hpDice, dexMod, initiative, passivePerception, isPlayer, position_x, position_y, phase, tempHp, faction)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    data.encounters.forEach(enc => {
+      insertEncounter.run(
+        enc.id,
+        campaignId,
+        enc.name,
+        enc.runningState ? JSON.stringify(enc.runningState) : null,
+        enc.dmMapUrl || null,
+        enc.playerMapUrl || null,
+        enc.mapSize ? JSON.stringify(enc.mapSize) : null,
+        enc.gridConfig ? JSON.stringify(enc.gridConfig) : null
+      );
+      if (enc.chapterIds) {
+        enc.chapterIds.forEach(chapId => insertEncounterChapter.run(enc.id, chapId, campaignId));
+      }
+      if (enc.units) {
+        enc.units.forEach(u => insertUnit.run(
+          u.instanceId,
+          enc.id,
+          campaignId,
+          u.monsterId ?? null,
+          u.playerId ?? null,
+          u.name ?? 'Unknown',
+          u.maxHp ?? null,
+          u.currentHp ?? null,
+          u.hpDice ?? null,
+          u.dexMod ?? 0,
+          u.initiative ?? null,
+          u.passivePerception ?? null,
+          u.isPlayer ? 1 : 0,
+          u.position?.x ?? null,
+          u.position?.y ?? null,
+          u.phase ?? 1,
+          u.tempHp ?? 0,
+          u.faction ?? 'enemy'
+        ));
+      }
+    });
+  }
+}
+
+// Lore indexing runs after the DB write has committed; a failure here must not fail the save.
+async function safeIndexCampaignLore(campaignId) {
+  try {
+    await indexCampaignLore(campaignId);
+  } catch (err) {
+    console.warn('[Campaigns] Lore indexing failed for', campaignId, err.message);
+  }
 }
 
 // GET /api/worlds
@@ -144,7 +248,12 @@ app.put('/api/worlds/:id', (req, res) => {
   const worldId = req.params.id;
 
   const updateWorld = db.transaction((data) => {
-    db.prepare('UPDATE worlds SET name = ?, description = ? WHERE id = ?').run(data.name, data.description, worldId);
+    const upd = db.prepare('UPDATE worlds SET name = ?, description = ? WHERE id = ?').run(data.name, data.description, worldId);
+    if (upd.changes === 0) {
+      const e = new Error('World not found');
+      e.code = 'NOT_FOUND';
+      throw e;
+    }
     
     db.prepare('DELETE FROM world_assets WHERE world_id = ?').run(worldId);
     db.prepare('DELETE FROM world_asset_connections WHERE world_id = ?').run(worldId);
@@ -172,6 +281,7 @@ app.put('/api/worlds/:id', (req, res) => {
     const result = getFullWorld(worldId);
     res.json(result);
   } catch (err) {
+    if (err.code === 'NOT_FOUND') return res.status(404).json({ error: 'World not found' });
     res.status(500).json({ error: 'Failed to update world', details: err.message });
   }
 });
@@ -215,7 +325,7 @@ app.get('/api/campaigns/:id', (req, res) => {
 });
 
 // POST /api/campaigns
-app.post('/api/campaigns', (req, res) => {
+app.post('/api/campaigns', async (req, res) => {
   const { id } = req.body;
   
   const insertCampaign = db.transaction((data) => {
@@ -224,78 +334,12 @@ app.post('/api/campaigns', (req, res) => {
     
     db.prepare('INSERT INTO campaigns (id, name, description, world_id) VALUES (?, ?, ?, ?)').run(data.id, data.name, data.description, data.worldId || null);
     
-    if (data.chapters) {
-      const insertChapter = db.prepare('INSERT INTO chapters (id, campaign_id, title, content, order_index) VALUES (?, ?, ?, ?, ?)');
-      data.chapters.forEach(ch => insertChapter.run(ch.id, data.id, ch.title, ch.content, ch.order));
-    }
-    
-    if (data.assets) {
-      const insertAsset = db.prepare('INSERT INTO assets (id, campaign_id, type, name, description, world_asset_id) VALUES (?, ?, ?, ?, ?, ?)');
-      const insertAssetChapter = db.prepare('INSERT INTO asset_chapters (asset_id, chapter_id, campaign_id) VALUES (?, ?, ?)');
-      data.assets.forEach(as => {
-        insertAsset.run(as.id, data.id, as.type, as.name, as.description, as.worldAssetId || null);
-        if (as.chapterIds) {
-          as.chapterIds.forEach(chapId => insertAssetChapter.run(as.id, chapId, data.id));
-        }
-      });
-    }
-    
-    if (data.players) {
-      const insertPlayer = db.prepare('INSERT INTO players (id, campaign_id, name, description) VALUES (?, ?, ?, ?)');
-      data.players.forEach(pl => insertPlayer.run(pl.id, data.id, pl.name, pl.description));
-    }
-    
-    if (data.encounters) {
-      const insertEncounter = db.prepare('INSERT INTO encounters (id, campaign_id, name, running_state, dm_map_url, player_map_url, map_size, grid_config) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-      const insertEncounterChapter = db.prepare('INSERT INTO encounter_chapters (encounter_id, chapter_id, campaign_id) VALUES (?, ?, ?)');
-      const insertUnit = db.prepare(`
-        INSERT INTO encounter_units (instanceId, encounter_id, campaign_id, monsterId, playerId, name, maxHp, currentHp, hpDice, dexMod, initiative, passivePerception, isPlayer, position_x, position_y, phase, tempHp, faction)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-
-      data.encounters.forEach(enc => {
-        insertEncounter.run(
-          enc.id,
-          data.id,
-          enc.name,
-          enc.runningState ? JSON.stringify(enc.runningState) : null,
-          enc.dmMapUrl || null,
-          enc.playerMapUrl || null,
-          enc.mapSize ? JSON.stringify(enc.mapSize) : null,
-          enc.gridConfig ? JSON.stringify(enc.gridConfig) : null
-        );
-        if (enc.chapterIds) {
-          enc.chapterIds.forEach(chapId => insertEncounterChapter.run(enc.id, chapId, data.id));
-        }
-        if (enc.units) {
-          enc.units.forEach(u => insertUnit.run(
-            u.instanceId,
-            enc.id,
-            data.id,
-            u.monsterId ?? null,
-            u.playerId ?? null,
-            u.name ?? 'Unknown',
-            u.maxHp ?? null,
-            u.currentHp ?? null,
-            u.hpDice ?? null,
-            u.dexMod ?? null,
-            u.initiative ?? null,
-            u.passivePerception ?? null,
-            u.isPlayer ? 1 : 0,
-            u.position?.x ?? null,
-            u.position?.y ?? null,
-            u.phase ?? 1,
-            u.tempHp ?? 0,
-            u.faction ?? 'enemy'
-          ));
-        }
-      });
-    }
+    insertCampaignChildren(data.id, data);
   });
 
   try {
     insertCampaign(req.body);
-    indexCampaignLore(id);
+    await safeIndexCampaignLore(id);
     const result = getFullCampaign(id);
     res.status(201).json(result);
   } catch (err) {
@@ -304,11 +348,16 @@ app.post('/api/campaigns', (req, res) => {
 });
 
 // PUT /api/campaigns/:id
-app.put('/api/campaigns/:id', (req, res) => {
+app.put('/api/campaigns/:id', async (req, res) => {
   const campaignId = req.params.id;
 
   const updateCampaign = db.transaction((data) => {
-    db.prepare('UPDATE campaigns SET name = ?, description = ?, world_id = ? WHERE id = ?').run(data.name, data.description, data.worldId || null, campaignId);
+    const upd = db.prepare('UPDATE campaigns SET name = ?, description = ?, world_id = ? WHERE id = ?').run(data.name, data.description, data.worldId || null, campaignId);
+    if (upd.changes === 0) {
+      const e = new Error('Campaign not found');
+      e.code = 'NOT_FOUND';
+      throw e;
+    }
     
     db.prepare('DELETE FROM chapters WHERE campaign_id = ?').run(campaignId);
     db.prepare('DELETE FROM assets WHERE campaign_id = ?').run(campaignId);
@@ -320,81 +369,16 @@ app.put('/api/campaigns/:id', (req, res) => {
     }
     db.prepare('DELETE FROM encounters WHERE campaign_id = ?').run(campaignId);
 
-    if (data.chapters) {
-      const insertChapter = db.prepare('INSERT INTO chapters (id, campaign_id, title, content, order_index) VALUES (?, ?, ?, ?, ?)');
-      data.chapters.forEach(ch => insertChapter.run(ch.id, campaignId, ch.title, ch.content, ch.order));
-    }
-    
-    if (data.assets) {
-      const insertAsset = db.prepare('INSERT INTO assets (id, campaign_id, type, name, description, world_asset_id) VALUES (?, ?, ?, ?, ?, ?)');
-      const insertAssetChapter = db.prepare('INSERT INTO asset_chapters (asset_id, chapter_id, campaign_id) VALUES (?, ?, ?)');
-      data.assets.forEach(as => {
-        insertAsset.run(as.id, campaignId, as.type, as.name, as.description, as.worldAssetId || null);
-        if (as.chapterIds) {
-          as.chapterIds.forEach(chapId => insertAssetChapter.run(as.id, chapId, campaignId));
-        }
-      });
-    }
-    
-    if (data.players) {
-      const insertPlayer = db.prepare('INSERT INTO players (id, campaign_id, name, description) VALUES (?, ?, ?, ?)');
-      data.players.forEach(pl => insertPlayer.run(pl.id, campaignId, pl.name, pl.description));
-    }
-    
-    if (data.encounters) {
-      const insertEncounter = db.prepare('INSERT INTO encounters (id, campaign_id, name, running_state, dm_map_url, player_map_url, map_size, grid_config) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-      const insertEncounterChapter = db.prepare('INSERT INTO encounter_chapters (encounter_id, chapter_id, campaign_id) VALUES (?, ?, ?)');
-      const insertUnit = db.prepare(`
-        INSERT INTO encounter_units (instanceId, encounter_id, campaign_id, monsterId, playerId, name, maxHp, currentHp, hpDice, dexMod, initiative, passivePerception, isPlayer, position_x, position_y, phase, tempHp, faction)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-
-      data.encounters.forEach(enc => {
-        insertEncounter.run(
-          enc.id,
-          campaignId,
-          enc.name,
-          enc.runningState ? JSON.stringify(enc.runningState) : null,
-          enc.dmMapUrl || null,
-          enc.playerMapUrl || null,
-          enc.mapSize ? JSON.stringify(enc.mapSize) : null,
-          enc.gridConfig ? JSON.stringify(enc.gridConfig) : null
-        );
-        if (enc.chapterIds) {
-          enc.chapterIds.forEach(chapId => insertEncounterChapter.run(enc.id, chapId, campaignId));
-        }
-        if (enc.units) {
-          enc.units.forEach(u => insertUnit.run(
-            u.instanceId,
-            enc.id,
-            campaignId,
-            u.monsterId ?? null,
-            u.playerId ?? null,
-            u.name ?? 'Unknown',
-            u.maxHp ?? null,
-            u.currentHp ?? null,
-            u.hpDice ?? null,
-            u.dexMod ?? null,
-            u.initiative ?? null,
-            u.passivePerception ?? null,
-            u.isPlayer ? 1 : 0,
-            u.position?.x ?? null,
-            u.position?.y ?? null,
-            u.phase ?? 1,
-            u.tempHp ?? 0,
-            u.faction ?? 'enemy'
-          ));
-        }
-      });
-    }
+    insertCampaignChildren(campaignId, data);
   });
 
   try {
     updateCampaign(req.body);
-    indexCampaignLore(campaignId);
+    await safeIndexCampaignLore(campaignId);
     const result = getFullCampaign(campaignId);
     res.json(result);
   } catch (err) {
+    if (err.code === 'NOT_FOUND') return res.status(404).json({ error: 'Campaign not found' });
     res.status(500).json({ error: 'Failed to update campaign', details: err.message });
   }
 });
@@ -404,6 +388,9 @@ app.delete('/api/campaigns/:id', (req, res) => {
   try {
     const result = db.prepare('DELETE FROM campaigns WHERE id = ?').run(req.params.id);
     if (result.changes > 0) {
+      // vector_chunks has no FK to campaigns, so clear this campaign's lore chunks (and cache entries) explicitly
+      db.prepare('DELETE FROM vector_chunks WHERE campaign_id = ?').run(req.params.id);
+      removeCampaignFromVectorCache(req.params.id);
       res.status(204).send();
     } else {
       res.status(404).json({ error: 'Campaign not found' });
@@ -500,6 +487,9 @@ app.post('/api/assistant/confirm', async (req, res) => {
     if (err.code === 'STALE_STATE') {
       return res.status(409).json({ error: err.message, status: err.status });
     }
+    if (err.code === 'NO_HANDLER') {
+      return res.status(501).json({ error: err.message });
+    }
     if (err.code === 'INVALID_ACTION') {
       return res.status(400).json({ error: err.message });
     }
@@ -533,7 +523,7 @@ app.get('/api/assistant/proposals/pending', (req, res) => {
 app.get('/api/assistant/metrics', (req, res) => {
   try {
     const model = req.query.model || null;
-    const limit = parseInt(req.query.limit || '50', 10);
+    const limit = parseLimit(req.query.limit, 50);
     const metrics = getLlmMetrics({ model, limit });
     res.json(metrics);
   } catch (err) {
@@ -591,7 +581,7 @@ app.get('/api/assistant/search', async (req, res) => {
   try {
     const query = req.query.q;
     const campaignId = req.query.campaignId || null;
-    const limit = parseInt(req.query.limit || '3', 10);
+    const limit = parseLimit(req.query.limit, 3);
     if (!query) {
       return res.status(400).json({ error: 'Missing query parameter "q"' });
     }

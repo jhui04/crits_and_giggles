@@ -1,14 +1,73 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { ReactNode } from 'react';
 import type { World } from '../types';
 import { WorldContext } from './WorldContext';
 import { WorldApiService } from '../services/WorldApiService';
+
+function safeSetItem(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch (err) {
+    console.warn(`WorldProvider: could not write ${key} to localStorage:`, err);
+  }
+}
+
+function safeRemoveItem(key: string): void {
+  try {
+    localStorage.removeItem(key);
+  } catch (err) {
+    console.warn(`WorldProvider: could not remove ${key} from localStorage:`, err);
+  }
+}
+
+function safeGetItem(key: string): string | null {
+  try {
+    return typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Shared across StrictMode's double-invoked mount effect so the default world is only seeded once.
+let seedPromise: Promise<World | null> | null = null;
+
+function seedDefaultWorld(): Promise<World | null> {
+  if (seedPromise) return seedPromise;
+  const p = (async (): Promise<World | null> => {
+    try {
+      const res = await fetch('/data/scraped_world.json');
+      if (!res.ok) {
+        console.warn(`WorldProvider: Failed to fetch scraped_world.json: ${res.status}`);
+        return null;
+      }
+      const data = await res.json();
+      const created = await WorldApiService.create(data);
+      console.log('WorldProvider: Successfully seeded default world:', created.name);
+      return created;
+    } catch (err) {
+      console.error('WorldProvider: Failed to seed default world:', err);
+      return null;
+    }
+  })();
+  seedPromise = p;
+  // Allow a retry on the next mount if seeding did not produce a world.
+  p.then(w => { if (!w && seedPromise === p) seedPromise = null; });
+  return p;
+}
 
 export function WorldProvider({ children }: { children: ReactNode }) {
   const [worlds, setWorlds] = useState<World[]>([]);
   const [activeWorldId, setActiveWorldId] = useState<string | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Per-world save serialization + write versioning (ordered PUTs; stale GETs are dropped).
+  const saveChains = useRef(new Map<string, Promise<unknown>>());
+  const writeVersions = useRef(new Map<string, number>());
+  const bumpVersion = useCallback((id: string) => {
+    writeVersions.current.set(id, (writeVersions.current.get(id) ?? 0) + 1);
+  }, []);
+  const getVersion = useCallback((id: string) => writeVersions.current.get(id) ?? 0, []);
 
   // Load on mount
   useEffect(() => {
@@ -20,25 +79,14 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 
         if (fetchedWorlds.length === 0) {
           console.log('WorldProvider: DB empty, seeding default world...');
-          try {
-            const res = await fetch('/data/scraped_world.json');
-            if (res.ok) {
-              const data = await res.json();
-              const created = await WorldApiService.create(data);
-              fetchedWorlds = [created];
-              console.log('WorldProvider: Successfully seeded default world:', created.name);
-            } else {
-              console.warn(`WorldProvider: Failed to fetch scraped_world.json: ${res.status}`);
-            }
-          } catch (err) {
-            console.error('WorldProvider: Failed to seed default world:', err);
-          }
+          const created = await seedDefaultWorld();
+          if (created) fetchedWorlds = [created];
         }
 
         if (mounted) {
           setWorlds(fetchedWorlds);
           
-          const savedActive = localStorage.getItem('crits_active_world');
+          const savedActive = safeGetItem('crits_active_world');
           if (savedActive && fetchedWorlds.some(w => w.id === savedActive)) {
             setActiveWorldId(savedActive);
           } else if (fetchedWorlds.length > 0) {
@@ -50,13 +98,16 @@ export function WorldProvider({ children }: { children: ReactNode }) {
         if (mounted) {
           setError(err instanceof Error ? err.message : 'Failed to load worlds');
         }
-        throw err;
       } finally {
         if (mounted) setIsLoaded(true);
       }
     };
 
-    init();
+    init().catch(err => {
+      // init() handles its own errors; this is a last-resort guard against unhandled rejections.
+      console.error('WorldProvider: unexpected init failure:', err);
+      if (mounted) setError(err instanceof Error ? err.message : 'Failed to load worlds');
+    });
     return () => { mounted = false; };
   }, []);
 
@@ -64,7 +115,12 @@ export function WorldProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'crits_worlds' && e.newValue) {
-        setWorlds(JSON.parse(e.newValue));
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (Array.isArray(parsed)) setWorlds(parsed);
+        } catch (err) {
+          console.warn('WorldProvider: ignoring malformed cross-tab worlds payload:', err);
+        }
       }
       if (e.key === 'crits_active_world' && e.newValue) {
         setActiveWorldId(e.newValue);
@@ -77,7 +133,7 @@ export function WorldProvider({ children }: { children: ReactNode }) {
   // Sync worlds state to localStorage for storage events
   useEffect(() => {
     if (isLoaded) {
-      localStorage.setItem('crits_worlds', JSON.stringify(worlds));
+      safeSetItem('crits_worlds', JSON.stringify(worlds));
     }
   }, [worlds, isLoaded]);
 
@@ -87,8 +143,9 @@ export function WorldProvider({ children }: { children: ReactNode }) {
     const syncActive = async () => {
       if (activeWorldId) {
         try {
+          const versionAtStart = getVersion(activeWorldId);
           const full = await WorldApiService.getById(activeWorldId);
-          if (mounted) {
+          if (mounted && getVersion(activeWorldId) === versionAtStart) {
             setWorlds(prev => prev.map(w => w.id === full.id ? full : w));
           }
         } catch (err) {
@@ -98,14 +155,14 @@ export function WorldProvider({ children }: { children: ReactNode }) {
     };
     syncActive();
     return () => { mounted = false; };
-  }, [activeWorldId]);
+  }, [activeWorldId, getVersion]);
 
   // Save active ID to localStorage (still useful for UI preference)
   useEffect(() => {
     if (activeWorldId) {
-      localStorage.setItem('crits_active_world', activeWorldId);
+      safeSetItem('crits_active_world', activeWorldId);
     } else {
-      localStorage.removeItem('crits_active_world');
+      safeRemoveItem('crits_active_world');
     }
   }, [activeWorldId]);
 
@@ -130,12 +187,19 @@ export function WorldProvider({ children }: { children: ReactNode }) {
   };
 
   const updateWorld = async (updated: World) => {
+    const id = updated.id;
+    bumpVersion(id);
+    const previous = saveChains.current.get(id) ?? Promise.resolve();
+    const run = previous.then(() => WorldApiService.update(updated));
+    saveChains.current.set(id, run.catch(() => undefined));
     try {
-      const result = await WorldApiService.update(updated);
+      const result = await run;
       setWorlds(prev => prev.map(w => w.id === result.id ? result : w));
     } catch (err) {
       console.error('Failed to update world:', err);
       setError('Failed to update world');
+    } finally {
+      bumpVersion(id);
     }
   };
 

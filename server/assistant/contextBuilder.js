@@ -54,7 +54,9 @@ export function getAuthoritativeGameState({
   let chapter = null;
   if (chapterId) {
     try {
-      chapter = db.prepare('SELECT id, campaign_id, title, content FROM chapters WHERE id = ?').get(chapterId);
+      chapter = effectiveCampaignId
+        ? db.prepare('SELECT id, campaign_id, title, content FROM chapters WHERE id = ? AND campaign_id = ?').get(chapterId, effectiveCampaignId)
+        : db.prepare('SELECT id, campaign_id, title, content FROM chapters WHERE id = ?').get(chapterId);
     } catch {}
   }
   if (!chapter && effectiveCampaignId) {
@@ -113,8 +115,8 @@ export function getAuthoritativeGameState({
     } else {
       // Read from encounter_units table
       const units = db.prepare(
-        'SELECT instanceId, name, currentHp, maxHp, initiative, isPlayer, position_x, position_y FROM encounter_units WHERE encounter_id = ?'
-      ).all(encounter.id);
+        'SELECT instanceId, name, currentHp, maxHp, initiative, isPlayer, position_x, position_y FROM encounter_units WHERE encounter_id = ? AND campaign_id = ?'
+      ).all(encounter.id, encounter.campaign_id);
 
       combatants = units.map((u) => ({
         name: u.name,

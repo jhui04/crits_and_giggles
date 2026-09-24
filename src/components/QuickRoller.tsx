@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import type { Monster } from '../types';
 import { getSkillModifier, getSaveModifier, DND_SKILLS, DND_SAVES, formatD20Roll } from '../utils/dnd';
 import { diceLogService } from '../services/DiceLogService';
+import { isInteractiveTarget } from './uiHelpers';
 
 interface QuickRollerProps {
   monster: Monster;
@@ -45,7 +46,7 @@ export function QuickRoller({ monster, onRoll, triggerId }: QuickRollerProps) {
 
     // Prevent default behavior for Enter/Space on non-button focused elements (like the heading)
     // to avoid potential page scroll/teleport issues.
-    if ((e.key === 'Enter' || e.key === ' ') && !(e.target instanceof HTMLButtonElement || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement)) {
+    if ((e.key === 'Enter' || e.key === ' ') && !isInteractiveTarget(e.target)) {
       e.preventDefault();
     }
   };

@@ -10,6 +10,67 @@ import type { Encounter, EncounterUnit, EncounterRunningState, Campaign, Positio
 import { useCampaigns } from '../context/CampaignContext';
 import { dataService } from '../services/DataService';
 import { mapGridService } from '../services/MapGridService';
+import { isInteractiveTarget, useAnnouncer, useFocusTrap } from './uiHelpers';
+
+const DEFAULT_MAP_SIZE: MapSize = { width: 20, height: 20 };
+
+function resolveMapSize(encounter: Encounter): MapSize {
+  if (encounter.mapSize) return encounter.mapSize;
+  const cachedGrid = encounter.dmMapUrl ? mapGridService.getCachedGrid(encounter.dmMapUrl) : null;
+  if (cachedGrid && cachedGrid.columns > 0) {
+    return {
+      width: cachedGrid.columns,
+      height: cachedGrid.rows,
+      cellPitch: cachedGrid.cellPitch,
+      offsetX: cachedGrid.offsetX,
+      offsetY: cachedGrid.offsetY,
+      regions: cachedGrid.regions,
+      walls: cachedGrid.walls
+    };
+  }
+  return DEFAULT_MAP_SIZE;
+}
+
+/** Roll a unit's hit-point dice; returns null (caller falls back to maxHp) on malformed dice. */
+function tryRollHp(u: EncounterUnit, purpose: string) {
+  if (!u.hpDice) return null;
+  try {
+    const hpRes = DiceService.roll(u.hpDice);
+    if (!Number.isFinite(hpRes.total) || hpRes.total < 1) return null;
+    diceLogService.logRoll({
+      source: u.name,
+      purpose,
+      formula: u.hpDice,
+      rolls: hpRes.rolls,
+      modifier: hpRes.modifier,
+      total: hpRes.total
+    });
+    return hpRes.total;
+  } catch (e) {
+    console.warn(`Invalid hpDice "${u.hpDice}" for ${u.name}; falling back to max HP.`, e);
+    return null;
+  }
+}
+
+/** Roll initiative (1d20 + dex) and log it. */
+function rollInitiative(u: EncounterUnit, purpose: string): number {
+  const formula = `1d20${u.dexMod >= 0 ? '+' : ''}${u.dexMod}`;
+  const initRoll = DiceService.roll(formula);
+  diceLogService.logRoll({
+    source: u.name,
+    purpose,
+    formula,
+    rolls: initRoll.rolls,
+    modifier: u.dexMod,
+    total: initRoll.total,
+    critStatus: initRoll.rolls[0] === 20 ? 'crit' : initRoll.rolls[0] === 1 ? 'fumble' : 'normal'
+  });
+  return initRoll.total;
+}
+
+function visibleOf(list: EncounterUnit[], phases: number[]) {
+  return list.filter(u => phases.includes(u.phase || 1));
+}
 
 export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: string | null }) {
   const { campaigns, activeCampaign, setActiveCampaignId, updateCampaign } = useCampaigns();
@@ -18,8 +79,8 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   const [turnIndex, setTurnIndex] = useState(0);
   const [round, setRound] = useState(1);
   const [isCombatStarted, setIsCombatStarted] = useState(false);
-  const [announcement, setAnnouncement] = useState('');
-  const [selectedUnit, setSelectedUnit] = useState<EncounterUnit | null>(null);
+  const [announcement, setAnnouncement] = useAnnouncer();
+  const [selectedUnitBase, setSelectedUnit] = useState<EncounterUnit | null>(null);
   const [activeOperationsUnit, setActiveOperationsUnit] = useState<EncounterUnit | null>(null);
   const [hpMods, setHpMods] = useState<Record<string, string>>({});
   const [activePhases, setActivePhases] = useState<number[]>([1]);
@@ -129,6 +190,8 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   const [activeRoll, setActiveRoll] = useState<{ title: string, hit?: string, damage?: string, unitName?: string } | null>(null);
   const [radarRequestedUnit, setRadarRequestedUnit] = useState<EncounterUnit | null>(null);
   const rollModalRef = useRef<HTMLHeadingElement>(null);
+  const rollDialogRef = useRef<HTMLDivElement>(null);
+  const detailsModalRef = useRef<HTMLDivElement>(null);
 
   const unitRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const detailHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -138,7 +201,8 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   const lastFocusedOperationsButtonRef = useRef<HTMLButtonElement | null>(null);
   const lastFocusedMapCellRef = useRef<Position | null>(null);
 
-  const loadEncounter = useCallback(async (encounter: Encounter, forceFresh: boolean = false) => {
+  const loadEncounter = useCallback(async (encounter: Encounter, forceFresh: boolean = false, campaignOverride?: Campaign) => {
+    const campaign = campaignOverride ?? activeCampaign;
     setActiveEncounter(encounter);
     
     let savedState: EncounterRunningState | null = forceFresh ? null : (encounter.runningState || null);
@@ -166,32 +230,25 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
         return copy;
       }));
 
-      const cachedGrid = encounter.dmMapUrl ? mapGridService.getCachedGrid(encounter.dmMapUrl) : null;
-      const mapSize: MapSize = encounter.mapSize || (cachedGrid && cachedGrid.columns > 0 ? {
-        width: cachedGrid.columns,
-        height: cachedGrid.rows,
-        cellPitch: cachedGrid.cellPitch,
-        offsetX: cachedGrid.offsetX,
-        offsetY: cachedGrid.offsetY,
-        regions: cachedGrid.regions,
-        walls: cachedGrid.walls
-      } : { width: 20, height: 20 });
+      const mapSize = resolveMapSize(encounter);
       const deployedCombatants = autoDeployUnits(enrichedCombatants, mapSize);
       setCombatants(deployedCombatants);
       const started = !!savedState.isCombatStarted;
       setIsCombatStarted(started);
-      const tIdx = Math.min(Math.max(0, savedState.turnIndex || 0), Math.max(0, deployedCombatants.length - 1));
-      setTurnIndex(tIdx);
       const loadedPhases = savedState.activePhases && savedState.activePhases.length > 0
         ? savedState.activePhases
         : [1];
+      const loadedVisible = visibleOf(deployedCombatants, loadedPhases);
+      // turnIndex indexes the visible (active-phase) list, so clamp against that.
+      const tIdx = Math.min(Math.max(0, savedState.turnIndex || 0), Math.max(0, loadedVisible.length - 1));
+      setTurnIndex(tIdx);
       setActivePhases(loadedPhases);
       const rVal = savedState.round || 1;
       setRound(rVal);
       setHpMods({});
 
-      if (started && deployedCombatants[tIdx]) {
-        setAnnouncement(`Encounter resumed. Round ${rVal}. Current turn: ${deployedCombatants[tIdx].name}.`);
+      if (started && loadedVisible[tIdx]) {
+        setAnnouncement(`Encounter resumed. Round ${rVal}. Current turn: ${loadedVisible[tIdx].name}.`);
       }
       return;
     }
@@ -208,7 +265,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
       }));
     
     const existingPlayerUnits = encounter.units.filter(u => u.isPlayer);
-    const playerUnits: EncounterUnit[] = (activeCampaign?.players || []).map(p => {
+    const playerUnits: EncounterUnit[] = (campaign?.players || []).map(p => {
       const existing = existingPlayerUnits.find(ep => ep.playerId === p.id || ep.name === p.name);
       return {
         instanceId: existing?.instanceId || `player-${p.id}`,
@@ -225,16 +282,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
       };
     });
 
-    const cachedGrid = encounter.dmMapUrl ? mapGridService.getCachedGrid(encounter.dmMapUrl) : null;
-    const mapSize: MapSize = encounter.mapSize || (cachedGrid && cachedGrid.columns > 0 ? {
-      width: cachedGrid.columns,
-      height: cachedGrid.rows,
-      cellPitch: cachedGrid.cellPitch,
-      offsetX: cachedGrid.offsetX,
-      offsetY: cachedGrid.offsetY,
-      regions: cachedGrid.regions,
-      walls: cachedGrid.walls
-    } : { width: 20, height: 20 });
+    const mapSize = resolveMapSize(encounter);
     const deployedFresh = autoDeployUnits([...monsterUnits, ...playerUnits], mapSize);
     setCombatants(deployedFresh);
     setActivePhases([1]);
@@ -242,7 +290,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     setTurnIndex(0);
     setRound(1);
     setHpMods({});
-  }, [activeCampaign]);
+  }, [activeCampaign, setAnnouncement]);
 
   const resetCombat = useCallback(() => {
     if (!activeCampaign || !activeEncounter) return;
@@ -269,7 +317,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     setActiveEncounter(updatedEncounter);
     loadEncounter(updatedEncounter, true);
     setAnnouncement(`Encounter "${activeEncounter.name}" has been reset to setup.`);
-  }, [activeCampaign, activeEncounter, updateCampaign, loadEncounter]);
+  }, [activeCampaign, activeEncounter, updateCampaign, loadEncounter, setAnnouncement]);
 
   const handleResetCombat = () => {
     if (window.confirm(`Are you sure you want to reset "${activeEncounter?.name}"? This will clear active turns, rounds, and rolled HP.`)) {
@@ -303,7 +351,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
         const encounter = campaign.encounters.find(e => e.id === targetEncounterId);
         if (encounter) {
           lastLoadedId.current = targetEncounterId;
-          setTimeout(() => loadEncounter(encounter), 0);
+          void loadEncounter(encounter, false, campaign);
         }
       }
     }
@@ -324,25 +372,46 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     return Array.from(phases).sort((a, b) => a - b);
   }, [combatants]);
 
-  const visibleCombatants = useMemo(() => {
-    return combatants.filter(u => activePhases.includes(u.phase || 1));
-  }, [combatants, activePhases]);
+  const visibleCombatants = useMemo(() => visibleOf(combatants, activePhases), [combatants, activePhases]);
+
+  // Derive the open details unit from live combatants so HP edits show immediately.
+  const selectedUnit = useMemo(
+    () => selectedUnitBase ? (combatants.find(c => c.instanceId === selectedUnitBase.instanceId) ?? selectedUnitBase) : null,
+    [selectedUnitBase, combatants]
+  );
 
   const togglePhase = (phaseNum: number) => {
     const isCurrentlyActive = activePhases.includes(phaseNum);
-    let nextPhases: number[];
+    // Keep the current turn pinned to the same unit across phase changes.
+    const currentId = isCombatStarted ? visibleCombatants[turnIndex]?.instanceId : undefined;
+    const resolveTurnIndex = (nextList: EncounterUnit[]) => {
+      if (!isCombatStarted || nextList.length === 0) return 0;
+      if (currentId) {
+        const same = nextList.findIndex(u => u.instanceId === currentId);
+        if (same >= 0) return same;
+        // Current unit was hidden: advance to the next unit (in old order) that is still visible.
+        for (let k = turnIndex + 1; k < visibleCombatants.length; k++) {
+          const idx = nextList.findIndex(u => u.instanceId === visibleCombatants[k].instanceId);
+          if (idx >= 0) return idx;
+        }
+      }
+      return Math.min(turnIndex, nextList.length - 1);
+    };
+
     if (isCurrentlyActive) {
       if (activePhases.length === 1) {
         setAnnouncement(`Cannot deactivate Phase ${phaseNum}: at least one phase must remain active.`);
         return;
       }
-      nextPhases = activePhases.filter(p => p !== phaseNum);
+      const nextPhases = activePhases.filter(p => p !== phaseNum);
       const hiddenUnits = combatants.filter(u => (u.phase || 1) === phaseNum);
+      const nextIdx = resolveTurnIndex(visibleOf(combatants, nextPhases));
       setAnnouncement(`Phase ${phaseNum} deactivated. ${hiddenUnits.length} unit${hiddenUnits.length === 1 ? '' : 's'} hidden from encounter.`);
       setActivePhases(nextPhases);
-      syncEncounterState(combatants, isCombatStarted, turnIndex, round, nextPhases);
+      setTurnIndex(nextIdx);
+      syncEncounterState(combatants, isCombatStarted, nextIdx, round, nextPhases);
     } else {
-      nextPhases = [...activePhases, phaseNum].sort((a, b) => a - b);
+      const nextPhases = [...activePhases, phaseNum].sort((a, b) => a - b);
       const newlyVisible = combatants.filter(u => (u.phase || 1) === phaseNum);
 
       let updatedCombatants = combatants;
@@ -352,33 +421,14 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
           if ((u.phase || 1) === phaseNum && !u.isPlayer) {
             const hp = { max: u.maxHp || 1, current: u.currentHp || 1 };
             if (u.hpDice && (!u.maxHp || u.maxHp <= 1)) {
-              const hpRes = DiceService.roll(u.hpDice);
-              hp.max = hpRes.total;
-              hp.current = hpRes.total;
-              diceLogService.logRoll({
-                source: u.name,
-                purpose: `Hit Points (Phase ${phaseNum} entry)`,
-                formula: u.hpDice,
-                rolls: hpRes.rolls,
-                modifier: hpRes.modifier,
-                total: hpRes.total
-              });
+              const rolled = tryRollHp(u, `Hit Points (Phase ${phaseNum} entry)`);
+              if (rolled !== null) {
+                hp.max = rolled;
+                hp.current = rolled;
+              }
             }
 
-            let initVal = u.initiative;
-            if (initVal === undefined) {
-              const initRoll = DiceService.roll(`1d20${u.dexMod >= 0 ? '+' : ''}${u.dexMod}`);
-              initVal = initRoll.total;
-              diceLogService.logRoll({
-                source: u.name,
-                purpose: `Initiative (Phase ${phaseNum} entry)`,
-                formula: `1d20${u.dexMod >= 0 ? '+' : ''}${u.dexMod}`,
-                rolls: initRoll.rolls,
-                modifier: u.dexMod,
-                total: initRoll.total,
-                critStatus: initRoll.rolls[0] === 20 ? 'crit' : initRoll.rolls[0] === 1 ? 'fumble' : 'normal'
-              });
-            }
+            const initVal = u.initiative ?? rollInitiative(u, `Initiative (Phase ${phaseNum} entry)`);
             rolledAny = true;
             return { ...u, maxHp: hp.max, currentHp: hp.current, initiative: initVal };
           }
@@ -386,14 +436,16 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
         });
 
         if (rolledAny) {
-          updatedCombatants.sort((a, b) => (b.initiative || 0) - (a.initiative || 0));
+          updatedCombatants = [...updatedCombatants].sort((a, b) => (b.initiative || 0) - (a.initiative || 0));
           setCombatants(updatedCombatants);
         }
       }
 
+      const nextIdx = resolveTurnIndex(visibleOf(updatedCombatants, nextPhases));
       setAnnouncement(`Phase ${phaseNum} activated. ${newlyVisible.length} unit${newlyVisible.length === 1 ? '' : 's'} entered the encounter: ${newlyVisible.map(u => u.name).join(', ')}.`);
       setActivePhases(nextPhases);
-      syncEncounterState(updatedCombatants, isCombatStarted, turnIndex, round, nextPhases);
+      setTurnIndex(nextIdx);
+      syncEncounterState(updatedCombatants, isCombatStarted, nextIdx, round, nextPhases);
     }
   };
 
@@ -414,7 +466,10 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     setAnnouncement(`${roundPrefix}Current turn: ${current.name}. Next up: ${following.name}.`);
 
     syncEncounterState(combatants, true, nextIndex, nextRound, activePhases);
-  }, [isCombatStarted, visibleCombatants, combatants, turnIndex, round, activePhases, syncEncounterState]);
+  }, [isCombatStarted, visibleCombatants, combatants, turnIndex, round, activePhases, syncEncounterState, setAnnouncement]);
+
+  useFocusTrap(detailsModalRef, selectedUnitBase !== null);
+  useFocusTrap(rollDialogRef, activeRoll !== null);
 
   const closeDetails = useCallback(() => {
     setSelectedUnit(null);
@@ -460,7 +515,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
       }
       
       // Alt + D for Dice Log
-      if (e.altKey && e.key.toLowerCase() === 'd') {
+      if (e.altKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'd') {
         e.preventDefault();
         setIsDiceLogOpen(prev => !prev);
       }
@@ -480,9 +535,9 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
         }
       }
 
-      // Prevent default behavior for Enter/Space on non-button focused elements (like the heading)
-      // to avoid potential page scroll/teleport issues.
-      if ((e.key === 'Enter' || e.key === ' ') && !(e.target instanceof HTMLButtonElement || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTableCellElement)) {
+      // Prevent default behavior for Enter/Space on non-interactive focused elements (like the heading)
+      // to avoid potential page scroll/teleport issues. Never block summary/links/buttons.
+      if ((e.key === 'Enter' || e.key === ' ') && !isInteractiveTarget(e.target)) {
         e.preventDefault();
       }
     };
@@ -533,37 +588,17 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     const rolledCombatants = combatants.map(u => {
       const hp = { max: u.maxHp || 1, current: u.currentHp || 1 };
       
-      if (!u.isPlayer && u.hpDice) {
-        const hpRes = DiceService.roll(u.hpDice);
-        hp.max = hpRes.total;
-        hp.current = hpRes.total;
-        diceLogService.logRoll({
-          source: u.name,
-          purpose: 'Hit Points (Initial Roll)',
-          formula: u.hpDice,
-          rolls: hpRes.rolls,
-          modifier: hpRes.modifier,
-          total: hpRes.total
-        });
+      if (!u.isPlayer) {
+        const rolled = tryRollHp(u, 'Hit Points (Initial Roll)');
+        if (rolled !== null) {
+          hp.max = rolled;
+          hp.current = rolled;
+        }
       }
 
       let initVal = u.initiative;
       if (initVal === undefined) {
-        if (u.isPlayer) {
-          initVal = 0;
-        } else {
-          const initRoll = DiceService.roll(`1d20${u.dexMod >= 0 ? '+' : ''}${u.dexMod}`);
-          initVal = initRoll.total;
-          diceLogService.logRoll({
-            source: u.name,
-            purpose: 'Initiative (Initial Roll)',
-            formula: `1d20${u.dexMod >= 0 ? '+' : ''}${u.dexMod}`,
-            rolls: initRoll.rolls,
-            modifier: u.dexMod,
-            total: initRoll.total,
-            critStatus: initRoll.rolls[0] === 20 ? 'crit' : initRoll.rolls[0] === 1 ? 'fumble' : 'normal'
-          });
-        }
+        initVal = u.isPlayer ? 0 : rollInitiative(u, 'Initiative (Initial Roll)');
       }
 
       return {
@@ -591,12 +626,10 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   };
 
   const handleUpdateUnitPosition = useCallback((instanceId: string, newPos: Position) => {
-    setCombatants(prev => {
-      const next = prev.map(u => u.instanceId === instanceId ? { ...u, position: newPos } : u);
-      syncEncounterState(next);
-      return next;
-    });
-  }, [syncEncounterState]);
+    const next = combatants.map(u => u.instanceId === instanceId ? { ...u, position: newPos } : u);
+    setCombatants(next);
+    syncEncounterState(next);
+  }, [combatants, syncEncounterState]);
 
   // Pick up server-side mutations made outside this component (e.g. an
   // approved Assistant Oracle HITL proposal, which refetches the campaign
@@ -628,24 +661,35 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     
     let updatedUnitName = '';
     let updatedNewHp = 0;
+    let updatedTempHp = 0;
 
     const next = combatants.map(u => {
       if (u.instanceId === instanceId) {
         if (u.isPlayer) return u;
-        
-        const newHp = isDamage 
-          ? Math.max(0, (u.currentHp || 0) - val) 
-          : Math.min((u.maxHp || 0), (u.currentHp || 0) + val);
-        
+
+        const temp = u.tempHp || 0;
+        let newHp: number;
+        let newTemp = temp;
+        if (isDamage) {
+          // 5e: temporary hit points absorb damage first; remainder hits current HP.
+          const absorbed = Math.min(temp, val);
+          newTemp = temp - absorbed;
+          newHp = Math.max(0, (u.currentHp || 0) - (val - absorbed));
+        } else {
+          newHp = Math.min((u.maxHp || 0), (u.currentHp || 0) + val);
+        }
+
         updatedUnitName = u.name;
         updatedNewHp = newHp;
-        return { ...u, currentHp: newHp };
+        updatedTempHp = newTemp;
+        return { ...u, currentHp: newHp, tempHp: newTemp };
       }
       return u;
     });
 
     if (updatedUnitName) {
-      setAnnouncement(`${updatedUnitName} takes ${val} ${isDamage ? 'damage' : 'healing'}. New HP is ${updatedNewHp}.`);
+      const tempNote = updatedTempHp > 0 ? ` ${updatedTempHp} temporary hit points remain.` : '';
+      setAnnouncement(`${updatedUnitName} takes ${val} ${isDamage ? 'damage' : 'healing'}. New HP is ${updatedNewHp}.${tempNote}`);
     }
 
     setCombatants(next);
@@ -653,17 +697,6 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     
     if (amount === undefined) {
       setHpMods(prev => ({ ...prev, [instanceId]: '' }));
-    }
-    
-    // Update selectedUnit if it's currently open so modal updates live
-    if (selectedUnit && selectedUnit.instanceId === instanceId) {
-      setSelectedUnit(prev => {
-        if (!prev) return prev;
-        const newHp = isDamage 
-          ? Math.max(0, (prev.currentHp || 0) - val) 
-          : Math.min((prev.maxHp || 0), (prev.currentHp || 0) + val);
-        return { ...prev, currentHp: newHp };
-      });
     }
   };
 
@@ -731,7 +764,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
         </div>
       </header>
 
-      <div aria-live="assertive" className="sr-only">
+      <div aria-live="assertive" aria-atomic="true" className="sr-only">
         {announcement}
       </div>
 
@@ -846,7 +879,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
       {activeEncounter && isCombatStarted && (
         <CombatMap
           units={visibleCombatants}
-          mapSize={activeEncounter.mapSize || { width: 20, height: 20 }}
+          mapSize={activeEncounter.mapSize || DEFAULT_MAP_SIZE}
           activeTurnUnitId={isCombatStarted && visibleCombatants[turnIndex] ? visibleCombatants[turnIndex].instanceId : undefined}
           onUpdateUnitPosition={handleUpdateUnitPosition}
           onOpenOperations={(unit, cell) => openOperations(null, unit, cell)}
@@ -872,7 +905,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
       )}
 
       {selectedUnit && (
-        <div className="unit-details-modal" role="dialog" aria-modal="true" aria-labelledby="unit-detail-title" style={{
+        <div ref={detailsModalRef} className="unit-details-modal" role="dialog" aria-modal="true" aria-labelledby="unit-detail-title" style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, 
           backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', 
           alignItems: 'center', justifyContent: 'center', zIndex: 1001
@@ -905,7 +938,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
       )}
 
       {activeRoll && (
-        <div role="dialog" aria-modal="true" aria-labelledby="encounter-roll-result-title" style={{
+        <div ref={rollDialogRef} role="dialog" aria-modal="true" aria-labelledby="encounter-roll-result-title" style={{
           position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
           backgroundColor: '#333', color: 'white', padding: '1.5rem', borderRadius: '8px',
           boxShadow: '0 4px 6px rgba(0,0,0,0.3)', zIndex: 1002, minWidth: '250px', textAlign: 'center'

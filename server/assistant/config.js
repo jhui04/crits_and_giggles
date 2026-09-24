@@ -3,6 +3,11 @@
  * Manages model choices, fallbacks, and strict VRAM hardware guards (<8GB VRAM).
  */
 
+// Upper bounds keep a bad setting from requesting an absurd generation length or
+// context window that would blow past the 8GB VRAM budget.
+export const MAX_TOKENS_LIMIT = 16384;
+export const NUM_CTX_LIMIT = 32768;
+
 export const DEFAULT_CONFIG = {
   baseURL: process.env.LLM_BASE_URL || process.env.OLLAMA_BASE_URL || 'http://localhost:11434/v1',
   apiKey: process.env.LLM_API_KEY || 'ollama',
@@ -14,9 +19,24 @@ export const DEFAULT_CONFIG = {
   topKPassages: 3,
   maxToolIterations: 20,
   keepAlive: process.env.OLLAMA_KEEP_ALIVE || '30m',
-  maxTokens: parseInt(process.env.LLM_MAX_TOKENS, 10) || 4096,
-  numCtx: parseInt(process.env.LLM_NUM_CTX, 10) || 16384,
+  maxTokens: Math.min(parseInt(process.env.LLM_MAX_TOKENS, 10) || 4096, MAX_TOKENS_LIMIT),
+  numCtx: Math.min(parseInt(process.env.LLM_NUM_CTX, 10) || 16384, NUM_CTX_LIMIT),
+  requestTimeoutMs: parseInt(process.env.LLM_REQUEST_TIMEOUT_MS, 10) || 300000,
 };
+
+/**
+ * Coerces a numeric setting with Number() and rejects NaN/Infinity instead of
+ * silently ignoring or storing it.
+ */
+function toFiniteNumber(name, value) {
+  const n = typeof value === 'string' && value.trim() === '' ? NaN : Number(value);
+  if (!Number.isFinite(n)) {
+    throw new Error(`Config "${name}" must be a finite number (received ${JSON.stringify(value)}).`);
+  }
+  return n;
+}
+
+const clamp = (n, min, max) => Math.min(Math.max(n, min), max);
 
 // Disallowed models: explicitly exclude 26B, 32B, 35B, 70B models which exceed 8GB VRAM budget
 const EXCLUDED_MODEL_PATTERNS = [
@@ -95,23 +115,26 @@ export function setConfig(newConfig = {}) {
   if (newConfig.embeddingModel) {
     currentConfig.embeddingModel = newConfig.embeddingModel.trim();
   }
-  if (newConfig.maxContextTokens) {
-    currentConfig.maxContextTokens = Math.min(Math.max(newConfig.maxContextTokens, 2048), 16384);
+  if (newConfig.maxContextTokens !== undefined && newConfig.maxContextTokens !== null) {
+    currentConfig.maxContextTokens = clamp(toFiniteNumber('maxContextTokens', newConfig.maxContextTokens), 2048, 16384);
   }
-  if (newConfig.topKPassages) {
-    currentConfig.topKPassages = Math.min(Math.max(newConfig.topKPassages, 1), 10);
+  if (newConfig.topKPassages !== undefined && newConfig.topKPassages !== null) {
+    currentConfig.topKPassages = clamp(Math.floor(toFiniteNumber('topKPassages', newConfig.topKPassages)), 1, 10);
   }
-  if (newConfig.maxToolIterations !== undefined) {
-    currentConfig.maxToolIterations = Math.min(Math.max(Number(newConfig.maxToolIterations) || 20, 1), 50);
+  if (newConfig.maxToolIterations !== undefined && newConfig.maxToolIterations !== null) {
+    currentConfig.maxToolIterations = clamp(Math.floor(toFiniteNumber('maxToolIterations', newConfig.maxToolIterations)), 1, 50);
   }
   if (newConfig.keepAlive !== undefined) {
     currentConfig.keepAlive = String(newConfig.keepAlive).trim();
   }
-  if (newConfig.maxTokens !== undefined) {
-    currentConfig.maxTokens = Math.max(Number(newConfig.maxTokens) || 4096, 512);
+  if (newConfig.maxTokens !== undefined && newConfig.maxTokens !== null) {
+    currentConfig.maxTokens = clamp(Math.floor(toFiniteNumber('maxTokens', newConfig.maxTokens)), 512, MAX_TOKENS_LIMIT);
   }
-  if (newConfig.numCtx !== undefined) {
-    currentConfig.numCtx = Math.max(Number(newConfig.numCtx) || 16384, 2048);
+  if (newConfig.numCtx !== undefined && newConfig.numCtx !== null) {
+    currentConfig.numCtx = clamp(Math.floor(toFiniteNumber('numCtx', newConfig.numCtx)), 2048, NUM_CTX_LIMIT);
+  }
+  if (newConfig.requestTimeoutMs !== undefined && newConfig.requestTimeoutMs !== null) {
+    currentConfig.requestTimeoutMs = clamp(Math.floor(toFiniteNumber('requestTimeoutMs', newConfig.requestTimeoutMs)), 1000, 1800000);
   }
 
   return getConfig();

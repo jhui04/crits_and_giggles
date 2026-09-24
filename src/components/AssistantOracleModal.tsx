@@ -7,6 +7,7 @@ import { dataService } from '../services/DataService';
 import type { Spell, Monster, MagicItem, ConfirmationProposal } from '../types';
 import { HitlConfirmationBox } from './hitl/HitlConfirmationBox';
 import { useCampaigns } from '../context/CampaignContext';
+import { useAnnouncer } from './uiHelpers';
 
 export interface PassageItem {
   id?: string;
@@ -132,11 +133,11 @@ export function AssistantOracleModal({
   const [proposalQueue, setProposalQueue] = useState<ConfirmationProposal[]>([]);
   const pendingProposal = proposalQueue[0] ?? null;
   const [isConfirming, setIsConfirming] = useState(false);
-  const [hitlAnnouncement, setHitlAnnouncement] = useState('');
+  const [hitlAnnouncement, setHitlAnnouncement] = useAnnouncer();
 
   // Copy-to-clipboard state for chat history messages
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
-  const [copyAnnouncement, setCopyAnnouncement] = useState('');
+  const [copyAnnouncement, setCopyAnnouncement] = useAnnouncer();
   const copyResetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Knowledge passage modal state
@@ -210,6 +211,15 @@ export function AssistantOracleModal({
   // `proposalQueue` — this should run once per modal open, not on every
   // queue change.
   const syncedForThisOpenRef = useRef(false);
+  // Read queue / focus preference through refs so changes to them mid-fetch
+  // don't tear down the effect (its cleanup would cancel the in-flight
+  // recovery fetch and the run-once guard would then never retry).
+  const proposalQueueRef = useRef(proposalQueue);
+  const initialFocusOnInputRef = useRef(initialFocusOnInput);
+  useEffect(() => {
+    proposalQueueRef.current = proposalQueue;
+    initialFocusOnInputRef.current = initialFocusOnInput;
+  }, [proposalQueue, initialFocusOnInput]);
   useEffect(() => {
     if (!isOpen) {
       syncedForThisOpenRef.current = false;
@@ -222,7 +232,7 @@ export function AssistantOracleModal({
     const focusDefault = () => {
       setTimeout(() => {
         if (cancelled) return;
-        if (initialFocusOnInput && inputRef.current) {
+        if (initialFocusOnInputRef.current && inputRef.current) {
           inputRef.current.focus();
         } else if (headingRef.current) {
           headingRef.current.focus();
@@ -230,7 +240,7 @@ export function AssistantOracleModal({
       }, 30);
     };
 
-    if (proposalQueue.length > 0 || !campaignId) {
+    if (proposalQueueRef.current.length > 0 || !campaignId) {
       focusDefault();
       return () => {
         cancelled = true;
@@ -258,7 +268,7 @@ export function AssistantOracleModal({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, campaignId, initialFocusOnInput, proposalQueue]);
+  }, [isOpen, campaignId, setHitlAnnouncement]);
 
   // Auto-scroll conversation log
   useEffect(() => {
@@ -285,7 +295,10 @@ export function AssistantOracleModal({
   // never leave a client-side trace (see G-1), and avoids the client and
   // server independently computing (and disagreeing on) the same mutation
   // (see G-2, G-6).
+  const confirmInFlightRef = useRef(false);
   const handleProposalApprove = useCallback(async (proposalId: string) => {
+    if (confirmInFlightRef.current) return;
+    confirmInFlightRef.current = true;
     setIsConfirming(true);
     // Only the chat input should reclaim focus once the queue is empty. If
     // another proposal is still pending, HitlConfirmationBox's own
@@ -369,6 +382,7 @@ export function AssistantOracleModal({
         },
       ]);
     } finally {
+      confirmInFlightRef.current = false;
       setIsConfirming(false);
       if (queueEmptiedByThis) {
         setTimeout(() => {
@@ -376,9 +390,11 @@ export function AssistantOracleModal({
         }, 30);
       }
     }
-  }, [campaignId, pendingProposal, proposalQueue.length, refreshCampaign]);
+  }, [campaignId, pendingProposal, proposalQueue.length, refreshCampaign, setHitlAnnouncement]);
 
   const handleProposalDeny = useCallback(async (proposalId: string) => {
+    if (confirmInFlightRef.current) return;
+    confirmInFlightRef.current = true;
     setIsConfirming(true);
     // See handleProposalApprove: only reclaim input focus once the queue is
     // actually empty, so the next queued proposal's own heading-focus
@@ -431,6 +447,7 @@ export function AssistantOracleModal({
       const errorMsg = err instanceof Error ? err.message : String(err);
       setHitlAnnouncement(`Error cancelling action: ${errorMsg}`);
     } finally {
+      confirmInFlightRef.current = false;
       setIsConfirming(false);
       if (queueEmptiedByThis) {
         setTimeout(() => {
@@ -438,7 +455,7 @@ export function AssistantOracleModal({
         }, 30);
       }
     }
-  }, [proposalQueue.length]);
+  }, [proposalQueue.length, setHitlAnnouncement]);
 
   // Global window keydown listener while modal is open
   useEffect(() => {
@@ -577,8 +594,13 @@ export function AssistantOracleModal({
     }
   };
 
+  const passageRequestRef = useRef(0);
   const handleOpenPassageModal = async (passage: PassageItem, trigger: HTMLElement) => {
     lastPassageButtonRef.current = trigger;
+    const token = ++passageRequestRef.current;
+    const isStale = () => token !== passageRequestRef.current;
+    const applyEntity = (v: typeof passageEntityData) => { if (!isStale()) setPassageEntityData(v); };
+    const finishLoading = () => { if (!isStale()) setIsLoadingPassage(false); };
     setSelectedPassage(passage);
     setIsLoadingPassage(true);
 
@@ -607,8 +629,8 @@ export function AssistantOracleModal({
           );
         }
         if (found) {
-          setPassageEntityData({ type: 'spell', data: found });
-          setIsLoadingPassage(false);
+          applyEntity({ type: 'spell', data: found });
+          finishLoading();
           return;
         }
       }
@@ -634,8 +656,8 @@ export function AssistantOracleModal({
           );
         }
         if (found) {
-          setPassageEntityData({ type: 'monster', data: found });
-          setIsLoadingPassage(false);
+          applyEntity({ type: 'monster', data: found });
+          finishLoading();
           return;
         }
       }
@@ -661,18 +683,18 @@ export function AssistantOracleModal({
           );
         }
         if (found) {
-          setPassageEntityData({ type: 'item', data: found });
-          setIsLoadingPassage(false);
+          applyEntity({ type: 'item', data: found });
+          finishLoading();
           return;
         }
       }
 
       // 4. Default Lore / Asset / SRD
-      setPassageEntityData({ type: 'lore', data: passage });
+      applyEntity({ type: 'lore', data: passage });
     } catch {
-      setPassageEntityData({ type: 'lore', data: passage });
+      applyEntity({ type: 'lore', data: passage });
     } finally {
-      setIsLoadingPassage(false);
+      finishLoading();
     }
   };
 
@@ -709,7 +731,7 @@ export function AssistantOracleModal({
       const errorMsg = err instanceof Error ? err.message : String(err);
       setCopyAnnouncement(`Could not copy message to clipboard: ${errorMsg}`);
     }
-  }, []);
+  }, [setCopyAnnouncement]);
 
   // Clear any pending "Copied!" reset timeout on unmount to avoid a
   // state update after the component is gone.
@@ -722,6 +744,7 @@ export function AssistantOracleModal({
   }, []);
 
   const handleClosePassageModal = () => {
+    passageRequestRef.current++; // invalidate any in-flight passage lookup
     setSelectedPassage(null);
     setPassageEntityData(null);
     setTimeout(() => {
@@ -761,7 +784,10 @@ export function AssistantOracleModal({
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || `Assistant request failed (HTTP ${res.status}).`);
+      }
 
       // Handle staged Human-in-the-Loop proposal(s). A single turn can stage
       // more than one write-tool proposal; each is appended to the existing

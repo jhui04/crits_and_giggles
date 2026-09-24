@@ -8,6 +8,7 @@ class MapGridService {
   private memoryCache = new Map<string, MapGridConfig>();
   private staticCacheLoaded = false;
   private staticCachePromise: Promise<void> | null = null;
+  private inFlight = new Map<string, Promise<MapGridConfig>>();
 
   constructor() {
     this.loadFromLocalStorage();
@@ -20,6 +21,8 @@ class MapGridService {
       if (stored) {
         const parsed = JSON.parse(stored);
         Object.entries(parsed).forEach(([key, val]) => {
+          // Skip fallback (confidence 0) entries persisted by older versions so detection is retried.
+          if ((val as MapGridConfig)?.confidence === 0) return;
           this.memoryCache.set(key, val as MapGridConfig);
         });
       }
@@ -33,6 +36,8 @@ class MapGridService {
       if (typeof localStorage === 'undefined') return;
       const obj: Record<string, MapGridConfig> = {};
       this.memoryCache.forEach((val, key) => {
+        // Fallback grids (confidence 0) are session-only so detection can be retried later.
+        if (val.confidence === 0) return;
         obj[key] = val;
       });
       localStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
@@ -78,7 +83,10 @@ class MapGridService {
     const cleaned = url.split('?')[0];
     keys.push(cleaned);
     const basename = cleaned.split('/').pop();
-    if (basename) {
+    // Only alias by basename for bundled maps (bare names or /maps/ paths); maps from other
+    // directories with the same filename must not collide.
+    const isBundledMap = !cleaned.includes('/') || cleaned.endsWith(`/maps/${basename}`);
+    if (basename && isBundledMap) {
       keys.push(basename);
       keys.push(`/maps/${basename}`);
     }
@@ -142,7 +150,18 @@ class MapGridService {
       return cachedAfterStatic;
     }
 
-    // 4. First-time computation: Parse image using computer vision
+    // 4. First-time computation: dedupe concurrent detections for the same URL
+    const pending = this.inFlight.get(url);
+    if (pending) return pending;
+
+    const promise = this.detectGrid(url).finally(() => {
+      this.inFlight.delete(url);
+    });
+    this.inFlight.set(url, promise);
+    return promise;
+  }
+
+  private async detectGrid(url: string): Promise<MapGridConfig> {
     try {
       const img = new Image();
       img.crossOrigin = 'anonymous';
@@ -165,6 +184,7 @@ class MapGridService {
         offsetY: 0,
         confidence: 0
       };
+      // Kept in memory for this session only (saveToLocalStorage skips confidence 0).
       this.cacheResult(url, fallback);
       return fallback;
     }

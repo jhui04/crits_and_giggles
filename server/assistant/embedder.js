@@ -1,10 +1,47 @@
 import { createEmbedding } from './llmClient.js';
+import { getConfig } from './config.js';
 
 /**
  * Local Semantic Embedder & Similarity Engine
- * Provides real dense embeddings via Ollama /v1/embeddings (e.g. nomic-embed-text)
- * with a deterministic offline fallback and true vector cosine similarity.
+ * Provides real dense embeddings via Ollama /v1/embeddings (e.g. nomic-embed-text) and true vector
+ * cosine similarity. If the embedding model is unavailable the embedding calls throw
+ * EmbeddingUnavailableError rather than silently degrading to the (much weaker) hashed-TF vectors.
+ * The local fallback is only used when explicitly requested (forceLocal) or in test mode.
  */
+
+export class EmbeddingUnavailableError extends Error {
+  constructor(model, cause) {
+    const reason = cause?.message || String(cause || 'no embedding returned');
+    super(
+      `The embedding model "${model}" is not available (${reason}). ` +
+      `Make sure Ollama is running and that the model is installed: run "ollama list" to check, ` +
+      `and "ollama pull ${model}" to install it.`
+    );
+    this.name = 'EmbeddingUnavailableError';
+    this.model = model;
+  }
+}
+
+/**
+ * Whether the deterministic local embedding may stand in for a failed model call.
+ * Off by default; on under NODE_ENV=test (no Ollama in CI). ALLOW_LOCAL_EMBEDDING_FALLBACK=1/0 overrides.
+ */
+export function localFallbackAllowed() {
+  const flag = process.env.ALLOW_LOCAL_EMBEDDING_FALLBACK;
+  if (flag === '1') return true;
+  if (flag === '0') return false;
+  return process.env.NODE_ENV === 'test';
+}
+
+// Under NODE_ENV=test (flag unset) the embedding model is not contacted at all, so unit tests are
+// deterministic and fast whether or not a local Ollama happens to be running.
+function localOnly() {
+  return process.env.ALLOW_LOCAL_EMBEDDING_FALLBACK === undefined && process.env.NODE_ENV === 'test';
+}
+
+function resolveEmbeddingModel(options) {
+  return options.model || getConfig().embeddingModel || 'nomic-embed-text';
+}
 
 const VECTOR_DIMENSIONS = 1024;
 
@@ -32,6 +69,30 @@ function hashToken(str) {
  * Used as high-speed offline fallback when local Ollama embedding model is not yet loaded.
  */
 export function computeLocalEmbedding(text, title = '') {
+  return markLocal(buildLocalEmbedding(text, title));
+}
+
+// Vectors produced by the local fallback are tracked by identity so callers can tag them when
+// persisting; local (hashed TF) and dense (neural) vectors live in unrelated spaces even when
+// their lengths happen to match.
+const localVectors = new WeakSet();
+function markLocal(vec) {
+  localVectors.add(vec);
+  return vec;
+}
+
+/** 'local' for the deterministic fallback, otherwise 'dense:<dimensions>'. */
+export function embeddingKind(vec) {
+  return localVectors.has(vec) ? 'local' : `dense:${vec.length}`;
+}
+
+/** Best-effort kind for rows stored before kinds were tracked (local vectors are non-negative, 1024-d). */
+export function inferEmbeddingKind(vec) {
+  if (vec.length === VECTOR_DIMENSIONS && !vec.some((v) => v < 0)) return 'local';
+  return `dense:${vec.length}`;
+}
+
+function buildLocalEmbedding(text, title) {
   if (!text || typeof text !== 'string') {
     return new Array(VECTOR_DIMENSIONS).fill(0);
   }
@@ -106,7 +167,7 @@ export function normalizeVector(vec) {
 
 /**
  * Computes semantic dense embedding using Ollama's /v1/embeddings endpoint.
- * Gracefully falls back to deterministic local embedding if Ollama is unreachable.
+ * Throws EmbeddingUnavailableError if the model can't produce an embedding (see localFallbackAllowed).
  */
 export async function computeSemanticEmbedding(text, title = '', options = {}) {
   if (!text && !title) {
@@ -115,6 +176,9 @@ export async function computeSemanticEmbedding(text, title = '', options = {}) {
 
   const combined = title ? `${title}\n\n${text}` : text;
 
+  if (localOnly()) return computeLocalEmbedding(text, title);
+
+  let failure;
   try {
     const rawEmbedding = await createEmbedding({
       input: combined,
@@ -124,13 +188,11 @@ export async function computeSemanticEmbedding(text, title = '', options = {}) {
       return normalizeVector(rawEmbedding);
     }
   } catch (err) {
-    // Offline or test environment fallback
-    if (!options.silent) {
-      console.info(`[Embedder] Ollama embedding service unavailable (${err.message}). Using local embedding engine.`);
-    }
+    failure = err;
   }
 
-  return computeLocalEmbedding(text, title);
+  if (localFallbackAllowed()) return computeLocalEmbedding(text, title);
+  throw new EmbeddingUnavailableError(resolveEmbeddingModel(options), failure);
 }
 
 /**
@@ -146,6 +208,12 @@ export async function computeSemanticEmbeddingsBatch(items, options = {}) {
     const chunk = items.slice(i, i + BATCH_SIZE);
     const inputs = chunk.map((item) => (item.title ? `${item.title}\n\n${item.content}` : item.content));
 
+    if (localOnly()) {
+      for (const item of chunk) results.push(computeLocalEmbedding(item.content, item.title));
+      continue;
+    }
+
+    let failure;
     try {
       const rawEmbeddings = await createEmbedding({
         input: inputs,
@@ -158,12 +226,12 @@ export async function computeSemanticEmbeddingsBatch(items, options = {}) {
         continue;
       }
     } catch (err) {
-      if (!options.silent && i === 0) {
-        console.info(`[Embedder] Batch Ollama embedding unavailable (${err.message}). Using local embedding engine.`);
-      }
+      failure = err;
     }
 
-    // Fallback for this batch if Ollama is unavailable
+    if (!localFallbackAllowed()) {
+      throw new EmbeddingUnavailableError(resolveEmbeddingModel(options), failure);
+    }
     for (const item of chunk) {
       results.push(computeLocalEmbedding(item.content, item.title));
     }

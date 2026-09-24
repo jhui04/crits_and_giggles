@@ -11,6 +11,7 @@ import { DebugInfoModal } from './components/DebugInfoModal';
 import { useCampaigns } from './context/CampaignContext';
 import { useWorlds } from './context/WorldContext';
 import type { Campaign } from './types';
+import { isInteractiveTarget, useFocusRestore } from './components/uiHelpers';
 
 type AppMode = 'create' | 'run';
 
@@ -54,17 +55,12 @@ function App() {
       .catch(err => console.log('No scraped campaign available.', err));
   }, []);
 
-  const switchCampBtnRef = useRef<HTMLButtonElement>(null);
   const switchCampHeadingRef = useRef<HTMLHeadingElement>(null);
   const mainMenuBtnRef = useRef<HTMLButtonElement>(null);
   const mainMenuHeadingRef = useRef<HTMLHeadingElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
-  const lastFocusedBeforeOracle = useRef<HTMLElement | null>(null);
-  const lastFocusedBeforeAssistant = useRef<HTMLElement | null>(null);
-  const lastFocusedBeforeHelp = useRef<HTMLElement | null>(null);
-  const lastFocusedBeforeDiceRoller = useRef<HTMLElement | null>(null);
-  const lastFocusedBeforeDiceLog = useRef<HTMLElement | null>(null);
-  const lastFocusedBeforeDebugInfo = useRef<HTMLElement | null>(null);
+  const { remember, restore } = useFocusRestore();
+  const restoreToMenu = useCallback(() => mainMenuBtnRef.current?.focus(), []);
 
   const toggleMode = () => {
     setMode((prevMode) => (prevMode === 'create' ? 'run' : 'create'));
@@ -87,117 +83,75 @@ function App() {
   }, []);
 
   const openCampaignModal = () => {
-    switchCampBtnRef.current = document.activeElement as HTMLButtonElement;
+    remember('campaign');
     setIsCampaignModalOpen(true);
   };
 
   const closeCampaignModal = () => {
     setIsCampaignModalOpen(false);
     setIsCreatingNew(false);
-    setTimeout(() => {
-      if (switchCampBtnRef.current && switchCampBtnRef.current !== document.body && document.body.contains(switchCampBtnRef.current)) {
-        switchCampBtnRef.current.focus();
-      } else {
-        mainMenuBtnRef.current?.focus();
-      }
-    }, 0);
+    restore('campaign', restoreToMenu);
   };
 
   const openOracle = () => {
-    lastFocusedBeforeOracle.current = document.activeElement as HTMLElement;
+    remember('oracle');
     setIsOracleOpen(true);
   };
 
   const closeOracle = () => {
     setIsOracleOpen(false);
-    setTimeout(() => {
-      if (lastFocusedBeforeOracle.current && lastFocusedBeforeOracle.current !== document.body && document.body.contains(lastFocusedBeforeOracle.current)) {
-        lastFocusedBeforeOracle.current.focus();
-      } else {
-        mainMenuBtnRef.current?.focus();
-      }
-    }, 0);
+    restore('oracle', restoreToMenu);
   };
 
   const openAssistant = (focusInput = false) => {
-    lastFocusedBeforeAssistant.current = document.activeElement as HTMLElement;
+    remember('assistant');
     setIsAssistantFocusInput(focusInput);
     setIsAssistantOpen(true);
   };
 
   const closeAssistant = () => {
     setIsAssistantOpen(false);
-    setTimeout(() => {
-      if (lastFocusedBeforeAssistant.current && lastFocusedBeforeAssistant.current !== document.body && document.body.contains(lastFocusedBeforeAssistant.current)) {
-        lastFocusedBeforeAssistant.current.focus();
-      } else {
-        mainMenuBtnRef.current?.focus();
-      }
-    }, 0);
+    restore('assistant', restoreToMenu);
   };
 
   const openShortcutsHelp = () => {
-    lastFocusedBeforeHelp.current = document.activeElement as HTMLElement;
+    remember('help');
     setIsShortcutsHelpOpen(true);
   };
 
   const closeShortcutsHelp = () => {
     setIsShortcutsHelpOpen(false);
-    setTimeout(() => {
-      if (lastFocusedBeforeHelp.current && lastFocusedBeforeHelp.current !== document.body && document.body.contains(lastFocusedBeforeHelp.current)) {
-        lastFocusedBeforeHelp.current.focus();
-      } else {
-        mainMenuBtnRef.current?.focus();
-      }
-    }, 0);
+    restore('help', restoreToMenu);
   };
 
   const openDiceRoller = () => {
-    lastFocusedBeforeDiceRoller.current = document.activeElement as HTMLElement;
+    remember('diceRoller');
     setIsDiceRollerOpen(true);
   };
 
   const closeDiceRoller = () => {
     setIsDiceRollerOpen(false);
-    setTimeout(() => {
-      if (lastFocusedBeforeDiceRoller.current && lastFocusedBeforeDiceRoller.current !== document.body && document.body.contains(lastFocusedBeforeDiceRoller.current)) {
-        lastFocusedBeforeDiceRoller.current.focus();
-      } else {
-        mainMenuBtnRef.current?.focus();
-      }
-    }, 0);
+    restore('diceRoller', restoreToMenu);
   };
 
   const openDiceLog = () => {
-    lastFocusedBeforeDiceLog.current = document.activeElement as HTMLElement;
+    remember('diceLog');
     setIsDiceLogOpen(true);
   };
 
   const closeDiceLog = () => {
     setIsDiceLogOpen(false);
-    setTimeout(() => {
-      if (lastFocusedBeforeDiceLog.current && lastFocusedBeforeDiceLog.current !== document.body && document.body.contains(lastFocusedBeforeDiceLog.current)) {
-        lastFocusedBeforeDiceLog.current.focus();
-      } else {
-        mainMenuBtnRef.current?.focus();
-      }
-    }, 0);
+    restore('diceLog', restoreToMenu);
   };
 
   const openDebugInfo = () => {
-    lastFocusedBeforeDebugInfo.current = document.activeElement as HTMLElement;
+    remember('debugInfo');
     setIsDebugInfoOpen(true);
   };
 
   const closeDebugInfo = () => {
     setIsDebugInfoOpen(false);
-    setTimeout(() => {
-      if (lastFocusedBeforeDebugInfo.current && lastFocusedBeforeDebugInfo.current !== document.body && document.body.contains(lastFocusedBeforeDebugInfo.current)) {
-        lastFocusedBeforeDebugInfo.current.focus();
-      } else {
-        mainMenuBtnRef.current?.focus();
-      }
-    }, 0);
+    restore('debugInfo', restoreToMenu);
   };
 
   const handleCreate = () => {
@@ -283,7 +237,7 @@ function App() {
       }
 
       // Prevent default behavior for Enter and Space on non-interactive elements
-      if ((e.key === 'Enter' || e.key === ' ') && !(e.target instanceof HTMLButtonElement || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLAnchorElement)) {
+      if ((e.key === 'Enter' || e.key === ' ') && !isInteractiveTarget(e.target)) {
         e.preventDefault();
       }
 

@@ -6,6 +6,7 @@ import { QuickRoller } from './QuickRoller';
 import { wrapSpells } from '../utils/spellUtils';
 import { Markdown } from './Markdown';
 import { dataService } from '../services/DataService';
+import { isInteractiveTarget } from './uiHelpers';
 
 interface MonsterDetailsProps {
   monster: Monster;
@@ -79,7 +80,7 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
     
     // Prevent default behavior for Enter/Space on non-button focused elements (like the heading)
     // to avoid potential page scroll/teleport issues.
-    if ((e.key === 'Enter' || e.key === ' ') && !(e.target instanceof HTMLButtonElement || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement)) {
+    if ((e.key === 'Enter' || e.key === ' ') && !isInteractiveTarget(e.target)) {
       e.preventDefault();
     }
   };

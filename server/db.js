@@ -148,7 +148,7 @@ export function initDb(targetDb = db) {
     );
 
     CREATE TABLE IF NOT EXISTS encounter_units (
-      instanceId TEXT PRIMARY KEY,
+      instanceId TEXT NOT NULL,
       encounter_id TEXT NOT NULL,
       campaign_id TEXT NOT NULL,
       monsterId TEXT,
@@ -166,6 +166,7 @@ export function initDb(targetDb = db) {
       phase INTEGER DEFAULT 1,
       tempHp INTEGER DEFAULT 0,
       faction TEXT DEFAULT 'enemy',
+      PRIMARY KEY (instanceId, campaign_id),
       FOREIGN KEY (encounter_id, campaign_id) REFERENCES encounters(id, campaign_id) ON DELETE CASCADE
     );
 
@@ -209,6 +210,12 @@ export function initDb(targetDb = db) {
 
   try {
     targetDb.exec('ALTER TABLE assets ADD COLUMN world_asset_id TEXT;');
+  } catch (e) {
+    // Column already exists, ignore
+  }
+
+  try {
+    targetDb.exec('ALTER TABLE vector_chunks ADD COLUMN embedding_kind TEXT;');
   } catch (e) {
     // Column already exists, ignore
   }
@@ -271,5 +278,72 @@ export function initDb(targetDb = db) {
     targetDb.exec("ALTER TABLE encounter_units ADD COLUMN faction TEXT DEFAULT 'enemy';");
   } catch (e) {
     // Column already exists, ignore
+  }
+
+  migrateEncounterUnitsPrimaryKey(targetDb);
+}
+
+const ENCOUNTER_UNITS_COLUMNS = [
+  'instanceId', 'encounter_id', 'campaign_id', 'monsterId', 'playerId', 'name',
+  'maxHp', 'currentHp', 'hpDice', 'dexMod', 'initiative', 'passivePerception',
+  'isPlayer', 'position_x', 'position_y', 'phase', 'tempHp', 'faction',
+];
+
+/**
+ * Legacy schema had `instanceId TEXT PRIMARY KEY` (globally unique), so two
+ * campaigns with a unit sharing an instanceId collided. Rebuild the table with
+ * PRIMARY KEY (instanceId, campaign_id). Idempotent: no-op when the PK is
+ * already composite (including fresh DBs).
+ */
+function migrateEncounterUnitsPrimaryKey(targetDb) {
+  const info = targetDb.prepare('PRAGMA table_info(encounter_units)').all();
+  const pkCols = info.filter((c) => c.pk > 0);
+  const isLegacy = pkCols.length === 1 && pkCols[0].name === 'instanceId';
+  if (!isLegacy) return;
+
+  const present = new Set(info.map((c) => c.name));
+  const cols = ENCOUNTER_UNITS_COLUMNS.filter((c) => present.has(c));
+  const colList = cols.join(', ');
+
+  // PRAGMA foreign_keys is a no-op inside a transaction, so toggle around it.
+  const fkWasOn = targetDb.pragma('foreign_keys', { simple: true }) === 1;
+  targetDb.pragma('foreign_keys = OFF');
+  try {
+    targetDb.transaction(() => {
+      targetDb.exec(`
+        DROP TABLE IF EXISTS encounter_units_new;
+        CREATE TABLE encounter_units_new (
+          instanceId TEXT NOT NULL,
+          encounter_id TEXT NOT NULL,
+          campaign_id TEXT NOT NULL,
+          monsterId TEXT,
+          playerId TEXT,
+          name TEXT NOT NULL,
+          maxHp INTEGER,
+          currentHp INTEGER,
+          hpDice TEXT,
+          dexMod INTEGER NOT NULL,
+          initiative INTEGER,
+          passivePerception INTEGER,
+          isPlayer INTEGER NOT NULL,
+          position_x INTEGER,
+          position_y INTEGER,
+          phase INTEGER DEFAULT 1,
+          tempHp INTEGER DEFAULT 0,
+          faction TEXT DEFAULT 'enemy',
+          PRIMARY KEY (instanceId, campaign_id),
+          FOREIGN KEY (encounter_id, campaign_id) REFERENCES encounters(id, campaign_id) ON DELETE CASCADE
+        );
+        INSERT INTO encounter_units_new (${colList}) SELECT ${colList} FROM encounter_units;
+        DROP TABLE encounter_units;
+        ALTER TABLE encounter_units_new RENAME TO encounter_units;
+      `);
+      const violations = targetDb.pragma('foreign_key_check(encounter_units)');
+      if (violations.length > 0) {
+        throw new Error(`encounter_units migration left ${violations.length} foreign key violation(s)`);
+      }
+    })();
+  } finally {
+    if (fkWasOn) targetDb.pragma('foreign_keys = ON');
   }
 }

@@ -4,16 +4,28 @@ import { getConfig, validateModel } from './config.js';
 /**
  * Creates an OpenAI-compatible client configured for local Ollama / llama.cpp
  */
+// The OpenAI client holds an HTTP agent/connection pool, so reuse one per
+// (baseURL, apiKey, timeout) instead of rebuilding it on every call.
+let cachedClient = null;
+let cachedClientKey = null;
+
 export function getOpenAIClient(overrides = {}) {
   const config = getConfig();
   const baseURL = overrides.baseURL || config.baseURL;
   const apiKey = overrides.apiKey || config.apiKey;
+  const timeout = config.requestTimeoutMs;
+  const key = JSON.stringify([baseURL, apiKey, timeout]);
 
-  return new OpenAI({
+  if (cachedClient && cachedClientKey === key) return cachedClient;
+
+  cachedClient = new OpenAI({
     baseURL,
     apiKey,
+    timeout,
     dangerouslyAllowBrowser: false,
   });
+  cachedClientKey = key;
+  return cachedClient;
 }
 
 import { getOllamaApiBase } from './telemetry.js';
@@ -67,6 +79,7 @@ export async function callOllamaNativeChat({
   const effectiveKeepAlive = keepAlive || config.keepAlive || '30m';
   const maxTokens = config.maxTokens || 4096;
   const numCtx = config.numCtx || 16384;
+  const timeoutMs = config.requestTimeoutMs || 300000;
 
   // Normalize messages for Ollama native /api/chat:
   // Ollama requires `content` to be a string and image attachments in `images: [base64_string]`
@@ -123,11 +136,24 @@ export async function callOllamaNativeChat({
     payload.format = format;
   }
 
-  let res = await fetch(`${ollamaBase}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
+  // Bound every request so a hung Ollama server can't stall a chat turn forever.
+  const timedFetch = async (body) => {
+    try {
+      return await fetch(`${ollamaBase}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (err) {
+      if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
+        throw new Error(`Ollama /api/chat request timed out after ${timeoutMs}ms`);
+      }
+      throw err;
+    }
+  };
+
+  let res = await timedFetch(JSON.stringify(payload));
 
   if (!res.ok) {
     const errorText = await res.text().catch(() => '');
@@ -138,11 +164,7 @@ export async function callOllamaNativeChat({
       console.warn(`[LLMClient] Model "${model}" does not support images. Retrying text-only...`);
       const strippedMessages = normalizedMessages.map(({ images, ...m }) => m);
       const retryPayload = { ...payload, messages: strippedMessages };
-      res = await fetch(`${ollamaBase}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(retryPayload),
-      });
+      res = await timedFetch(JSON.stringify(retryPayload));
     }
 
     if (!res.ok) {

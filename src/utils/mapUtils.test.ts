@@ -259,6 +259,34 @@ describe('mapUtils', () => {
       expect(openPath![0]).toEqual({ x: 2, y: 2 });
     });
 
+    it('does not cut diagonally past a wall corner', () => {
+      // Vertical wall between (1,1) and (2,1): blocks east step from (1,1).
+      const walls = {
+        edges: [
+          { id: 'w', c1: [1, 1] as [number, number], c2: [2, 1] as [number, number], type: 'full' as const }
+        ]
+      };
+      const path = findPathAroundWalls({ x: 1, y: 1 }, { x: 2, y: 2 }, walls, mapSize);
+      expect(path).not.toBeNull();
+      // Diagonal (1,1)->(2,2) squeezes past the wall corner and must be disallowed.
+      expect(path![0]).not.toEqual({ x: 2, y: 2 });
+      expect(path![path!.length - 1]).toEqual({ x: 2, y: 2 });
+      expect(path!.length).toBeGreaterThan(1);
+    });
+
+    it('calculateMoveTowards does not move through walls when target is unreachable', () => {
+      // Fully enclose (0,0) in a 3x3 map corner.
+      const walls = {
+        edges: [
+          { id: 'a', c1: [0, 0] as [number, number], c2: [1, 0] as [number, number], type: 'full' as const },
+          { id: 'b', c1: [0, 0] as [number, number], c2: [0, 1] as [number, number], type: 'full' as const }
+        ]
+      };
+      const res = calculateMoveTowards({ x: 0, y: 0 }, { x: 2, y: 2 }, 30, undefined, walls, { width: 3, height: 3 });
+      expect(res.newPos).toEqual({ x: 0, y: 0 });
+      expect(res.movedFeet).toBe(0);
+    });
+
     it('routes around solid obstacle cells', () => {
       const walls = {
         obstacleCells: {

@@ -339,7 +339,8 @@ export function findPathAroundWalls(
         const block1 = isStepBlockedByWall(curr, step1, walls);
         const block2 = isStepBlockedByWall(curr, step2, walls);
 
-        if (block1.blocked && block2.blocked) continue;
+        // No corner cutting: a diagonal step is blocked if either orthogonal leg is blocked.
+        if (block1.blocked || block2.blocked) continue;
 
         // Destination obstacle check
         if (walls.obstacleCells) {
@@ -348,12 +349,23 @@ export function findPathAroundWalls(
         }
 
         // Direct diagonal intersection with wall edges
+        // Wall segments live in grid-corner coordinates, so the diagonal is tested
+        // between cell centres (+0.5). Segment ends are shrunk slightly so a wall that
+        // merely touches the shared corner is not treated as crossing.
         let diagonalWallBlocked = false;
         if (walls.edges) {
+          const centerA = { x: curr.x + 0.5, y: curr.y + 0.5 };
+          const centerB = { x: nx + 0.5, y: ny + 0.5 };
           for (const edge of walls.edges) {
             if (edge.type === 'door_open') continue;
             const seg = wallEdgeToSegment(edge);
-            if (lineSegmentsIntersect(curr, nextPos, seg.p1, seg.p2)) {
+            const sx = seg.p2.x - seg.p1.x;
+            const sy = seg.p2.y - seg.p1.y;
+            const len = Math.hypot(sx, sy) || 1;
+            const shrink = 0.02 / len;
+            const a = { x: seg.p1.x + sx * shrink, y: seg.p1.y + sy * shrink };
+            const b = { x: seg.p2.x - sx * shrink, y: seg.p2.y - sy * shrink };
+            if (lineSegmentsIntersect(centerA, centerB, a, b, 0.0001)) {
               diagonalWallBlocked = true;
               break;
             }
@@ -433,7 +445,8 @@ export function calculateMoveTowards(
   let path: Position[];
   let maxStep: number;
 
-  if (wallPath && wallPath.length > 0) {
+  if (wallPath !== null) {
+    // Walls present: never fall back to a straight line through them.
     maxStep = Math.min(wallPath.length, requestedCells);
     path = wallPath.slice(0, maxStep);
   } else {

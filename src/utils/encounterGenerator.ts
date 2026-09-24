@@ -27,7 +27,8 @@ export function ensureEncountersForCampaign(campaign: Campaign): Campaign {
   const encounterMap = new Map<string, Encounter>();
   
   existingEncounters.forEach(enc => {
-    encounterMap.set(enc.id, { ...enc });
+    // Copy chapterIds so later push() calls never mutate the caller's campaign.
+    encounterMap.set(enc.id, { ...enc, chapterIds: enc.chapterIds ? [...enc.chapterIds] : enc.chapterIds });
   });
 
   let hasChanges = false;
@@ -101,13 +102,14 @@ export function ensureEncountersForCampaign(campaign: Campaign): Campaign {
 
       // Auto-populate units if encounter has no units and chapter has monsters
       if (encounter.units.length === 0 && chapterMonsters.length > 0) {
-        hasChanges = true;
         const generatedUnits: EncounterUnit[] = [];
         chapterMonsters.slice(0, 6).forEach((mon, idx) => {
           const monsterData = dataService.getMonsterByIdSync(mon.id);
-          const dex = monsterData?.stats?.DEX?.modifier ?? 0;
-          const hpDice = monsterData?.attributes?.hp?.dice || '1d1';
-          const maxHp = monsterData?.attributes?.hp?.value || 10;
+          // Monster data not loaded (or unknown id): don't fabricate a placeholder unit.
+          if (!monsterData) return;
+          const dex = monsterData.stats?.DEX?.modifier ?? 0;
+          const hpDice = monsterData.attributes?.hp?.dice || '1d1';
+          const maxHp = monsterData.attributes?.hp?.value || 10;
           const pos: Position = {
             x: Math.min(18, 2 + (idx % 6) * 2),
             y: Math.min(18, 2 + Math.floor(idx / 6) * 2)
@@ -121,11 +123,14 @@ export function ensureEncountersForCampaign(campaign: Campaign): Campaign {
             maxHp,
             dexMod: dex,
             isPlayer: false,
-            fullData: monsterData || undefined,
+            fullData: monsterData,
             position: pos
           });
         });
-        encounter.units = generatedUnits;
+        if (generatedUnits.length > 0) {
+          hasChanges = true;
+          encounter.units = generatedUnits;
+        }
       }
     });
   });

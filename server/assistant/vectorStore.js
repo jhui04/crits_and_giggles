@@ -2,17 +2,118 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { db } from '../db.js';
-import { computeSemanticEmbedding, computeSemanticEmbeddingsBatch, computeLocalEmbedding, cosineSimilarity } from './embedder.js';
+import {
+  computeSemanticEmbedding,
+  computeSemanticEmbeddingsBatch,
+  computeLocalEmbedding,
+  localFallbackAllowed,
+  cosineSimilarity,
+  embeddingKind,
+  inferEmbeddingKind,
+} from './embedder.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PUBLIC_DATA_DIR = path.resolve(__dirname, '../../public/data');
 
-// Lightweight in-memory index containing ONLY vector math metadata (no heavy content text)
+// Lightweight in-memory index containing ONLY vector math metadata (no heavy content text).
+// Map keyed by chunk id; kept incrementally in sync by writers instead of being dropped.
 let cachedVectorIndex = null;
+let cachedIndexDb = null;
+let loadFailed = false;
+let initialIndexPromise = null;
 
 export function invalidateVectorCache() {
   cachedVectorIndex = null;
+  cachedIndexDb = null;
+  loadFailed = false;
+}
+
+// Prepared statements are created lazily and re-created if setDb() swapped the db.
+let stmtDb = null;
+let stmts = null;
+function getStmts() {
+  if (stmts && stmtDb === db) return stmts;
+  stmts = {
+    upsert: db.prepare(`
+      INSERT OR REPLACE INTO vector_chunks (id, source, campaign_id, entity_id, title, content, embedding, metadata, embedding_kind)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `),
+    deleteCampaignLore: db.prepare(`
+      DELETE FROM vector_chunks
+      WHERE campaign_id = ?
+      AND source IN ('campaign_chapter', 'campaign_asset', 'world_asset')
+    `),
+  };
+  stmtDb = db;
+  return stmts;
+}
+
+function makeCacheEntry(id, source, campaignId, title, embeddingJson, kind = null) {
+  const embedding = JSON.parse(embeddingJson);
+  return {
+    id,
+    source,
+    campaignId: campaignId ?? null,
+    title,
+    embedding,
+    kind: kind || inferEmbeddingKind(embedding),
+    lowerTitle: title.toLowerCase(),
+  };
+}
+
+// Returns the live cache Map only if it is loaded and belongs to the current db.
+function liveCache() {
+  return cachedVectorIndex && cachedIndexDb === db ? cachedVectorIndex : null;
+}
+
+function applyEntriesToCache(entries) {
+  const cache = liveCache();
+  if (!cache) return;
+  for (const e of entries) cache.set(e.id, e);
+}
+
+/** Drops every cached entry of a campaign's lore (mirrors the DB delete). */
+export function removeCampaignFromVectorCache(campaignId, sources = null) {
+  const cache = liveCache();
+  if (!cache) return;
+  for (const [id, e] of cache) {
+    if (e.campaignId === campaignId && (!sources || sources.includes(e.source))) cache.delete(id);
+  }
+}
+
+/** Removes specific chunk ids from the cache (call after deleting them from SQLite). */
+export function removeVectorChunksFromCache(ids) {
+  const cache = liveCache();
+  if (!cache) return;
+  for (const id of ids) cache.delete(id);
+}
+
+/** SQL-only batch insert (no cache update); must run inside a transaction or be wrapped. Returns cache entries. */
+function insertChunks(items) {
+  const { upsert } = getStmts();
+  const entries = [];
+  for (const item of items) {
+    if (!item.embedding && !localFallbackAllowed()) {
+      throw new Error(`Refusing to store chunk "${item.id}" without an embedding from the embedding model`);
+    }
+    const embedding = item.embedding || computeLocalEmbedding(item.content, item.title);
+    const embeddingJson = JSON.stringify(embedding);
+    const kind = embeddingKind(embedding);
+    upsert.run(
+      item.id,
+      item.source,
+      item.campaignId || null,
+      item.entityId || null,
+      item.title,
+      item.content,
+      embeddingJson,
+      JSON.stringify(item.metadata || {}),
+      kind
+    );
+    entries.push(makeCacheEntry(item.id, item.source, item.campaignId, item.title, embeddingJson, kind));
+  }
+  return entries;
 }
 
 /**
@@ -20,30 +121,8 @@ export function invalidateVectorCache() {
  */
 export function batchUpsertVectorChunks(chunks) {
   if (!chunks || chunks.length === 0) return;
-
-  const stmt = db.prepare(`
-    INSERT OR REPLACE INTO vector_chunks (id, source, campaign_id, entity_id, title, content, embedding, metadata)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-
-  const runBatch = db.transaction((items) => {
-    for (const item of items) {
-      const embedding = item.embedding || computeLocalEmbedding(item.content, item.title);
-      stmt.run(
-        item.id,
-        item.source,
-        item.campaignId || null,
-        item.entityId || null,
-        item.title,
-        item.content,
-        JSON.stringify(embedding),
-        JSON.stringify(item.metadata || {})
-      );
-    }
-  });
-
-  runBatch(chunks);
-  invalidateVectorCache();
+  const entries = db.transaction((items) => insertChunks(items))(chunks);
+  applyEntriesToCache(entries);
 }
 
 /**
@@ -59,25 +138,14 @@ export async function upsertVectorChunk({
   metadata = {},
   embedding = null,
 }) {
-  const vector = embedding || await computeSemanticEmbedding(content, title, { silent: true });
+  const vector = embedding || await computeSemanticEmbedding(content, title);
+  const embeddingJson = JSON.stringify(vector);
 
-  const stmt = db.prepare(`
-    INSERT OR REPLACE INTO vector_chunks (id, source, campaign_id, entity_id, title, content, embedding, metadata)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `);
+  const kind = embeddingKind(vector);
 
-  stmt.run(
-    id,
-    source,
-    campaignId,
-    entityId,
-    title,
-    content,
-    JSON.stringify(vector),
-    JSON.stringify(metadata)
-  );
+  getStmts().upsert.run(id, source, campaignId, entityId, title, content, embeddingJson, JSON.stringify(metadata), kind);
 
-  invalidateVectorCache();
+  applyEntriesToCache([makeCacheEntry(id, source, campaignId, title, embeddingJson, kind)]);
 }
 
 /**
@@ -329,22 +397,31 @@ export function chunkMarkdownChapter(title, content, maxChunkChars = 1500) {
   return chunks;
 }
 
+// Per-campaign serialization: overlapping saves run one after another so an
+// older (slower) run can never overwrite the results of a newer one.
+const campaignIndexQueues = new Map();
+
 /**
- * Indexes custom campaign lore, notes, and chapters from SQLite
+ * Indexes custom campaign lore, notes, and chapters from SQLite.
+ * Runs are serialized per campaign; each run reads the current DB state when it
+ * starts, so the last-queued run always wins.
  */
-export async function indexCampaignLore(campaignId) {
-  if (!campaignId) return 0;
+export function indexCampaignLore(campaignId) {
+  if (!campaignId) return Promise.resolve(0);
 
-  // Wipe existing dynamic chunks for this campaign to ensure a clean slate and avoid staleness/orphaned chunks
-  try {
-    db.prepare(`
-      DELETE FROM vector_chunks 
-      WHERE campaign_id = ? 
-      AND source IN ('campaign_chapter', 'campaign_asset', 'world_asset')
-    `).run(campaignId);
-    invalidateVectorCache();
-  } catch {}
+  const previous = campaignIndexQueues.get(campaignId) || Promise.resolve();
+  const run = previous.catch(() => {}).then(() => indexCampaignLoreOnce(campaignId));
+  campaignIndexQueues.set(campaignId, run);
+  const cleanup = () => {
+    if (campaignIndexQueues.get(campaignId) === run) campaignIndexQueues.delete(campaignId);
+  };
+  run.then(cleanup, cleanup);
+  return run;
+}
 
+const LORE_SOURCES = ['campaign_chapter', 'campaign_asset', 'world_asset'];
+
+async function indexCampaignLoreOnce(campaignId) {
   const chunks = [];
 
   // Chapters: chunked by heading and paragraph with breadcrumbs
@@ -392,7 +469,7 @@ export async function indexCampaignLore(campaignId) {
     const worldAssets = db.prepare('SELECT id, type, name, description FROM world_assets WHERE world_id = ?').all(campaign.world_id);
     for (const wa of worldAssets) {
       chunks.push({
-        id: `world-${campaign.world_id}-asset-${wa.id}`,
+        id: `camp-${campaignId}-world-${campaign.world_id}-asset-${wa.id}`,
         source: 'world_asset',
         campaignId,
         entityId: wa.id,
@@ -403,15 +480,25 @@ export async function indexCampaignLore(campaignId) {
     }
   }
 
+  // Embed FIRST (async, may fail) so a failure leaves the existing lore intact.
   if (chunks.length > 0) {
     const embeddings = await computeSemanticEmbeddingsBatch(chunks);
     for (let i = 0; i < chunks.length; i++) {
       chunks[i].embedding = embeddings[i];
     }
-    batchUpsertVectorChunks(chunks);
-  } else {
-    invalidateVectorCache();
   }
+
+  // Then swap old for new in one synchronous transaction. Deleting by
+  // campaign_id also clears legacy-format world_asset rows (ids of the form
+  // `world-<worldId>-asset-<id>`) that were tagged with this campaign.
+  const swap = db.transaction(() => {
+    getStmts().deleteCampaignLore.run(campaignId);
+    return insertChunks(chunks);
+  });
+  const entries = swap();
+  // Only touch the cache after the transaction committed.
+  removeCampaignFromVectorCache(campaignId, LORE_SOURCES);
+  applyEntriesToCache(entries);
 
   return chunks.length;
 }
@@ -421,22 +508,34 @@ export async function indexCampaignLore(campaignId) {
  * Heavy text content and metadata are explicitly excluded from memory.
  */
 function getOrLoadVectorIndex() {
-  if (cachedVectorIndex) return cachedVectorIndex;
+  const live = liveCache();
+  if (live) return live;
 
   try {
-    const rows = db.prepare('SELECT id, source, campaign_id, title, embedding FROM vector_chunks').all();
-    cachedVectorIndex = rows.map((row) => ({
-      id: row.id,
-      source: row.source,
-      campaignId: row.campaign_id,
-      title: row.title,
-      embedding: JSON.parse(row.embedding),
-      lowerTitle: row.title.toLowerCase(),
-    }));
-    return cachedVectorIndex;
+    const rows = db.prepare('SELECT id, source, campaign_id, title, embedding, embedding_kind FROM vector_chunks').all();
+    const map = new Map();
+    for (const row of rows) {
+      map.set(row.id, makeCacheEntry(row.id, row.source, row.campaign_id, row.title, row.embedding, row.embedding_kind));
+    }
+    cachedVectorIndex = map;
+    cachedIndexDb = db;
+    loadFailed = false;
+    return map;
   } catch {
-    return [];
+    // Do not cache; flag so the caller doesn't launch a forced reindex against a broken DB.
+    loadFailed = true;
+    return new Map();
   }
+}
+
+/** Shared in-flight initial SRD index so concurrent queries don't each reindex. */
+function ensureInitialIndex() {
+  if (!initialIndexPromise) {
+    initialIndexPromise = indexSrdAndJsonData(true).finally(() => {
+      initialIndexPromise = null;
+    });
+  }
+  return initialIndexPromise;
 }
 
 /**
@@ -449,24 +548,30 @@ export async function searchVectorStore(query, { campaignId = null, limit = 3, f
 
   let index = getOrLoadVectorIndex();
 
-  // If index is empty, auto-index base SRD and JSON data
-  if (index.length === 0) {
-    await indexSrdAndJsonData(true);
+  // If index is empty (and the DB is readable), auto-index base SRD and JSON data once
+  if (index.size === 0 && !loadFailed) {
+    await ensureInitialIndex();
     if (campaignId) await indexCampaignLore(campaignId);
     index = getOrLoadVectorIndex();
   }
 
-  // Semantic dense vector from Ollama (or deterministic fallback)
+  // Semantic dense vector from the embedding model (throws EmbeddingUnavailableError if it is unavailable)
   const queryVec = forceLocal
     ? computeLocalEmbedding(query)
     : await computeSemanticEmbedding(query);
+
+  const queryKind = embeddingKind(queryVec);
+  let localQueryVec = queryKind === 'local' ? queryVec : null;
 
   const GENERIC_QUERY_TERMS = new Set(['spell', 'spells', 'monster', 'monsters', 'rule', 'rules', 'stats', 'stat', 'lore', 'dnd']);
   const queryClean = query.toLowerCase().replace(/[^a-z0-9\s]/g, ' ');
   const queryTokens = queryClean.split(/\s+/).filter((w) => w.length > 2 && !GENERIC_QUERY_TERMS.has(w));
 
+  const k = Math.max(0, Math.floor(Number(limit) || 0));
+  if (k === 0) return [];
+  // Bounded top-k, kept sorted descending; ties keep scan order (same as a stable sort).
   const scored = [];
-  for (const item of index) {
+  for (const item of index.values()) {
     if (campaignId && item.campaignId && item.campaignId !== campaignId) {
       continue;
     }
@@ -483,7 +588,16 @@ export async function searchVectorStore(query, { campaignId = null, limit = 3, f
       }
     }
 
-    let score = cosineSimilarity(queryVec, item.embedding);
+    // Only compare vectors from the same space. A chunk indexed with the local fallback is scored
+    // against a local query vector; a dense chunk of a different model/dimension cannot be scored
+    // (it falls back to the title boost until it is reindexed).
+    let score = 0;
+    if (item.kind === queryKind) {
+      score = cosineSimilarity(queryVec, item.embedding);
+    } else if (item.kind === 'local') {
+      localQueryVec ??= computeLocalEmbedding(query);
+      score = cosineSimilarity(localQueryVec, item.embedding);
+    }
 
     // Title & Entity keyword boost (hybrid dense + sparse matching)
     for (const tok of queryTokens) {
@@ -492,16 +606,15 @@ export async function searchVectorStore(query, { campaignId = null, limit = 3, f
       }
     }
 
-    scored.push({
-      id: item.id,
-      campaignId: item.campaignId,
-      title: item.title,
-      score: Number(score.toFixed(4)),
-    });
+    const rounded = Number(score.toFixed(4));
+    if (scored.length === k && !(rounded > scored[k - 1].score)) continue;
+    let pos = scored.length;
+    while (pos > 0 && scored[pos - 1].score < rounded) pos--;
+    scored.splice(pos, 0, { id: item.id, campaignId: item.campaignId, title: item.title, score: rounded });
+    if (scored.length > k) scored.pop();
   }
 
-  scored.sort((a, b) => b.score - a.score);
-  const topMatches = scored.slice(0, limit);
+  const topMatches = scored;
   if (topMatches.length === 0) return [];
 
   // Secondary SQLite query: fetch title, content, metadata ONLY for the Top-K matched IDs

@@ -11,6 +11,7 @@ import { RegionJumpModal } from './RegionJumpModal';
 import { UnitActionModal } from './UnitActionModal';
 import { mapGridService } from '../services/MapGridService';
 import { isStepBlockedByWall } from '../utils/coverCalculation';
+import { hasCommandModifier, useAnnouncer } from './uiHelpers';
 
 interface CombatMapProps {
   units: EncounterUnit[];
@@ -135,7 +136,7 @@ export function CombatMap({
   const [focusedCell, setFocusedCell] = useState<Position>({ x: 0, y: 0 });
   const [moveModeUnit, setMoveModeUnit] = useState<EncounterUnit | null>(null);
   const [moveOrigin, setMoveOrigin] = useState<Position | null>(null);
-  const [liveAnnouncement, setLiveAnnouncement] = useState<string>('');
+  const [liveAnnouncement, setLiveAnnouncement] = useAnnouncer();
   const [isRadarOpen, setIsRadarOpen] = useState(false);
   const [radarOriginUnit, setRadarOriginUnit] = useState<EncounterUnit | null>(null);
   const [isJumpOpen, setIsJumpOpen] = useState(false);
@@ -211,6 +212,19 @@ export function CombatMap({
   const [isRegionJumpOpen, setIsRegionJumpOpen] = useState(false);
 
   const tableRef = useRef<HTMLTableElement>(null);
+
+  const closeActionModal = () => {
+    setIsActionModalOpen(false);
+    setActionModalUnit(null);
+    setActionModalPos(null);
+  };
+
+  // Focus a grid cell (row/col are offset by one for the header row/column).
+  const focusCell = (pos: Position, delayMs?: number) => {
+    const doFocus = () => tableRef.current?.rows[pos.y + 1]?.cells[pos.x + 1]?.focus();
+    if (delayMs === undefined) doFocus();
+    else setTimeout(doFocus, delayMs);
+  };
   const mapSectionRef = useRef<HTMLElement>(null);
   const radarTriggerRef = useRef<HTMLButtonElement>(null);
   const jumpTriggerRef = useRef<HTMLButtonElement>(null);
@@ -295,9 +309,7 @@ export function CombatMap({
   useEffect(() => {
     if (isInternalFocusChange.current) {
       if (!isAnyModalOpen) {
-        const row = tableRef.current?.rows[focusedCell.y + 1];
-        const cell = row?.cells[focusedCell.x + 1];
-        cell?.focus();
+        focusCell(focusedCell);
       }
       isInternalFocusChange.current = false;
     }
@@ -308,9 +320,7 @@ export function CombatMap({
     const handleGlobalShortcuts = (e: KeyboardEvent) => {
       if (e.altKey && e.key.toLowerCase() === 'b') {
         e.preventDefault();
-        const row = tableRef.current?.rows[focusedCell.y + 1];
-        const cell = row?.cells[focusedCell.x + 1];
-        cell?.focus();
+        focusCell(focusedCell);
         const regionTag = getRegionLabel(focusedCell);
         setLiveAnnouncement(`Combat Map board focused at cell ${coordinateToLabel(focusedCell)}${regionTag}. Use arrow keys to navigate, Escape to exit.`);
       } else if (e.altKey && e.key.toLowerCase() === 'e') {
@@ -342,7 +352,7 @@ export function CombatMap({
     };
     window.addEventListener('keydown', handleGlobalShortcuts);
     return () => window.removeEventListener('keydown', handleGlobalShortcuts);
-  }, [focusedCell, openRadarForUnit, getRegionLabel, effectiveMapSize.regions]);
+  }, [focusedCell, openRadarForUnit, getRegionLabel, effectiveMapSize.regions, setLiveAnnouncement]);
 
   const moveFocusTo = useCallback((newPos: Position) => {
     const clampedX = Math.max(0, Math.min(effectiveMapSize.width - 1, newPos.x));
@@ -362,7 +372,7 @@ export function CombatMap({
       setLiveAnnouncement(`Moved ${moveModeUnit.name} to ${coord}${regionTag}${occupancyNote}. ${dist} ft from start. Press Enter to place.`);
     }
     // On regular cursor navigation, aria-label on the focused cell announces coordinates & region natively without double-speaking!
-  }, [effectiveMapSize.width, effectiveMapSize.height, moveModeUnit, moveOrigin, unitByCoord, getRegionLabel]);
+  }, [effectiveMapSize.width, effectiveMapSize.height, moveModeUnit, moveOrigin, unitByCoord, getRegionLabel, setLiveAnnouncement]);
 
   // Jump to Next / Previous occupied cell
   const jumpToOccupied = useCallback((forward: boolean) => {
@@ -392,7 +402,7 @@ export function CombatMap({
       const regionTag = getRegionLabel(activeUnit.position);
       setLiveAnnouncement(`Focused on active turn: ${activeUnit.name} at ${coordinateToLabel(activeUnit.position)}${regionTag}.`);
     }
-  }, [activeTurnUnitId, units, moveFocusTo, getRegionLabel]);
+  }, [activeTurnUnitId, units, moveFocusTo, getRegionLabel, setLiveAnnouncement]);
 
   const handleStartMoveMode = (unit: EncounterUnit) => {
     if (!unit.position) return;
@@ -503,7 +513,7 @@ export function CombatMap({
 
     // Standard cursor navigation
     moveFocusTo(targetPos);
-  }, [moveModeUnit, moveOrigin, effectiveMapSize.width, effectiveMapSize.height, effectiveMapSize.walls, moveFocusTo, getRegionLabel]);
+  }, [moveModeUnit, moveOrigin, effectiveMapSize.width, effectiveMapSize.height, effectiveMapSize.walls, moveFocusTo, getRegionLabel, setLiveAnnouncement]);
 
   // Cell keyboard listener
   const handleCellKeyDown = (e: React.KeyboardEvent<HTMLElement>, pos: Position) => {
@@ -563,7 +573,7 @@ export function CombatMap({
 
     // Quick single-key triggers on occupied cells
     const occupant = unitByCoord.get(`${pos.x},${pos.y}`);
-    if (occupant && !moveModeUnit) {
+    if (occupant && !moveModeUnit && !hasCommandModifier(e)) {
       if (e.key.toLowerCase() === 'm') {
         e.preventDefault();
         handleStartMoveMode(occupant);
@@ -639,6 +649,7 @@ export function CombatMap({
       {/* Accessible Live Region for Screen Reader Announcements */}
       <div
         aria-live="polite"
+        aria-atomic="true"
         className="sr-only"
         style={{ position: 'absolute', width: '1px', height: '1px', overflow: 'hidden', clip: 'rect(0,0,0,0)' }}
       >
@@ -749,7 +760,7 @@ export function CombatMap({
         }}
       >
         <span style={{ color: '#adb5bd' }}>
-          Navigate grid with <strong>Arrow keys</strong>, <strong>WASD</strong>, or <strong>Numpad</strong>. Press <strong>Escape</strong> to exit board. Press <strong>Alt+B</strong> to focus board.
+          Navigate grid with <strong>Arrow keys</strong> (Home and End jump to the row edges; add Ctrl for map corners). Press <strong>Escape</strong> to exit board. Press <strong>Alt+B</strong> to focus board.
         </span>
         <span style={{ color: '#ffc107', marginLeft: 'auto' }}>
           Current: <strong>{coordinateToLabel(focusedCell)}</strong>{getRegionLabel(focusedCell)} {focusedOccupant ? `(${focusedOccupant.name})` : '(Empty)'}
@@ -991,37 +1002,25 @@ export function CombatMap({
           setActionModalUnit(null);
           setActionModalPos(null);
           // Restore focus to the cell that opened the menu
-          setTimeout(() => {
-            const row = tableRef.current?.rows[cellToFocus.y + 1];
-            const cell = row?.cells[cellToFocus.x + 1];
-            cell?.focus();
-          }, 50);
+          focusCell(cellToFocus, 50);
         }}
         onStartMove={unit => {
-          setIsActionModalOpen(false);
-          setActionModalUnit(null);
-          setActionModalPos(null);
+          closeActionModal();
           handleStartMoveMode(unit);
         }}
         onOpenOperations={unit => {
           const cell = actionModalPos || focusedCell;
-          setIsActionModalOpen(false);
-          setActionModalUnit(null);
-          setActionModalPos(null);
+          closeActionModal();
           onOpenOperations?.(unit, cell);
         }}
         onOpenDetails={unit => {
           const cell = actionModalPos || focusedCell;
-          setIsActionModalOpen(false);
-          setActionModalUnit(null);
-          setActionModalPos(null);
+          closeActionModal();
           onOpenDetails?.(unit, cell);
         }}
         onOpenRadar={unit => {
           const cell = actionModalPos || focusedCell;
-          setIsActionModalOpen(false);
-          setActionModalUnit(null);
-          setActionModalPos(null);
+          closeActionModal();
           openRadarForUnit(unit, true, cell);
         }}
       />
@@ -1048,11 +1047,7 @@ export function CombatMap({
           setLiveAnnouncement(announcement);
 
           // Return focus to the map point where creature moved
-          setTimeout(() => {
-            const row = tableRef.current?.rows[newPos.y + 1];
-            const cell = row?.cells[newPos.x + 1];
-            cell?.focus();
-          }, 50);
+          focusCell(newPos, 50);
         }}
         onClose={() => {
           setIsRadarOpen(false);
@@ -1062,11 +1057,7 @@ export function CombatMap({
           radarReturnCellRef.current = null;
 
           if (returnCell) {
-            setTimeout(() => {
-              const row = tableRef.current?.rows[returnCell.y + 1];
-              const cell = row?.cells[returnCell.x + 1];
-              cell?.focus();
-            }, 50);
+            focusCell(returnCell, 50);
           } else {
             // Restore focus to radar trigger button
             setTimeout(() => radarTriggerRef.current?.focus(), 50);
@@ -1090,11 +1081,7 @@ export function CombatMap({
           if (jumpOpenedFromCellRef.current) {
             const returnCell = jumpOpenedFromCellRef.current;
             jumpOpenedFromCellRef.current = null;
-            setTimeout(() => {
-              const row = tableRef.current?.rows[returnCell.y + 1];
-              const cell = row?.cells[returnCell.x + 1];
-              cell?.focus();
-            }, 50);
+            focusCell(returnCell, 50);
           } else {
             // Restore focus to jump trigger button
             setTimeout(() => jumpTriggerRef.current?.focus(), 0);
@@ -1118,11 +1105,7 @@ export function CombatMap({
           if (regionJumpOpenedFromCellRef.current) {
             const returnCell = regionJumpOpenedFromCellRef.current;
             regionJumpOpenedFromCellRef.current = null;
-            setTimeout(() => {
-              const row = tableRef.current?.rows[returnCell.y + 1];
-              const cell = row?.cells[returnCell.x + 1];
-              cell?.focus();
-            }, 50);
+            focusCell(returnCell, 50);
           } else {
             // Restore focus to region jump trigger button
             setTimeout(() => regionJumpTriggerRef.current?.focus(), 0);

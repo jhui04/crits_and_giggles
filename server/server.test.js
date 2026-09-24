@@ -187,3 +187,56 @@ describe('World API', () => {
     expect(check.status).toBe(404);
   });
 });
+
+describe('API robustness fixes', () => {
+  it('PUT /api/campaigns/:id returns 404 for a nonexistent campaign', async () => {
+    const res = await request(app).put('/api/campaigns/does-not-exist').send({ name: 'x', description: 'y' });
+    expect(res.status).toBe(404);
+  });
+
+  it('PUT /api/worlds/:id returns 404 for a nonexistent world', async () => {
+    const res = await request(app).put('/api/worlds/does-not-exist').send({ name: 'x', description: 'y' });
+    expect(res.status).toBe(404);
+  });
+
+  it('POST /api/campaigns accepts units without dexMod', async () => {
+    const res = await request(app).post('/api/campaigns').send({
+      id: 'no-dexmod-campaign',
+      name: 'n',
+      description: 'd',
+      encounters: [{ id: 'e-nd', name: 'E', units: [{ instanceId: 'nd-u1', name: 'U', isPlayer: false }] }],
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.encounters[0].units[0].dexMod).toBe(0);
+    await request(app).delete('/api/campaigns/no-dexmod-campaign');
+  });
+
+  it('DELETE /api/campaigns/:id removes only that campaign vector_chunks', async () => {
+    const mk = (id) => request(app).post('/api/campaigns').send({ id, name: id, description: 'd' });
+    expect((await mk('vec-del-a')).status).toBe(201);
+    expect((await mk('vec-del-b')).status).toBe(201);
+    db.prepare("DELETE FROM vector_chunks WHERE id LIKE 'vec-del-%'").run();
+    const ins = db.prepare(
+      "INSERT INTO vector_chunks (id, source, campaign_id, entity_id, title, content, embedding) VALUES (?, 'lore', ?, ?, 't', 'c', '[]')"
+    );
+    ins.run('vec-del-a1', 'vec-del-a', 'e1');
+    ins.run('vec-del-a2', 'vec-del-a', 'e2');
+    ins.run('vec-del-b1', 'vec-del-b', 'e1');
+
+    const res = await request(app).delete('/api/campaigns/vec-del-a');
+    expect(res.status).toBe(204);
+    const count = (cid) => db.prepare('SELECT COUNT(*) AS n FROM vector_chunks WHERE campaign_id = ?').get(cid).n;
+    expect(count('vec-del-a')).toBe(0);
+    expect(count('vec-del-b')).toBe(1);
+
+    await request(app).delete('/api/campaigns/vec-del-b');
+    expect(count('vec-del-b')).toBe(0);
+  });
+
+  it('metrics and search tolerate a non-numeric limit', async () => {
+    const m = await request(app).get('/api/assistant/metrics?limit=abc');
+    expect(m.status).toBe(200);
+    const m2 = await request(app).get('/api/assistant/metrics?limit=-5');
+    expect(m2.status).toBe(200);
+  });
+});

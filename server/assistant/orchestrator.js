@@ -1,8 +1,30 @@
 import { getConfig } from './config.js';
 import { executeChatCompletion, separateThinkingAndContent } from './llmClient.js';
 import { searchVectorStore } from './vectorStore.js';
+import { EmbeddingUnavailableError } from './embedder.js';
 import { getAuthoritativeGameState, buildChatMessages, estimateTokenCount } from './contextBuilder.js';
 import { ASSISTANT_TOOLS, executeTool } from './toolController.js';
+
+/** Chat-log reply for a turn that was short-circuited because the embedding model is unavailable. */
+function embeddingUnavailableResult(err, modelUsed, gameState = null) {
+  console.warn('[Orchestrator] Embedding model unavailable:', err.message);
+  return {
+    answer: `**Oracle could not search its knowledge base.**
+
+${err.message}
+
+Once the model is installed, ask again.`,
+    proposals: [],
+    passages: [],
+    gameState,
+    toolCalls: [],
+    executedTools: [],
+    modelUsed,
+    isOffline: true,
+    embeddingUnavailable: true,
+    error: err.message,
+  };
+}
 
 /**
  * Handles the complete RAG + State + Tool Execution pipeline for user queries.
@@ -26,10 +48,16 @@ export async function handleAssistantChat({
   const chosenModel = model || config.activeModel;
 
   // 1. Vector Search for Top-K passages with relevance filtering to prevent noise
-  const rawPassages = await searchVectorStore(query, {
-    campaignId,
-    limit: config.topKPassages || 3,
-  });
+  let rawPassages;
+  try {
+    rawPassages = await searchVectorStore(query, {
+      campaignId,
+      limit: config.topKPassages || 3,
+    });
+  } catch (err) {
+    if (err instanceof EmbeddingUnavailableError) return embeddingUnavailableResult(err, chosenModel);
+    throw err;
+  }
   const minScore = config.minPassageScore ?? 0.68;
   const passages = rawPassages.filter((p) => p.score >= minScore);
 
@@ -85,6 +113,9 @@ export async function handleAssistantChat({
 
   // 4. Call Local LLM via OpenAI abstraction with tools
   const executedToolCalls = [];
+  // Hoisted so the catch block can still surface proposals that were staged
+  // before the LLM call failed (otherwise the DM would never see them).
+  const stagedProposals = [];
 
   try {
     let completionResult = await executeChatCompletion({
@@ -112,7 +143,6 @@ export async function handleAssistantChat({
     // mutates state, so there is no ordering hazard in staging several in a
     // row. hitlManager itself still caps how many can be pending at once
     // per campaign, so a runaway tool-call loop can't queue unboundedly.
-    const stagedProposals = [];
 
     while (assistantMessage?.tool_calls && assistantMessage.tool_calls.length > 0 && iterations < maxToolIterations) {
       iterations++;
@@ -184,6 +214,9 @@ export async function handleAssistantChat({
             });
           }
         } catch (toolErr) {
+          // A missing embedding model is an environment problem, not something for the LLM to
+          // work around: stop the turn and tell the DM (handled by the outer catch).
+          if (toolErr instanceof EmbeddingUnavailableError) throw toolErr;
           executedToolCalls.push({
             toolName: fnName,
             args: fnArgs,
@@ -290,11 +323,25 @@ export async function handleAssistantChat({
       }, 0),
     };
   } catch (err) {
+    if (err instanceof EmbeddingUnavailableError) {
+      const result = embeddingUnavailableResult(err, chosenModel, gameState);
+      result.proposals = stagedProposals;
+      result.toolCalls = executedToolCalls;
+      result.executedTools = executedToolCalls.map((tc) => tc.toolName);
+      return result;
+    }
     // If local Ollama connection fails, return helpful error response with retrieved passages & state
     console.warn('[Orchestrator] LLM invocation failed:', err.message);
 
     // Provide a graceful synthesized answer from retrieved RAG passages & authoritative state
     let gracefulAnswer = `**Oracle (Offline Mode)**: Could not connect to local LLM (${err.message}).\n\n`;
+    if (stagedProposals.length > 0) {
+      gracefulAnswer += `**${stagedProposals.length} proposal${stagedProposals.length === 1 ? '' : 's'} already staged before the error and awaiting your confirmation:**\n`;
+      stagedProposals.forEach((p) => {
+        gracefulAnswer += `- ${p.description}\n`;
+      });
+      gracefulAnswer += `\n`;
+    }
     if (gameState.combatants && gameState.combatants.length > 0) {
       gracefulAnswer += `### Current Encounter: ${gameState.activeEncounter || 'Active'}\n`;
       gameState.combatants.forEach((c) => {
@@ -312,6 +359,7 @@ export async function handleAssistantChat({
 
     return {
       answer: gracefulAnswer,
+      proposals: stagedProposals,
       passages,
       gameState,
       toolCalls: executedToolCalls,

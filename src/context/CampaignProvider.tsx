@@ -1,9 +1,86 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { ReactNode } from 'react';
 import type { Campaign, Encounter, EncounterUnit } from '../types';
 import { CampaignContext } from './CampaignContext';
 import { CampaignApiService } from '../services/CampaignApiService';
 import { ensureEncountersForCampaign } from '../utils/encounterGenerator';
+import { dataService } from '../services/DataService';
+
+function safeSetItem(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch (err) {
+    console.warn(`CampaignProvider: could not write ${key} to localStorage:`, err);
+  }
+}
+
+function safeRemoveItem(key: string): void {
+  try {
+    localStorage.removeItem(key);
+  } catch (err) {
+    console.warn(`CampaignProvider: could not remove ${key} from localStorage:`, err);
+  }
+}
+
+function safeGetItem(key: string): string | null {
+  try {
+    return typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Monster data must be loaded before ensureEncountersForCampaign runs, otherwise
+// auto-generated units would lack real HP/dex data.
+async function ensureMonsterDataLoaded(): Promise<void> {
+  try {
+    await dataService.getAllMonsters();
+  } catch (err) {
+    console.warn('CampaignProvider: monster data failed to load; encounter units will not be auto-populated yet:', err);
+  }
+}
+
+// Shared across StrictMode's double-invoked mount effect so the default campaign is only seeded once.
+let seedPromise: Promise<Campaign | null> | null = null;
+
+function seedDefaultCampaign(): Promise<Campaign | null> {
+  if (seedPromise) return seedPromise;
+  const p = (async (): Promise<Campaign | null> => {
+    const res = await fetch('/data/scraped_campaign.json');
+    if (!res.ok) throw new Error(`Failed to fetch default campaign: ${res.status}`);
+
+    const data = await res.json();
+    const templates = Array.isArray(data) ? data : [data];
+    if (templates.length === 0) return null;
+
+    const template = templates[0];
+    const defaultCampaign: Campaign = ensureEncountersForCampaign({
+      ...template,
+      id: crypto.randomUUID(),
+      players: template.players || [],
+      encounters: ((template.encounters || []) as Encounter[]).map((e: Encounter) => ({
+        ...e,
+        units: (e.units || []).map((u: EncounterUnit) => ({ ...u, instanceId: crypto.randomUUID() }))
+      }))
+    });
+
+    // If template has no encounters, add a sample one to the first chapter
+    if (defaultCampaign.encounters.length === 0 && defaultCampaign.chapters.length > 0) {
+      defaultCampaign.encounters.push({
+        id: crypto.randomUUID(),
+        name: 'Sample Encounter',
+        chapterIds: [defaultCampaign.chapters[0].id],
+        units: []
+      });
+    }
+
+    return CampaignApiService.create(defaultCampaign);
+  })();
+  seedPromise = p;
+  // Allow a retry after failure.
+  p.catch(() => { if (seedPromise === p) seedPromise = null; });
+  return p;
+}
 
 export function CampaignProvider({ children }: { children: ReactNode }) {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -12,59 +89,40 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
   const [isLoaded, setIsLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Per-campaign save serialization and write versioning (guards against out-of-order PUTs
+  // and against stale GET responses overwriting newer local saves).
+  const saveChains = useRef(new Map<string, Promise<unknown>>());
+  const writeVersions = useRef(new Map<string, number>());
+  const bumpVersion = useCallback((id: string) => {
+    writeVersions.current.set(id, (writeVersions.current.get(id) ?? 0) + 1);
+  }, []);
+  const getVersion = useCallback((id: string) => writeVersions.current.get(id) ?? 0, []);
+
   // Load on mount
   useEffect(() => {
     let mounted = true;
     const init = async () => {
       try {
+        await ensureMonsterDataLoaded();
         const fetchedCampaigns = await CampaignApiService.getAll();
         console.log(`CampaignProvider: Fetched ${fetchedCampaigns.length} campaigns:`, JSON.stringify(fetchedCampaigns.map(c => ({ id: c.id, name: c.name }))));
 
         if (fetchedCampaigns.length === 0) {
           console.log('CampaignProvider: DB empty, seeding default...');
-          const res = await fetch('/data/scraped_campaign.json');
-          if (!res.ok) throw new Error(`Failed to fetch default campaign: ${res.status}`);
-          
-          const data = await res.json();
-          const templates = Array.isArray(data) ? data : [data];
-          
-          if (templates.length > 0 && mounted) {
-            const template = templates[0];
-            const newId = crypto.randomUUID();
-              
-            const defaultCampaign: Campaign = ensureEncountersForCampaign({
-              ...template,
-              id: newId,
-              players: template.players || [],
-              encounters: ((template.encounters || []) as Encounter[]).map((e: Encounter) => ({
-                ...e,
-                units: (e.units || []).map((u: EncounterUnit) => ({ ...u, instanceId: crypto.randomUUID() }))
-              }))
-            });
-
-            // If template has no encounters, add a sample one to the first chapter
-            if (defaultCampaign.encounters.length === 0 && defaultCampaign.chapters.length > 0) {
-              defaultCampaign.encounters.push({
-                id: crypto.randomUUID(),
-                name: 'Sample Encounter',
-                chapterIds: [defaultCampaign.chapters[0].id],
-                units: []
-              });
-            }
-            
-            const created = await CampaignApiService.create(defaultCampaign);
-            if (mounted) {
+          const created = await seedDefaultCampaign();
+          if (mounted) {
+            if (created) {
               setCampaigns([created]);
               setActiveCampaignId(created.id);
+            } else {
+              setCampaigns([]);
             }
-          } else if (mounted) {
-            setCampaigns([]);
           }
         } else if (mounted) {
           const ensuredCampaigns = fetchedCampaigns.map(c => ensureEncountersForCampaign(c));
           setCampaigns(ensuredCampaigns);
-          
-          const savedActive = localStorage.getItem('crits_active_campaign');
+
+          const savedActive = safeGetItem('crits_active_campaign');
           if (savedActive && fetchedCampaigns.some(c => c.id === savedActive)) {
             setActiveCampaignId(savedActive);
           } else if (fetchedCampaigns.length > 0) {
@@ -76,14 +134,16 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
         if (mounted) {
           setError(err instanceof Error ? err.message : 'Failed to load campaigns');
         }
-        // Don't set campaigns to [], let it stay as initial state or throw
-        throw err;
       } finally {
         if (mounted) setIsLoaded(true);
       }
     };
 
-    init();
+    init().catch(err => {
+      // init() handles its own errors; this is a last-resort guard against unhandled rejections.
+      console.error('CampaignProvider: unexpected init failure:', err);
+      if (mounted) setError(err instanceof Error ? err.message : 'Failed to load campaigns');
+    });
     return () => { mounted = false; };
   }, []);
 
@@ -91,7 +151,12 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'crits_campaigns' && e.newValue) {
-        setCampaigns(JSON.parse(e.newValue));
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (Array.isArray(parsed)) setCampaigns(parsed);
+        } catch (err) {
+          console.warn('CampaignProvider: ignoring malformed cross-tab campaigns payload:', err);
+        }
       }
       if (e.key === 'crits_active_campaign' && e.newValue) {
         setActiveCampaignId(e.newValue);
@@ -107,7 +172,7 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
   // Sync campaigns state to localStorage for storage events
   useEffect(() => {
     if (isLoaded) {
-      localStorage.setItem('crits_campaigns', JSON.stringify(campaigns));
+      safeSetItem('crits_campaigns', JSON.stringify(campaigns));
     }
   }, [campaigns, isLoaded]);
 
@@ -117,8 +182,11 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
     const syncActive = async () => {
       if (activeCampaignId) {
         try {
+          await ensureMonsterDataLoaded();
+          const versionAtStart = getVersion(activeCampaignId);
           const full = await CampaignApiService.getById(activeCampaignId);
-          if (mounted) {
+          // Drop the response if any local write started or finished while it was in flight.
+          if (mounted && getVersion(activeCampaignId) === versionAtStart) {
             setCampaigns(prev => prev.map(c => c.id === full.id ? ensureEncountersForCampaign(full) : c));
           }
         } catch (err) {
@@ -128,14 +196,14 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
     };
     syncActive();
     return () => { mounted = false; };
-  }, [activeCampaignId]);
+  }, [activeCampaignId, getVersion]);
 
   // Save active ID to localStorage (still useful for UI preference)
   useEffect(() => {
     if (activeCampaignId) {
-      localStorage.setItem('crits_active_campaign', activeCampaignId);
+      safeSetItem('crits_active_campaign', activeCampaignId);
     } else {
-      localStorage.removeItem('crits_active_campaign');
+      safeRemoveItem('crits_active_campaign');
     }
   }, [activeCampaignId]);
 
@@ -158,6 +226,7 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
         units: (e.units || []).map(u => ({ ...u, instanceId: crypto.randomUUID() }))
       }))
     };
+    await ensureMonsterDataLoaded();
     newCamp = ensureEncountersForCampaign(newCamp);
 
     try {
@@ -171,25 +240,42 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const updateCampaign = useCallback(async (updated: Campaign) => {
+    const id = updated.id;
+    bumpVersion(id);
+    const previous = saveChains.current.get(id) ?? Promise.resolve();
+    // Serialize saves per campaign so PUTs reach the server in call order.
+    const run = previous.then(() => CampaignApiService.update(updated));
+    saveChains.current.set(id, run.catch(() => undefined));
     try {
-      const result = await CampaignApiService.update(updated);
+      const result = await run;
       setCampaigns(prev => prev.map(c => c.id === result.id ? result : c));
     } catch (err) {
       console.error('Failed to update campaign:', err);
       setError('Failed to update campaign');
+    } finally {
+      bumpVersion(id);
     }
-  }, []);
+  }, [bumpVersion]);
 
   const refreshCampaign = useCallback(async (id: string): Promise<Campaign | null> => {
     try {
+      await ensureMonsterDataLoaded();
+      // Wait for any queued saves so we read post-save state.
+      const pending = saveChains.current.get(id);
+      if (pending) await pending;
+      const versionAtStart = getVersion(id);
       const full = ensureEncountersForCampaign(await CampaignApiService.getById(id));
-      setCampaigns(prev => prev.map(c => c.id === full.id ? full : c));
+      // If a local write started/finished during the fetch, this response may be stale:
+      // return it to the caller but don't clobber newer local state.
+      if (getVersion(id) === versionAtStart) {
+        setCampaigns(prev => prev.map(c => c.id === full.id ? full : c));
+      }
       return full;
     } catch (err) {
       console.error('Failed to refresh campaign:', err);
       return null;
     }
-  }, []);
+  }, [getVersion]);
 
   const deleteCampaign = useCallback(async (id: string) => {
     try {
@@ -210,7 +296,7 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
     if (activeChapterIdState && activeCampaign.chapters.some(ch => ch.id === activeChapterIdState)) {
       return activeChapterIdState;
     }
-    const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(`crits_active_chapter_${activeCampaignId}`) : null;
+    const saved = safeGetItem(`crits_active_chapter_${activeCampaignId}`);
     if (saved && activeCampaign.chapters.some(ch => ch.id === saved)) {
       return saved;
     }
@@ -221,9 +307,9 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
     setActiveChapterIdState(id);
     if (activeCampaignId) {
       if (id) {
-        localStorage.setItem(`crits_active_chapter_${activeCampaignId}`, id);
+        safeSetItem(`crits_active_chapter_${activeCampaignId}`, id);
       } else {
-        localStorage.removeItem(`crits_active_chapter_${activeCampaignId}`);
+        safeRemoveItem(`crits_active_chapter_${activeCampaignId}`);
       }
     }
   };

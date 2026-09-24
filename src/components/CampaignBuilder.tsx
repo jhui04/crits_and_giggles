@@ -11,6 +11,7 @@ import { dataService } from '../services/DataService';
 import { AssetInsertionModal } from './AssetInsertionModal';
 import { WorldBuilder } from './WorldBuilder';
 import { parseMentionedAssets } from '../utils/assetUtils';
+import { isInteractiveTarget, useFocusRestore } from './uiHelpers';
 
 interface CampaignBuilderProps {
   isCampaignSettingsOpen: boolean;
@@ -88,49 +89,28 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
 
   const createEncounterBtnRef = useRef<HTMLButtonElement>(null);
   const assetViewerHeadingRef = useRef<HTMLHeadingElement>(null);
-  const lastFocusedElement = useRef<HTMLElement | null>(null);
+  const { remember, restore } = useFocusRestore();
 
   const closePlayerForm = useCallback(() => {
     setShowPlayerForm(false);
     setEditingPlayerId(null);
     setPlayerName('');
     setPlayerDesc('');
-    setTimeout(() => {
-      if (lastFocusedElement.current) {
-        lastFocusedElement.current.focus();
-        lastFocusedElement.current = null;
-      } else {
-        addPlayerBtnRef.current?.focus();
-      }
-    }, 0);
-  }, []);
+    restore('player', () => addPlayerBtnRef.current?.focus());
+  }, [restore]);
 
   const closeChapterForm = useCallback(() => {
     setShowChapterForm(false);
     setEditingChapterId(null);
     setChapterTitle('');
     setChapterContent('');
-    setTimeout(() => {
-      if (lastFocusedElement.current) {
-        lastFocusedElement.current.focus();
-        lastFocusedElement.current = null;
-      } else {
-        chapterOptionsBtnRef.current?.focus();
-      }
-    }, 0);
-  }, []);
+    restore('chapter', () => chapterOptionsBtnRef.current?.focus());
+  }, [restore]);
 
   const closeChapterOptionsModal = useCallback(() => {
     setShowChapterOptionsModal(false);
-    setTimeout(() => {
-      if (lastFocusedElement.current) {
-        lastFocusedElement.current.focus();
-        lastFocusedElement.current = null;
-      } else {
-        chapterOptionsBtnRef.current?.focus();
-      }
-    }, 0);
-  }, []);
+    restore('chapterOptions', () => chapterOptionsBtnRef.current?.focus());
+  }, [restore]);
 
   const closeAssetForm = useCallback(() => {
     setShowAssetForm(false);
@@ -139,20 +119,13 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
     setAssetDesc('');
     setAssetType('NPC');
     setSelectedAssetChapterIds([]);
-    setTimeout(() => {
-      if (lastFocusedElement.current) {
-        lastFocusedElement.current.focus();
-        lastFocusedElement.current = null;
-      } else {
-        addAssetBtnRef.current?.focus();
-      }
-    }, 0);
-  }, []);
+    restore('asset', () => addAssetBtnRef.current?.focus());
+  }, [restore]);
 
   const closeAssetViewer = useCallback(() => {
     setViewingAsset(null);
-    setTimeout(() => lastFocusedElement.current?.focus(), 0);
-  }, []);
+    restore('viewer');
+  }, [restore]);
 
   useEffect(() => {
     Promise.all([
@@ -169,13 +142,8 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
   const closeWorldLinkModal = useCallback(() => {
     setShowWorldLinkModal(false);
     setIsCreatingNewWorld(false);
-    setTimeout(() => {
-      if (lastFocusedElement.current) {
-        lastFocusedElement.current.focus();
-        lastFocusedElement.current = null;
-      }
-    }, 0);
-  }, []);
+    restore('world');
+  }, [restore]);
 
   const getSortedAssets = useCallback(() => {
     // Reference dataLoaded so react-hooks/exhaustive-deps knows it is a dependency
@@ -278,10 +246,10 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
 
   useEffect(() => {
     if (viewingAsset) {
-      lastFocusedElement.current = document.activeElement as HTMLElement;
+      remember('viewer');
       assetViewerHeadingRef.current?.focus();
     }
-  }, [viewingAsset]);
+  }, [viewingAsset, remember]);
 
   // Focus world heading when viewMode changes to world
   useEffect(() => {
@@ -335,12 +303,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
       }
 
       // Prevent default behavior for Enter and Space on non-interactive elements
-      const target = e.target as HTMLElement;
-      const isInteractive = ['BUTTON', 'INPUT', 'TEXTAREA', 'SELECT', 'A'].includes(target.tagName) || 
-                          target.hasAttribute('onclick') || 
-                          target.getAttribute('role') === 'button';
-      
-      if ((e.key === 'Enter' || e.key === ' ') && !isInteractive) {
+      if ((e.key === 'Enter' || e.key === ' ') && !isInteractiveTarget(e.target)) {
         e.preventDefault();
       }
     };
@@ -504,12 +467,21 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
       newChapters = [...activeCampaign.chapters, newChapter];
     }
 
-    console.log("CampaignBuilder.handleAddChapter: calling updateCampaign with chapters:", JSON.stringify(newChapters));
+    // Keep Campaign-type asset associations in sync with this chapter's mentions (on save only).
+    const mentionedCampaignIds = new Set(
+      mentionedAssets.filter(r => r.tagType === 'Campaign').map(r => r.id)
+    );
+    const newAssets = activeCampaign.assets.map(a =>
+      mentionedCampaignIds.has(a.id) && newChapterId && !a.chapterIds?.includes(newChapterId)
+        ? { ...a, chapterIds: [...(a.chapterIds || []), newChapterId] }
+        : a
+    );
+
     await updateCampaign({
       ...activeCampaign,
-      chapters: newChapters
+      chapters: newChapters,
+      assets: newAssets
     });
-    console.log("CampaignBuilder.handleAddChapter: updateCampaign finished!");
     if (!editingChapterId && newChapterId) {
       setSelectedChapterId(newChapterId);
     }
@@ -526,46 +498,15 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
     setChapterContent(newContent);
     setShowAssetInsertionModal(false);
 
-    const currentChapterId = editingChapterId || selectedChapterId;
-
-    if (activeCampaign && currentChapterId) {
-      // Recompute the full mention index from the post-insertion content
-      const newMentionedAssets = parseMentionedAssets(newContent);
-
-      // Prepopulate with newAsset if present to prevent race condition overrides
-      let nextAssets = activeCampaign.assets;
-      if (newAsset) {
-        if (!nextAssets.some(a => a.id === newAsset.id)) {
-          nextAssets = [...nextAssets, newAsset];
-        }
-      }
-
-      // Start building the updated campaign from the current state
-      let updatedCampaign = {
+    // Only persist a newly created asset immediately (it already exists server-side
+    // semantics-wise and must not be lost). The chapter's mention index and asset/chapter
+    // links are computed from the final content when the chapter form is saved, so an
+    // unsaved editor draft never leaks into a stored chapter (or the wrong one).
+    if (activeCampaign && newAsset && !activeCampaign.assets.some(a => a.id === newAsset.id)) {
+      await updateCampaign({
         ...activeCampaign,
-        assets: nextAssets,
-        chapters: activeCampaign.chapters.map(c =>
-          c.id === currentChapterId ? { ...c, mentionedAssets: newMentionedAssets } : c
-        )
-      };
-
-      // For Campaign-type assets also keep chapterIds in sync (existing behaviour)
-      if (tagType === 'Campaign') {
-        const asset = updatedCampaign.assets.find(a => a.id === assetId);
-        if (asset && (!asset.chapterIds || !asset.chapterIds.includes(currentChapterId))) {
-          updatedCampaign = {
-            ...updatedCampaign,
-            assets: updatedCampaign.assets.map(a =>
-              a.id === assetId
-                ? { ...a, chapterIds: [...(a.chapterIds || []), currentChapterId] }
-                : a
-            )
-          };
-        }
-      }
-
-      // Single round-trip: mentionedAssets + chapterIds update together
-      await updateCampaign(updatedCampaign);
+        assets: [...activeCampaign.assets, newAsset]
+      });
     }
 
     // Restore focus to textarea
@@ -639,12 +580,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
       setNewWorldDesc('');
       setIsCreatingNewWorld(false);
       setShowWorldLinkModal(false);
-      setTimeout(() => {
-        if (lastFocusedElement.current) {
-          lastFocusedElement.current.focus();
-          lastFocusedElement.current = null;
-        }
-      }, 0);
+      restore('world');
     }
   };
 
@@ -661,12 +597,12 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
   };
 
   const handleEditPlayer = useCallback((player: PlayerCharacter) => {
-    lastFocusedElement.current = document.activeElement as HTMLElement;
+    remember('player');
     setEditingPlayerId(player.id);
     setPlayerName(player.name);
     setPlayerDesc(player.description);
     setShowPlayerForm(true);
-  }, []);
+  }, [remember]);
 
   const handleDeletePlayer = useCallback(async (id: string) => {
     if (!activeCampaign) return;
@@ -679,24 +615,22 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
   }, [activeCampaign, updateCampaign]);
 
   const handleEditChapter = useCallback((chapter: Chapter) => {
-    if (!showChapterOptionsModal) {
-      lastFocusedElement.current = document.activeElement as HTMLElement;
-    }
+    remember('chapter', showChapterOptionsModal ? chapterOptionsBtnRef.current : undefined);
     setEditingChapterId(chapter.id);
     setChapterTitle(chapter.title);
     setChapterContent(chapter.content);
     setShowChapterForm(true);
-  }, [showChapterOptionsModal]);
+  }, [showChapterOptionsModal, remember]);
 
   const handleEditAsset = useCallback((asset: Asset) => {
-    lastFocusedElement.current = document.activeElement as HTMLElement;
+    remember('asset');
     setEditingAssetId(asset.id);
     setAssetName(asset.name);
     setAssetType(asset.type);
     setAssetDesc(asset.description);
     setSelectedAssetChapterIds(asset.chapterIds || []);
     setShowAssetForm(true);
-  }, []);
+  }, [remember]);
 
   const handleDeleteEncounter = useCallback(async (id: string) => {
     if (!activeCampaign) return;
@@ -713,7 +647,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
   }, []);
 
   const handleAddAssetClick = () => {
-    lastFocusedElement.current = document.activeElement as HTMLElement;
+    remember('asset');
     if (viewMode === 'chapters' && selectedChapterId) {
       setSelectedAssetChapterIds([selectedChapterId]);
     } else {
@@ -1014,7 +948,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: '1rem' }}>
                       <button type="button" ref={chapterOptionsBtnRef} onClick={() => {
-                        lastFocusedElement.current = document.activeElement as HTMLElement;
+                        remember('chapterOptions');
                         setShowChapterOptionsModal(true);
                       }}>Chapter Options</button>
                     </div>
@@ -1152,7 +1086,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
             </h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <button type="button" onClick={() => {
-                lastFocusedElement.current = chapterOptionsBtnRef.current;
+                remember('chapter', chapterOptionsBtnRef.current);
                 setShowChapterOptionsModal(false);
                 setShowChapterForm(true);
               }} style={{ padding: '0.75rem', fontWeight: 'bold' }}>
@@ -1237,7 +1171,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
         onInsert={handleInsertAsset}
         campaignAssets={getSortedAssets()}
         worldAssets={activeWorld?.assets}
-        chapterId={editingChapterId || selectedChapterId}
+        chapterId={editingChapterId}
       />
 
       {/* Asset Form Modal */}
@@ -1372,7 +1306,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
                   </p>
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <button type="button" onClick={(e) => { lastFocusedElement.current = e.currentTarget; setShowWorldLinkModal(true); }}>Change World</button>
+                  <button type="button" onClick={(e) => { remember('world', e.currentTarget); setShowWorldLinkModal(true); }}>Change World</button>
                   {activeCampaign.worldId && (
                     <>
                       <button type="button" onClick={handleUnlinkWorld}>Unlink World</button>
@@ -1400,7 +1334,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
                   ))}
                   {activeCampaign.players.length === 0 && <li>No players configured yet.</li>}
                 </ul>
-                <button type="button" ref={addPlayerBtnRef} onClick={(e) => { lastFocusedElement.current = e.currentTarget; setShowPlayerForm(true); }}>+ Add Player</button>
+                <button type="button" ref={addPlayerBtnRef} onClick={(e) => { remember('player', e.currentTarget); setShowPlayerForm(true); }}>+ Add Player</button>
               </section>
 
               <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
@@ -1524,7 +1458,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
                         <h2 id="asset-viewer-title" ref={assetViewerHeadingRef} tabIndex={-1} style={{ outline: 'none', margin: 0 }}>
                           {asset.name} ({asset.type})
                         </h2>
-                        <button type="button" onClick={() => { closeAssetViewer(); handleEditAsset(asset); }}>Edit Asset</button>
+                        <button type="button" onClick={() => { setViewingAsset(null); handleEditAsset(asset); }}>Edit Asset</button>
                       </div>
                       {asset.description && !asset.description.startsWith('Scraped') && (
                         <div style={{ marginTop: '1rem', padding: '1rem', backgroundColor: '#f0f7ff', borderRadius: '4px', borderLeft: '4px solid #0066cc' }}>
