@@ -19,6 +19,11 @@ except ImportError:
         detect_map_grid = None
         get_or_create_grid_cache = None
 
+try:
+    from tools.maps.spawn_units import apply_spawn_units
+except ImportError:
+    from maps.spawn_units import apply_spawn_units
+
 STATE_FILE = "tools/adventure_scraper_state.json"
 DATA_FILE = "public/data/scraped_campaign.json"
 MAPS_DIR = "public/data/maps"
@@ -449,6 +454,9 @@ def main():
                                             "y": min(18, 2 + (unit_idx // 6) * 2)
                                         }
                                     })
+
+                # Authoritative token starts from the compiled maps replace the guesses above.
+                apply_spawn_units(campaign['encounters'], monsters_by_id)
 
                 scraped_campaigns.append(campaign)
             else:
