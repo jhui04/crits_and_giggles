@@ -3,6 +3,7 @@ import { checkA11y } from '../../utils/axe-helper';
 
 const SUITE_ID = 'hitl-movement-e2e-suite';
 const ENCOUNTER_ID = 'hitl-move-enc-1';
+const COMPILED_ENCOUNTER_ID = 'hitl-move-enc-2';
 
 const movementCampaignSeed = {
   id: SUITE_ID,
@@ -29,8 +30,8 @@ const movementCampaignSeed = {
       id: ENCOUNTER_ID,
       name: 'Palma Flora Shoreline',
       chapterIds: [`${SUITE_ID}-chap-1`],
-      dmMapUrl: '/maps/5.1-palma-flora-player.png',
-      playerMapUrl: '/maps/5.1-palma-flora-player.png',
+      // No map image: regions and coordinates below are seeded on a small hand-made grid, so this
+      // test does not depend on the compiled production map data (see the compiled-map test below).
       mapSize: { width: 33, height: 21 },
       gridConfig: {
         columns: 33,
@@ -95,6 +96,27 @@ const movementCampaignSeed = {
           isPlayer: false,
           position: { x: 13, y: 8 },
         },
+      ],
+    },
+    {
+      id: COMPILED_ENCOUNTER_ID,
+      name: 'Palma Flora Compiled Map',
+      chapterIds: [`${SUITE_ID}-chap-1`],
+      dmMapUrl: '/maps/5.1-palma-flora.png',
+      playerMapUrl: '/maps/5.1-palma-flora-player.png',
+      mapSize: { width: 67, height: 43 },
+      runningState: {
+        isCombatStarted: true,
+        round: 1,
+        turnIndex: 0,
+        combatants: [
+          { instanceId: 'c2-grog', name: 'Grog Strongjaw', currentHp: 45, maxHp: 45, initiative: 16, isPlayer: true, position: { x: 26, y: 17 } },
+          { instanceId: 'c2-sahuagin', name: 'Sahuagin Raider', currentHp: 22, maxHp: 22, initiative: 12, isPlayer: false, position: { x: 30, y: 17 } },
+        ],
+      },
+      units: [
+        { instanceId: 'c2-grog', name: 'Grog Strongjaw', currentHp: 45, maxHp: 45, dexMod: 2, initiative: 16, isPlayer: true, position: { x: 26, y: 17 } },
+        { instanceId: 'c2-sahuagin', name: 'Sahuagin Raider', currentHp: 22, maxHp: 22, dexMod: 1, initiative: 12, isPlayer: false, position: { x: 30, y: 17 } },
       ],
     },
   ],
@@ -435,5 +457,78 @@ test.describe('Milestone 2: Character Movement Tool with Rich Context (R2)', () 
     const grogUnit = encounter.units.find((u: { instanceId: string }) => u.instanceId === 'c-grog-1');
 
     expect(grogUnit.position).toEqual({ x: 12, y: 8 });
+  });
+  test('R2-E2E-05: Movement card lists terrain and cover notes from the compiled map and passes Axe', async ({
+    page,
+    request,
+  }) => {
+    await page.goto(`/?encounter=${COMPILED_ENCOUNTER_ID}`);
+    await page.waitForSelector('header, main');
+
+    // Pick a sand cell in P1 South Shore that touches water, straight from the compiled map data,
+    // so the test follows the data instead of hard-coding coordinates.
+    const docRes = await request.get('http://localhost:5174/data/maps/egtw-5.1-palma-flora.json');
+    expect(docRes.ok()).toBe(true);
+    const doc = await docRes.json();
+    const code = (cls: string) => Object.entries(doc.terrain.legend).find(([, c]) => c === cls)?.[0];
+    const sand = code('sand');
+    const water = [code('water_deep'), code('water_shallow')];
+    const p1 = doc.regions.find((r: { id: string }) => r.id === 'P1');
+    const cell = p1.cells
+      .map((k: string) => k.split(',').map(Number))
+      .find(([x, y]: number[]) => {
+        if (doc.terrain.rows[y][x] !== sand) return false;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          if ((dx || dy) && water.includes(doc.terrain.rows[y + dy]?.[x + dx])) return true;
+        }
+        return false;
+      });
+    expect(cell).toBeDefined();
+    const label = (x: number, y: number) => {
+      let col = '';
+      let n = x;
+      while (n >= 0) { col = String.fromCharCode((n % 26) + 65) + col; n = Math.floor(n / 26) - 1; }
+      return `${col}${y + 1}`;
+    };
+    const destination = label(cell[0], cell[1]);
+
+    const stageRes = await request.post('http://localhost:3005/api/test/stage-proposal', {
+      data: {
+        toolName: 'move_combatant',
+        args: { combatantName: 'Sahuagin Raider', destination, encounterId: COMPILED_ENCOUNTER_ID },
+        context: { campaignId: SUITE_ID, encounterId: COMPILED_ENCOUNTER_ID },
+      },
+    });
+    expect(stageRes.ok()).toBe(true);
+    const staged = await stageRes.json();
+
+    await page.route('**/api/assistant/chat', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          answer: `I propose moving the Sahuagin Raider to ${destination}. Please review and confirm.`,
+          proposals: [staged.proposal],
+          toolCalls: [],
+          modelUsed: 'qwen3.5:9b',
+        }),
+      });
+    });
+
+    const { modal, chatInput } = await openAssistantOracle(page);
+    await chatInput.fill('Put the sahuagin at the water edge on the beach');
+    await modal.getByRole('button', { name: 'Ask' }).click();
+
+    const confirmBox = getConfirmationBox(modal);
+    await expect(confirmBox).toBeVisible();
+    const notes = confirmBox.locator('[data-testid="movement-dest-notes"]');
+    await expect(notes).toBeVisible();
+    await expect(notes.getByRole('heading', { name: /Destination Notes/ })).toBeVisible();
+    await expect(notes.getByRole('listitem').first()).toContainText(/^Sand; water touches it to the /);
+    await expect(confirmBox.locator('[data-testid="movement-dest-coords"]')).toContainText('South Shore');
+
+    await checkA11y(page);
+    await page.keyboard.press('Escape');
+    await expect(modal).not.toBeVisible();
   });
 });

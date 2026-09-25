@@ -8,6 +8,17 @@ import { searchVectorStore } from './vectorStore.js';
 import { hitlManager } from './hitlManager.js';
 import { projectHpApplication } from './combatHpUtils.js';
 import { validateAgainstSchema, formatSchemaErrors } from './schemaValidator.js';
+import { getMapDocumentByUrl, getGridDataFromDocument } from '../maps/mapStore.js';
+import { TERRAIN_RULES, describePlacement, findPositions as engineFindPositions } from '../../src/shared/spatial/index.ts';
+import {
+  MAP_READ_TOOL_DEFS,
+  runGetMapOverview,
+  runDescribeSurroundings,
+  runFindPositions,
+  getEncounterMapModel,
+  combatantToLite,
+} from './mapTools.js';
+import { createMapPatchToolDef } from './mapPatchTool.js';
 import {
   parseScenarioCombatants,
   allocateTokenCoordinates,
@@ -595,6 +606,9 @@ export function resolveMapFilePath(mapUrl) {
  * Retrieves grid metadata (cell pitch, offsets, columns, rows) for a given map URL.
  */
 export function getMapGridData(mapUrl, encounter = null) {
+  // A compiled MapDocument (tools/maps) is the source of truth when one exists for this image.
+  const compiled = getGridDataFromDocument(getMapDocumentByUrl(mapUrl), mapUrl);
+  if (compiled) return compiled;
   const mapGrids = getMapGrids();
   if (mapUrl) {
     const cleaned = mapUrl.split('?')[0].trim();
@@ -644,6 +658,9 @@ export function getMapGridData(mapUrl, encounter = null) {
     offsetY,
     imageWidth: gridConfig?.imageWidth || columns * cellPitch,
     imageHeight: gridConfig?.imageHeight || rows * cellPitch,
+    // Encounters with their own (non-bundled) map keep the regions and walls stored with them.
+    ...((gridConfig?.regions || mapSize?.regions) ? { regions: gridConfig?.regions || mapSize?.regions } : {}),
+    ...((gridConfig?.walls || mapSize?.walls) ? { walls: gridConfig?.walls || mapSize?.walls } : {}),
   };
 }
 
@@ -998,6 +1015,9 @@ export function resolveChapter(chapterIdentifier, context = {}) {
 /**
  * Tool definitions exposed to the OpenAI API (OpenAI tool format)
  */
+// Helpers the map tools need from this module, passed in to avoid an import cycle.
+const MAP_TOOL_DEPS = { loadEncounterCombatants, resolveCombatantRef };
+
 export const READ_TOOLS = [
   {
     type: 'function',
@@ -1225,7 +1245,7 @@ export const READ_TOOLS = [
     function: {
       name: 'get_current_map',
       description:
-        'Retrieve an image and tactical layout of the current combat encounter map, including character and monster grid locations, coordinates, and visual token markers.',
+        'Retrieve an image and tactical layout of the current combat encounter map, including character and monster grid locations, coordinates, and visual token markers. For terrain, cover, areas, or choosing where to place a creature, use get_map_overview, describe_surroundings, and find_positions instead of reading the image.',
       parameters: {
         type: 'object',
         properties: {
@@ -1244,6 +1264,7 @@ export const READ_TOOLS = [
       },
     },
   },
+  ...MAP_READ_TOOL_DEFS,
 ];
 
 export const ASSISTANT_TOOLS = [...READ_TOOLS];
@@ -1344,9 +1365,10 @@ export function isReadTool(toolName) {
 export const TOOL_GROUPS = Object.freeze({
   reference: Object.freeze(['lookup_spell', 'lookup_monster', 'lookup_magic_item', 'semantic_search', 'search_assets_and_lore']),
   campaign: Object.freeze(['get_campaign_asset', 'get_chapter_outline', 'read_chapter_section']),
-  combat_read: Object.freeze(['get_monster_hp', 'get_character_hp', 'get_entity_position', 'get_initiative_order', 'get_current_map']),
+  combat_read: Object.freeze(['get_monster_hp', 'get_character_hp', 'get_entity_position', 'get_initiative_order', 'get_current_map', 'get_map_overview', 'describe_surroundings', 'find_positions']),
   combat_write: Object.freeze(['move_combatant', 'apply_combat_damage', 'remove_combatant', 'update_combatant']),
   encounter_setup_write: Object.freeze(['configure_encounter_combatants']),
+  map_write: Object.freeze(['propose_map_patch']),
 });
 
 export const MOVE_COMBATANT_TOOL_DEF = {
@@ -1435,6 +1457,28 @@ export const MOVE_COMBATANT_TOOL_DEF = {
     }
 
     const destLabel = coordinateToLabel(destCoord.x, destCoord.y);
+
+    // Read-only terrain and cover facts from the compiled map, when there is one. This only
+    // annotates the proposal; it never changes what executeMutation does or the state hash.
+    let destTerrain;
+    let destNotes = [];
+    const compiledMap = getEncounterMapModel(encounter);
+    if (compiledMap) {
+      const mover = combatantToLite(movingUnit);
+      const others = allCombatants.map(combatantToLite);
+      const placement = describePlacement(compiledMap.model, destCoord, mover, others);
+      if (placement.blocked) {
+        const occupied = new Set(others.filter((o) => o.position && o.instanceId !== mover.instanceId).map((o) => `${o.position.x},${o.position.y}`));
+        const alt = engineFindPositions(compiledMap.model, { forCombatant: mover, near: destCoord, withinFt: 15, occupied, limit: 3 });
+        const options = alt.results.map((r) => r.cell).join(', ');
+        throw new Error(
+          `Destination ${destLabel} is not usable: ${placement.blocked.reason}.${options ? ` Nearby cells that work: ${options}.` : ' No nearby cell works; pick another spot.'}`
+        );
+      }
+      destTerrain = placement.terrain;
+      destNotes = placement.notes;
+    }
+
     let regions = gridData?.regions || null;
     if (!regions) {
       try {
@@ -1474,6 +1518,8 @@ export const MOVE_COMBATANT_TOOL_DEF = {
         y: destCoord.y,
         label: destLabel,
         regionName: destRegionName || undefined,
+        ...(destTerrain ? { terrain: destTerrain } : {}),
+        ...(destNotes.length ? { notes: destNotes } : {}),
       },
       originAdjacencies,
       destinationAdjacencies,
@@ -1920,6 +1966,19 @@ export const CONFIGURE_ENCOUNTER_COMBATANTS_TOOL_DEF = {
     const hasExplicitCombatants = Array.isArray(args.combatants) && args.combatants.length > 0;
 
     if (!hasExplicitCombatants && args.scenarioText) {
+      // With a compiled map, "four sahuagin in P1" is placed by the engine near the area's label.
+      const compiled = getEncounterMapModel(encounter);
+      if (compiled) {
+        gridData.placeInRegion = (reg, occupied) => {
+          const region = compiled.model.findRegion(reg.id);
+          const anchor = region?.labelCells?.[0];
+          if (!region || !anchor) return null;
+          const found = engineFindPositions(compiled.model, {
+            region, near: anchor, withinFt: 1000, rankBy: 'nearest_to_near', occupied, limit: 1,
+          });
+          return found.results[0] ? { x: found.results[0].x, y: found.results[0].y } : null;
+        };
+      }
       const parsed = parseScenarioCombatants(args.scenarioText, encounter, monstersList, occupiedCells, gridData);
       finalCombatants.push(...parsed);
     }
@@ -2565,6 +2624,7 @@ export function registerBuiltInWriteTools() {
   registerWriteTool(CONFIGURE_ENCOUNTER_COMBATANTS_TOOL_DEF);
   registerWriteTool(REMOVE_COMBATANT_TOOL_DEF);
   registerWriteTool(UPDATE_COMBATANT_TOOL_DEF);
+  registerWriteTool(createMapPatchToolDef({ resolveEncounterForWrite, hitlManager, requireExecutionCampaignId }));
 }
 
 export {
@@ -3644,17 +3704,27 @@ export async function executeTool(toolName, rawArgs, context = {}) {
           includeCombatants,
         });
 
-        // 7. Format structured combatant locations
+        // 7. Format structured combatant locations (with area and ground type when prepared map data exists)
+        const compiledMap = getEncounterMapModel(encounter);
+        const mapModel = compiledMap?.model || null;
         const formattedCombatants = includeCombatants
-          ? combatantsWithPosition.map((c) => ({
-              name: c.name,
-              instanceId: c.instanceId,
-              team: c.isPlayer ? 'Player' : 'Monster/Enemy',
-              coordinates: { x: c.position.x, y: c.position.y },
-              cell: coordinateToLabel(c.position.x, c.position.y),
-              hp: `${c.currentHp ?? '?'}/${c.maxHp ?? '?'}`,
-              conditions: c.conditions || [],
-            }))
+          ? combatantsWithPosition.map((c) => {
+              const item = {
+                name: c.name,
+                instanceId: c.instanceId,
+                team: c.isPlayer ? 'Player' : 'Monster/Enemy',
+                coordinates: { x: c.position.x, y: c.position.y },
+                cell: coordinateToLabel(c.position.x, c.position.y),
+                hp: `${c.currentHp ?? '?'}/${c.maxHp ?? '?'}`,
+                conditions: c.conditions || [],
+              };
+              if (mapModel) {
+                const region = mapModel.regionAt(c.position);
+                if (region) item.region = `${region.id} ${region.name}`;
+                if (mapModel.hasTerrain()) item.terrain = TERRAIN_RULES[mapModel.terrainAt(c.position)].label;
+              }
+              return item;
+            })
           : [];
 
         result = {
@@ -3669,6 +3739,13 @@ export async function executeTool(toolName, rawArgs, context = {}) {
             rows: gridData.rows,
             cellPitch: gridData.cellPitch,
           },
+          ...(mapModel
+            ? {
+                mapId: compiledMap.doc.mapId,
+                kind: compiledMap.doc.kind,
+                regionsBrief: mapModel.regions.map((r) => ({ id: r.id, name: r.name })),
+              }
+            : {}),
           combatantsCount: formattedCombatants.length,
           unplacedCombatantsCount: allCombatants.length - combatantsWithPosition.length,
           totalCombatantsInEncounter: allCombatants.length,
@@ -3679,6 +3756,18 @@ export async function executeTool(toolName, rawArgs, context = {}) {
         };
         break;
       }
+
+      case 'get_map_overview':
+        result = runGetMapOverview(args, context, MAP_TOOL_DEPS);
+        break;
+
+      case 'describe_surroundings':
+        result = runDescribeSurroundings(args, context, MAP_TOOL_DEPS);
+        break;
+
+      case 'find_positions':
+        result = runFindPositions(args, context, MAP_TOOL_DEPS);
+        break;
 
       default:
         throw new Error(`Unrecognized tool: ${toolName}`);

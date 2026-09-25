@@ -1,102 +1,54 @@
+import fs from 'fs';
+import path from 'path';
 import { test, expect, Page } from '@playwright/test';
 import { checkA11y } from './utils/axe-helper';
 import { getSeedState } from './seed-data';
+import { columnIndexToLabel, coordinateToLabel, getRegionCenter, getRegionSector, sortRegionsByLocation } from '../src/utils/mapUtils';
+import type { MapRegion } from '../src/types';
 
 const SUITE_ID = 'map-grid-integration-suite';
 const baseSeed = getSeedState(SUITE_ID);
 
-const palmaRegions = [
-  {
-    id: 'P5',
-    name: 'Northern Bridge',
-    type: 'bridge',
-    cells: ['17,0', '17,1', '17,2']
-  },
-  {
-    id: 'P7',
-    name: 'Walled Manor & Fountain',
-    type: 'walled_compound',
-    cells: ['21,3', '22,3', '23,3', '21,4', '22,4', '23,4', '20,5', '21,5', '22,5', '20,6', '21,6']
-  },
-  {
-    id: 'P8',
-    name: 'Harbor Docks & Wavechaser',
-    type: 'docks',
-    cells: ['25,7', '26,7', '27,7', '24,12', '25,12', '26,12', '27,12', '28,12', '29,12']
-  },
-  {
-    id: 'P2',
-    name: 'West Shore & Cottages',
-    type: 'village_beach',
-    cells: ['5,5', '6,5', '7,5', '8,5']
-  },
-  {
-    id: 'ocean',
-    name: 'Lucidian Ocean',
-    type: 'water',
-    cells: ['0,0', '1,0', '2,0']
-  }
-];
+// The maps are compiled by tools/maps (public/data/maps). Expectations are read from the compiled files,
+// so these tests check that regions and the grid reach the UI and are navigable, and keep working when
+// the maps are rebuilt with better data.
+interface CompiledMap {
+  mapId: string;
+  grid: { columns: number; rows: number };
+  regions: Array<{ id: string; name: string; cells: string[] }>;
+}
 
-const wavechaserRegions = [
-  {
-    id: 'W-FORE',
-    name: 'Forecastle & Bowsprit',
-    type: 'ship_deck',
-    cells: ['7,2', '8,2', '7,3', '8,3']
-  },
-  {
-    id: 'W-MAIN',
-    name: 'Main Deck & Cargo Grates',
-    type: 'ship_deck',
-    cells: ['6,8', '7,8', '8,8', '9,8']
-  },
-  {
-    id: 'W-STERN',
-    name: 'Quarterdeck, Helm & Ballistae',
-    type: 'ship_deck',
-    cells: ['7,17', '8,17', '4,19', '11,19']
-  },
-  {
-    id: 'W-CAPT',
-    name: "Captain's Cabin (Three Earrings)",
-    type: 'ship_cabin',
-    cells: ['23,17', '24,17', '23,18', '24,18']
-  },
-  {
-    id: 'W-CABIN',
-    name: "Passenger Cabin (Adventurers' Quarters)",
-    type: 'ship_cabin',
-    cells: ['26,17', '27,17', '26,18', '27,18']
-  },
-  {
-    id: 'ocean',
-    name: 'Lucidian Ocean',
-    type: 'water',
-    cells: ['0,0', '1,0', '2,0']
-  }
-];
+const loadMap = (file: string): CompiledMap =>
+  JSON.parse(fs.readFileSync(path.resolve('public/data/maps', file), 'utf-8'));
 
-const ruinedRegions = [
-  {
-    id: 'P5',
-    name: 'Northern Bridge Ruins',
-    type: 'bridge',
-    cells: ['15,1', '15,2', '16,1', '16,2']
-  },
-  {
-    id: 'P10',
-    name: 'Central Plaza & Statue of Kord',
-    type: 'plaza',
-    cells: ['15,9', '16,9', '15,10', '16,10']
-  },
-  {
-    id: 'ocean',
-    name: 'Sharkfeather Trench',
-    type: 'water',
-    cells: ['0,0', '1,0', '2,0']
-  }
-];
+const palma = loadMap('egtw-5.1-palma-flora.json');
+const wavechaser = loadMap('egtw-5.2-wavechaser.json');
+const ruined = loadMap('egtw-5.3-ruined-palma-flora.json');
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+function region(map: CompiledMap, id: string): MapRegion {
+  const r = map.regions.find((x) => x.id === id);
+  if (!r || r.cells.length === 0) throw new Error(`Compiled map ${map.mapId} has no cells for region ${id}`);
+  return { id: r.id, name: r.name, cells: r.cells };
+}
+
+const centre = (map: CompiledMap, id: string) => getRegionCenter(region(map, id));
+const cellSelector = (p: { x: number; y: number }) => `[data-cell="${p.x}-${p.y}"]`;
+const regionLabel = (map: CompiledMap, id: string) => new RegExp(`${escapeRe(region(map, id).name)} - ${id}`);
+const mapSizeOf = (map: CompiledMap) => ({ width: map.grid.columns, height: map.grid.rows });
+
+const encounterFor = (id: string, name: string, map: CompiledMap, dm: string, player: string | undefined, units: unknown[]) => ({
+  id,
+  name,
+  chapterIds: [`${SUITE_ID}-chap-1`],
+  dmMapUrl: dm,
+  ...(player ? { playerMapUrl: player } : {}),
+  mapSize: mapSizeOf(map),
+  units,
+});
+
+const west = centre(palma, 'P2');
 
 const mapGridSeed = {
   ...baseSeed,
@@ -109,107 +61,54 @@ const mapGridSeed = {
     }
   ],
   encounters: [
-    {
-      id: 'palma-flora-encounter',
-      name: 'Map 5.1: Palma Flora',
-      chapterIds: [`${SUITE_ID}-chap-1`],
-      dmMapUrl: '/maps/5.1-palma-flora.png',
-      playerMapUrl: '/maps/5.1-palma-flora-player.png',
-      mapSize: { width: 33, height: 21, cellPitch: 75, offsetX: 66, offsetY: 35, regions: palmaRegions },
-      gridConfig: {
-        columns: 33,
-        rows: 21,
-        cellPitch: 75,
-        offsetX: 66,
-        offsetY: 35,
-        imageWidth: 2550,
-        imageHeight: 1650,
-        regions: palmaRegions
+    encounterFor('palma-flora-encounter', 'Map 5.1: Palma Flora', palma, '/maps/5.1-palma-flora.png', '/maps/5.1-palma-flora-player.png', [
+      {
+        instanceId: `${SUITE_ID}-unit-sahuagin`,
+        monsterId: '17003',
+        name: 'Sahuagin Raider',
+        maxHp: 22,
+        currentHp: 22,
+        dexMod: 0,
+        initiative: 12,
+        isPlayer: false,
+        position: west
       },
-      units: [
-        {
-          instanceId: `${SUITE_ID}-unit-sahuagin`,
-          monsterId: '17003',
-          name: 'Sahuagin Raider',
-          maxHp: 22,
-          currentHp: 22,
-          dexMod: 0,
-          initiative: 12,
-          isPlayer: false,
-          position: { x: 5, y: 5 }
-        },
-        {
-          instanceId: `${SUITE_ID}-player-hero`,
-          playerId: `${SUITE_ID}-p-1`,
-          name: 'Beauregard',
-          maxHp: 28,
-          currentHp: 28,
-          dexMod: 3,
-          initiative: 18,
-          isPlayer: true,
-          position: { x: 6, y: 5 }
-        }
-      ]
-    },
-    {
-      id: 'wavechaser-encounter',
-      name: 'Map 5.2: Wavechaser',
-      chapterIds: [`${SUITE_ID}-chap-1`],
-      dmMapUrl: '/maps/5.2-wavechaser.png',
-      mapSize: { width: 33, height: 21, cellPitch: 75, offsetX: 50, offsetY: 66, regions: wavechaserRegions },
-      gridConfig: {
-        columns: 33,
-        rows: 21,
-        cellPitch: 75,
-        offsetX: 50,
-        offsetY: 66,
-        imageWidth: 2550,
-        imageHeight: 1650,
-        regions: wavechaserRegions
-      },
-      units: [
-        {
-          instanceId: `${SUITE_ID}-unit-pirate`,
-          name: 'Pirate Sailor',
-          maxHp: 16,
-          currentHp: 16,
-          dexMod: 1,
-          initiative: 14,
-          isPlayer: false,
-          position: { x: 7, y: 8 }
-        }
-      ]
-    },
-    {
-      id: 'ruined-palma-encounter',
-      name: 'Map 5.3: Ruined Palma Flora',
-      chapterIds: [`${SUITE_ID}-chap-1`],
-      dmMapUrl: '/maps/5.3-ruined-palma-flora.png',
-      playerMapUrl: '/maps/5.3-ruined-palma-flora-player.png',
-      mapSize: { width: 33, height: 21, cellPitch: 75, offsetX: 66, offsetY: 35, regions: ruinedRegions },
-      gridConfig: {
-        columns: 33,
-        rows: 21,
-        cellPitch: 75,
-        offsetX: 66,
-        offsetY: 35,
-        imageWidth: 2550,
-        imageHeight: 1650,
-        regions: ruinedRegions
-      },
-      units: [
-        {
-          instanceId: `${SUITE_ID}-unit-selachai`,
-          name: 'Selachai',
-          maxHp: 45,
-          currentHp: 45,
-          dexMod: 2,
-          initiative: 15,
-          isPlayer: false,
-          position: { x: 15, y: 10 }
-        }
-      ]
-    }
+      {
+        instanceId: `${SUITE_ID}-player-hero`,
+        playerId: `${SUITE_ID}-p-1`,
+        name: 'Beauregard',
+        maxHp: 28,
+        currentHp: 28,
+        dexMod: 3,
+        initiative: 18,
+        isPlayer: true,
+        position: { x: west.x + 1, y: west.y }
+      }
+    ]),
+    encounterFor('wavechaser-encounter', 'Map 5.2: Wavechaser', wavechaser, '/maps/5.2-wavechaser.png', undefined, [
+      {
+        instanceId: `${SUITE_ID}-unit-pirate`,
+        name: 'Pirate Sailor',
+        maxHp: 16,
+        currentHp: 16,
+        dexMod: 1,
+        initiative: 14,
+        isPlayer: false,
+        position: centre(wavechaser, 'W-FORE')
+      }
+    ]),
+    encounterFor('ruined-palma-encounter', 'Map 5.3: Ruined Palma Flora', ruined, '/maps/5.3-ruined-palma-flora.png', '/maps/5.3-ruined-palma-flora-player.png', [
+      {
+        instanceId: `${SUITE_ID}-unit-selachai`,
+        name: 'Selachai',
+        maxHp: 45,
+        currentHp: 45,
+        dexMod: 2,
+        initiative: 15,
+        isPlayer: false,
+        position: centre(ruined, 'P10')
+      }
+    ])
   ]
 };
 
@@ -221,6 +120,24 @@ const setupApp = async (page: Page) => {
   await page.goto('/');
   await page.waitForSelector('header');
 };
+
+/** Opens Run Mode, follows the link to an encounter, and starts combat on the new page. */
+async function openEncounter(page: Page, context: import('@playwright/test').BrowserContext, linkName: RegExp) {
+  await page.keyboard.press('Alt+m');
+  await expect(page.getByRole('heading', { name: 'Run Mode' })).toBeVisible();
+
+  const [encounterPage] = await Promise.all([
+    context.waitForEvent('page'),
+    page.getByRole('link', { name: linkName }).click()
+  ]);
+  await encounterPage.waitForLoadState();
+
+  const startBtn = encounterPage.getByRole('button', { name: 'Start Combat' });
+  await expect(startBtn).toBeVisible();
+  await startBtn.click();
+  await expect(startBtn).not.toBeVisible();
+  return encounterPage;
+}
 
 test.describe('Map Grid Alignment and Integration Suite', () => {
   test.beforeAll(async ({ request }) => {
@@ -237,33 +154,21 @@ test.describe('Map Grid Alignment and Integration Suite', () => {
   });
 
   test('Combat Map scales grid to battlemap dimensions with aligned backdrop and art toggle', async ({ page, context }) => {
-    await page.keyboard.press('Alt+m');
-    await expect(page.getByRole('heading', { name: 'Run Mode' })).toBeVisible();
+    const encounterPage = await openEncounter(page, context, /Run Map 5\.1: Palma Flora/);
+    const { columns, rows } = palma.grid;
 
-    const [encounterPage] = await Promise.all([
-      context.waitForEvent('page'),
-      page.getByRole('link', { name: /Run Map 5\.1: Palma Flora/ }).click()
-    ]);
-    await encounterPage.waitForLoadState();
-
-    // Start combat
-    const startBtn = encounterPage.getByRole('button', { name: 'Start Combat' });
-    await expect(startBtn).toBeVisible();
-    await startBtn.click();
-    await expect(startBtn).not.toBeVisible();
-
-    // Heading reflects true detected battlemap dimensions (33x21 cells = 165x105 ft)
-    const mapHeading = encounterPage.getByRole('heading', { name: /Combat Map \(165x105 ft\)/ });
+    // Heading reflects the compiled grid: one 5-foot square per cell
+    const mapHeading = encounterPage.getByRole('heading', { name: new RegExp(`Combat Map \\(${columns * 5}x${rows * 5} ft\\)`) });
     await expect(mapHeading).toBeVisible();
 
-    // ARIA Grid verifies 21 rows and 33 columns
+    // ARIA grid has the compiled row and column counts
     const grid = encounterPage.getByRole('grid', { name: 'Combat Map' });
-    await expect(grid).toHaveAttribute('aria-rowcount', '21');
-    await expect(grid).toHaveAttribute('aria-colcount', '33');
+    await expect(grid).toHaveAttribute('aria-rowcount', String(rows));
+    await expect(grid).toHaveAttribute('aria-colcount', String(columns));
 
-    // Check last column header exists (33rd column is AG)
-    const colAG = encounterPage.locator('th').filter({ hasText: 'AG' });
-    await expect(colAG).toBeAttached();
+    // The last column header exists
+    const lastColumn = encounterPage.locator('th').filter({ hasText: columnIndexToLabel(columns - 1) });
+    await expect(lastColumn.first()).toBeAttached();
 
     // Verify backdrop element exists and has aligned background styling
     const backdrop = encounterPage.locator('.combat-map-section [aria-hidden="true"]').filter({
@@ -275,8 +180,6 @@ test.describe('Map Grid Alignment and Integration Suite', () => {
     const artToggleBtn = encounterPage.getByRole('button', { name: /Art: DM View/ });
     await expect(artToggleBtn).toBeVisible();
     await artToggleBtn.click();
-
-    // Toggle switched to Player View
     await expect(encounterPage.getByRole('button', { name: /Art: Player View/ })).toBeVisible();
 
     // Focus board using Alt+B and navigate
@@ -284,251 +187,162 @@ test.describe('Map Grid Alignment and Integration Suite', () => {
     const cellA1 = encounterPage.locator('[data-cell="0-0"]');
     await expect(cellA1).toBeFocused();
 
-    // Navigate to creature token at (5, 5) -> F6
+    // Jump to the creature token
     await encounterPage.keyboard.press('Alt+j');
     const jumpHeading = encounterPage.getByRole('heading', { name: 'Jump to Creature' });
     await expect(jumpHeading).toBeVisible();
     await expect(jumpHeading).toBeFocused();
 
-    // Jump to Sahuagin Raider
     const sahuaginJump = encounterPage.locator('[role="dialog"] button').filter({ hasText: /Sahuagin Raider/ }).first();
     await sahuaginJump.click();
     await expect(jumpHeading).not.toBeVisible();
 
-    // Focused cell is now the creature's cell with Sahuagin Raider token
+    // Focused cell is now the creature's cell with the Sahuagin Raider token
     const tokenCell = encounterPage.locator('td[role="gridcell"]:focus');
     await expect(tokenCell).toBeVisible();
     await expect(tokenCell).toHaveAttribute('aria-label', /Sahuagin Raider/);
 
-    // Axe accessibility scan
     await checkA11y(encounterPage, 'Combat Map with Aligned Battlemap Art');
-
     await encounterPage.close();
   });
 
-  test('Combat Map identifies and announces irregular semantic regions on navigation, jump, and radar', async ({ page, context }) => {
-    await page.keyboard.press('Alt+m');
-    await expect(page.getByRole('heading', { name: 'Run Mode' })).toBeVisible();
+  test('Combat Map identifies and announces book regions on navigation, jump, and radar', async ({ page, context }) => {
+    const encounterPage = await openEncounter(page, context, /Run Map 5\.1: Palma Flora/);
 
-    const [encounterPage] = await Promise.all([
-      context.waitForEvent('page'),
-      page.getByRole('link', { name: /Run Map 5\.1: Palma Flora/ }).click()
-    ]);
-    await encounterPage.waitForLoadState();
+    // 1. Cells inside three regions announce the region name and book key
+    for (const id of ['P5', 'P7', 'P8']) {
+      const cell = encounterPage.locator(cellSelector(centre(palma, id)));
+      await expect(cell).toHaveAttribute('aria-label', regionLabel(palma, id));
+    }
 
-    // Start combat
-    const startBtn = encounterPage.getByRole('button', { name: 'Start Combat' });
-    await expect(startBtn).toBeVisible();
-    await startBtn.click();
-    await expect(startBtn).not.toBeVisible();
-
-    // 1. Verify Ocean cell at (0, 0)
-    const oceanCell = encounterPage.locator('[data-cell="0-0"]');
-    await expect(oceanCell).toHaveAttribute('aria-label', /Lucidian Ocean/);
-
-    // 2. Verify Northern Bridge (P5) at column 17, row 1 (R2)
-    const bridgeCell = encounterPage.locator('[data-cell="17-1"]');
-    await expect(bridgeCell).toHaveAttribute('aria-label', /Northern Bridge - P5/);
-
-    // 3. Verify Walled Manor & Fountain (P7) at column 22, row 4 (W5)
-    const manorCell = encounterPage.locator('[data-cell="22-4"]');
-    await expect(manorCell).toHaveAttribute('aria-label', /Walled Manor & Fountain - P7/);
-
-    // 4. Verify Harbor Docks (P8) at column 26, row 7 (AA8)
-    const dockCell = encounterPage.locator('[data-cell="26-7"]');
-    await expect(dockCell).toHaveAttribute('aria-label', /Harbor Docks & Wavechaser - P8/);
-
-    // 5. Verify Jump to Creature displays the creature's region (West Shore & Cottages - P2)
+    // 2. Jump to Creature displays the creature's region (the seeded Sahuagin stands in West Shore, P2)
     await encounterPage.keyboard.press('Alt+j');
     const jumpModal = encounterPage.getByRole('dialog', { name: 'Jump to Creature' });
     await expect(jumpModal).toBeVisible();
-    await expect(jumpModal.getByText(/West Shore & Cottages - P2/)).toBeVisible();
+    await expect(jumpModal.getByText(regionLabel(palma, 'P2')).first()).toBeVisible();
     await encounterPage.keyboard.press('Escape');
     await expect(jumpModal).not.toBeVisible();
 
-    // 6. Verify Radar scan displays region names
+    // 3. Radar scan displays region names
     const radarBtn = encounterPage.getByRole('button', { name: 'Radar Scan (Alt+E)' });
     await expect(radarBtn).toBeVisible();
     await radarBtn.click();
     const radarModal = encounterPage.getByRole('dialog', { name: 'Nearby Entities (Radar)' });
     await expect(radarModal).toBeVisible();
-    await expect(radarModal.getByText(/West Shore & Cottages - P2/)).toBeVisible();
+    await expect(radarModal.getByText(regionLabel(palma, 'P2')).first()).toBeVisible();
     await encounterPage.keyboard.press('Escape');
     await expect(radarModal).not.toBeVisible();
 
-    // 7. Check Axe accessibility scan
-    await checkA11y(encounterPage, 'Combat Map with Irregular Semantic Regions');
-
+    await checkA11y(encounterPage, 'Combat Map with Book Regions');
     await encounterPage.close();
   });
 
   test('Jump to Region dialog orders regions by location, displays center points, teleports focus, and passes Axe scan', async ({ page, context }) => {
-    await page.keyboard.press('Alt+m');
-    await expect(page.getByRole('heading', { name: 'Run Mode' })).toBeVisible();
+    const encounterPage = await openEncounter(page, context, /Run Map 5\.1: Palma Flora/);
+    const size = mapSizeOf(palma);
+    const bridge = region(palma, 'P5');
+    const docks = region(palma, 'P8');
 
-    const [encounterPage] = await Promise.all([
-      context.waitForEvent('page'),
-      page.getByRole('link', { name: /Run Map 5\.1: Palma Flora/ }).click()
-    ]);
-    await encounterPage.waitForLoadState();
-
-    // Start combat
-    const startBtn = encounterPage.getByRole('button', { name: 'Start Combat' });
-    await expect(startBtn).toBeVisible();
-    await startBtn.click();
-    await expect(startBtn).not.toBeVisible();
-
-    // 1. Check toolbar button is present
+    // 1. Toolbar button, then dialog with the heading focused
     const regionJumpBtn = encounterPage.getByRole('button', { name: 'Jump to Region (Alt+L)' });
     await expect(regionJumpBtn).toBeVisible();
-
-    // 2. Open via toolbar button
     await regionJumpBtn.click();
 
-    // 3. Verify dialog and heading focus
     const regionModal = encounterPage.getByRole('dialog', { name: 'Jump to Region' });
     await expect(regionModal).toBeVisible();
     const heading = encounterPage.getByRole('heading', { name: 'Jump to Region' });
-    await expect(heading).toBeVisible();
     await expect(heading).toBeFocused();
 
-    // 4. Verify regions are displayed with their center points and sectors
-    const bridgeItem = regionModal.locator('li').filter({ hasText: 'Northern Bridge' });
+    // 2. Regions show their center points and sectors, computed the same way the app does
+    const bridgeItem = regionModal.locator('li').filter({ hasText: bridge.name }).first();
     await expect(bridgeItem).toBeVisible();
-    await expect(bridgeItem.getByText(/Center: R2/)).toBeVisible();
-    await expect(bridgeItem.getByText(/Sector: North/)).toBeVisible();
+    const bridgeCentre = getRegionCenter(bridge);
+    await expect(bridgeItem.getByText(`Center: ${coordinateToLabel(bridgeCentre)}`)).toBeVisible();
+    await expect(bridgeItem.getByText(`Sector: ${getRegionSector(bridgeCentre, size)}`)).toBeVisible();
+    await expect(regionModal.getByText(docks.name).first()).toBeVisible();
 
-    await expect(regionModal.getByText(/Walled Manor & Fountain/)).toBeVisible();
-    await expect(regionModal.getByText(/Harbor Docks & Wavechaser/)).toBeVisible();
-
-    // 5. Verify regions appear in geographic order: Northern Bridge (Row 2, North) should precede Harbor Docks (Row 8, East)
+    // 3. Regions appear in map order (top to bottom, then left to right)
+    const expectedOrder = sortRegionsByLocation([bridge, docks], size).map((r) => r.region.name);
     const optionTexts = await regionModal.locator('li button strong').allTextContents();
-    const bridgeIndex = optionTexts.findIndex(t => t.includes('Northern Bridge'));
-    const docksIndex = optionTexts.findIndex(t => t.includes('Harbor Docks'));
-    expect(bridgeIndex).toBeGreaterThanOrEqual(0);
-    expect(docksIndex).toBeGreaterThanOrEqual(0);
-    expect(bridgeIndex).toBeLessThan(docksIndex);
+    const at = (name: string) => optionTexts.findIndex((t) => t.includes(name));
+    expect(at(bridge.name)).toBeGreaterThanOrEqual(0);
+    expect(at(docks.name)).toBeGreaterThanOrEqual(0);
+    expect(at(expectedOrder[0])).toBeLessThan(at(expectedOrder[1]));
 
-    // 6. Run Axe accessibility scan on open modal
     await checkA11y(encounterPage, 'Jump to Region Modal');
 
-    // 7. Verify Escape key closes modal and restores focus to trigger button
+    // 4. Escape closes the modal and restores focus to the trigger
     await encounterPage.keyboard.press('Escape');
     await expect(regionModal).not.toBeVisible();
     await expect(regionJumpBtn).toBeFocused();
 
-    // 8. Re-open via keyboard shortcut Alt+L and teleport to Northern Bridge
+    // 5. Reopen with Alt+L and teleport to the bridge
     await encounterPage.keyboard.press('Alt+l');
     await expect(regionModal).toBeVisible();
+    await regionModal.locator('button').filter({ hasText: new RegExp(escapeRe(bridge.name)) }).first().click();
 
-    const bridgeOption = regionModal.locator('button').filter({ hasText: /Northern Bridge/ });
-    await bridgeOption.click();
-
-    // 9. Modal closes and focus is teleported to cell R2 (17, 1)
     await expect(regionModal).not.toBeVisible();
-    const targetCell = encounterPage.locator('[data-cell="17-1"]');
+    const targetCell = encounterPage.locator(cellSelector(bridgeCentre));
     await expect(targetCell).toBeFocused();
-    await expect(targetCell).toHaveAttribute('aria-label', /Northern Bridge - P5/);
+    await expect(targetCell).toHaveAttribute('aria-label', regionLabel(palma, 'P5'));
 
     await encounterPage.close();
   });
 
-  test('Wavechaser (Map 5.2) segments upper and lower decks and enables region jump across ship compartments', async ({ page, context }) => {
-    await page.keyboard.press('Alt+m');
-    await expect(page.getByRole('heading', { name: 'Run Mode' })).toBeVisible();
+  test('Wavechaser (Map 5.2) segments the ship into compartments and enables region jump', async ({ page, context }) => {
+    const encounterPage = await openEncounter(page, context, /Run Map 5\.2: Wavechaser/);
+    const capt = region(wavechaser, 'W-CAPT');
 
-    const [encounterPage] = await Promise.all([
-      context.waitForEvent('page'),
-      page.getByRole('link', { name: /Run Map 5\.2: Wavechaser/ }).click()
-    ]);
-    await encounterPage.waitForLoadState();
+    // 1. Compartment cells announce their names
+    await expect(encounterPage.locator(cellSelector(centre(wavechaser, 'W-FORE')))).toHaveAttribute('aria-label', regionLabel(wavechaser, 'W-FORE'));
+    await expect(encounterPage.locator(cellSelector(centre(wavechaser, 'W-CAPT')))).toHaveAttribute('aria-label', regionLabel(wavechaser, 'W-CAPT'));
 
-    // Start combat
-    const startBtn = encounterPage.getByRole('button', { name: 'Start Combat' });
-    await expect(startBtn).toBeVisible();
-    await startBtn.click();
-    await expect(startBtn).not.toBeVisible();
-
-    // 1. Weather Deck Forecastle at (7, 3) -> H4
-    const foreCell = encounterPage.locator('[data-cell="7-3"]');
-    await expect(foreCell).toHaveAttribute('aria-label', /Forecastle & Bowsprit - W-FORE/);
-
-    // 2. Below Deck Captain's Cabin at (23, 17) -> X18
-    const captCell = encounterPage.locator('[data-cell="23-17"]');
-    await expect(captCell).toHaveAttribute('aria-label', /Captain's Cabin \(Three Earrings\) - W-CAPT/);
-
-    // 3. Open Jump to Region
+    // 2. Jump to Region lists the compartments
     const regionJumpBtn = encounterPage.getByRole('button', { name: 'Jump to Region (Alt+L)' });
     await expect(regionJumpBtn).toBeVisible();
     await regionJumpBtn.click();
-
     const regionModal = encounterPage.getByRole('dialog', { name: 'Jump to Region' });
     await expect(regionModal).toBeVisible();
     await expect(regionModal.getByRole('heading', { name: 'Jump to Region' })).toBeFocused();
+    for (const id of ['W-FORE', 'W-STERN', 'W-CAPT']) {
+      await expect(regionModal.getByText(region(wavechaser, id).name).first()).toBeVisible();
+    }
 
-    // 4. Verify ship compartments are displayed
-    await expect(regionModal.getByText(/Forecastle & Bowsprit/)).toBeVisible();
-    await expect(regionModal.getByText(/Quarterdeck, Helm & Ballistae/)).toBeVisible();
-    await expect(regionModal.getByText(/Captain's Cabin \(Three Earrings\)/)).toBeVisible();
-
-    // 5. Run Axe scan
     await checkA11y(encounterPage, 'Wavechaser Map with Ship Compartments');
 
-    // 6. Teleport to Captain's Cabin
-    const captBtn = regionModal.locator('button').filter({ hasText: /Captain's Cabin/ });
-    await captBtn.click();
+    // 3. Teleport to the captain's cabin
+    await regionModal.locator('button').filter({ hasText: new RegExp(escapeRe(capt.name)) }).first().click();
     await expect(regionModal).not.toBeVisible();
-
-    const targetCell = encounterPage.locator('[data-cell="23-17"]');
-    await expect(targetCell).toBeFocused();
-    await expect(targetCell).toHaveAttribute('aria-label', /Captain's Cabin \(Three Earrings\) - W-CAPT/);
+    const target = encounterPage.locator(cellSelector(centre(wavechaser, 'W-CAPT')));
+    await expect(target).toBeFocused();
+    await expect(target).toHaveAttribute('aria-label', regionLabel(wavechaser, 'W-CAPT'));
 
     await encounterPage.close();
   });
 
-  test('Ruined Palma Flora (Map 5.3) segments sunken trench regions and enables region jump', async ({ page, context }) => {
-    await page.keyboard.press('Alt+m');
-    await expect(page.getByRole('heading', { name: 'Run Mode' })).toBeVisible();
+  test('Ruined Palma Flora (Map 5.3) exposes its regions and enables region jump', async ({ page, context }) => {
+    const encounterPage = await openEncounter(page, context, /Run Map 5\.3: Ruined Palma Flora/);
+    const square = region(ruined, 'P10');
 
-    const [encounterPage] = await Promise.all([
-      context.waitForEvent('page'),
-      page.getByRole('link', { name: /Run Map 5\.3: Ruined Palma Flora/ }).click()
-    ]);
-    await encounterPage.waitForLoadState();
+    // 1. Region cells announce the region name and key
+    await expect(encounterPage.locator(cellSelector(centre(ruined, 'P5')))).toHaveAttribute('aria-label', regionLabel(ruined, 'P5'));
+    await expect(encounterPage.locator(cellSelector(centre(ruined, 'P10')))).toHaveAttribute('aria-label', regionLabel(ruined, 'P10'));
 
-    // Start combat
-    const startBtn = encounterPage.getByRole('button', { name: 'Start Combat' });
-    await expect(startBtn).toBeVisible();
-    await startBtn.click();
-    await expect(startBtn).not.toBeVisible();
-
-    // 1. Verify Northern Bridge Ruins at (15, 1) -> P2
-    const bridgeCell = encounterPage.locator('[data-cell="15-1"]');
-    await expect(bridgeCell).toHaveAttribute('aria-label', /Northern Bridge Ruins - P5/);
-
-    // 2. Verify Central Plaza & Statue of Kord ritual site at (15, 9) -> P10
-    const plazaCell = encounterPage.locator('[data-cell="15-9"]');
-    await expect(plazaCell).toHaveAttribute('aria-label', /Central Plaza & Statue of Kord - P10/);
-
-    // 3. Open Jump to Region via Alt+L
+    // 2. Jump to Region via Alt+L
     await encounterPage.keyboard.press('Alt+l');
     const regionModal = encounterPage.getByRole('dialog', { name: 'Jump to Region' });
     await expect(regionModal).toBeVisible();
+    await expect(regionModal.getByText(region(ruined, 'P5').name).first()).toBeVisible();
+    await expect(regionModal.getByText(square.name).first()).toBeVisible();
 
-    await expect(regionModal.getByText(/Northern Bridge Ruins/)).toBeVisible();
-    await expect(regionModal.getByText(/Central Plaza & Statue of Kord/)).toBeVisible();
+    await checkA11y(encounterPage, 'Ruined Palma Flora Map with Regions');
 
-    // 4. Run Axe scan
-    await checkA11y(encounterPage, 'Ruined Palma Flora Map with Sunken Trench Regions');
-
-    // 5. Teleport to Central Plaza
-    const plazaOption = regionModal.locator('button').filter({ hasText: /Central Plaza & Statue of Kord/ });
-    await plazaOption.click();
+    // 3. Teleport to the central square
+    await regionModal.locator('button').filter({ hasText: new RegExp(escapeRe(square.name)) }).first().click();
     await expect(regionModal).not.toBeVisible();
-
-    const targetPlaza = encounterPage.locator('[data-cell="15-9"]');
-    await expect(targetPlaza).toBeFocused();
-    await expect(targetPlaza).toHaveAttribute('aria-label', /Central Plaza & Statue of Kord - P10/);
+    const target = encounterPage.locator(cellSelector(centre(ruined, 'P10')));
+    await expect(target).toBeFocused();
+    await expect(target).toHaveAttribute('aria-label', regionLabel(ruined, 'P10'));
 
     await encounterPage.close();
   });

@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { checkA11y } from './utils/axe-helper';
+import { legacyPalmaFloraWalls } from './fixtures/legacyPalmaFloraWalls';
 
 const COVER_SUITE_ID = 'map-cover-suite';
 
@@ -19,9 +20,9 @@ const coverSeed = {
       id: 'enc-cover-1',
       name: 'Skirmish at Walled Manor',
       chapterIds: ['chap-cover-1'],
-      dmMapUrl: '/maps/5.1-palma-flora-player.png',
-      playerMapUrl: '/maps/5.1-palma-flora-player.png',
-      mapSize: { width: 33, height: 21 },
+      // No map image: the walls below are seeded directly on the old 33 x 21 grid so this test does not
+      // depend on the compiled production map data.
+      mapSize: { width: 33, height: 21, walls: legacyPalmaFloraWalls },
       units: [
         {
           instanceId: 'unit-valeros',

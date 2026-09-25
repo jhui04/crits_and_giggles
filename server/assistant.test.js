@@ -1254,9 +1254,11 @@ describe('Iteration 4: LLM Telemetry & Benchmarking', () => {
       expect(fs.existsSync(resolved)).toBe(true);
 
       const gridData = getMapGridData('/maps/5.1-palma-flora-player.png');
-      expect(gridData.columns).toBe(33);
-      expect(gridData.rows).toBe(21);
-      expect(gridData.cellPitch).toBe(74);
+      // The compiled map (tools/maps) uses one 5-foot square per cell: 37.5 px on this 10-foot-per-square map.
+      expect(gridData.columns).toBe(67);
+      expect(gridData.rows).toBe(43);
+      expect(gridData.cellPitch).toBe(37.5);
+      expect(gridData.mapId).toBe('egtw-5.1-palma-flora');
     });
 
     it('executes get_current_map and returns structured locations with composited image', async () => {

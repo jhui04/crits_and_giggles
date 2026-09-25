@@ -29,8 +29,8 @@ const configCampaignSeed = {
       id: ENCOUNTER_ID,
       name: 'Palma Flora Shoreline Ambush',
       chapterIds: [`${SUITE_ID}-chap-1`],
-      dmMapUrl: '/maps/5.1-palma-flora-player.png',
-      playerMapUrl: '/maps/5.1-palma-flora-player.png',
+      // No map image: the regions below are seeded directly so this test does not depend on the
+      // compiled production map data.
       mapSize: { width: 33, height: 21 },
       gridConfig: {
         columns: 33,
@@ -203,7 +203,7 @@ test.describe('Milestone 4: Encounter Combatant Customization & Phase Tool (R4)'
     await expect(goblin1Row.locator('[data-testid="combatant-name"]')).toHaveText('Goblin 1');
     await expect(goblin1Row.locator('[data-testid="combatant-monster-type"]')).toHaveText('Goblin');
     await expect(goblin1Row.locator('[data-testid="combatant-coordinates"]')).toContainText('B3');
-    await expect(goblin1Row.locator('[data-testid="combatant-coordinates"]')).toContainText('Lucidian Ocean');
+    await expect(goblin1Row.locator('[data-testid="combatant-coordinates"]')).toContainText('South Shore');
     await expect(goblin1Row.locator('[data-testid="combatant-phase"]')).toHaveText('Phase 1: Initial Wave');
     await expect(goblin1Row.locator('[data-testid="combatant-faction"]')).toContainText('enemy');
 
@@ -213,7 +213,7 @@ test.describe('Milestone 4: Encounter Combatant Customization & Phase Tool (R4)'
     await expect(bugbear1Row.locator('[data-testid="combatant-name"]')).toHaveText('Bugbear 1');
     await expect(bugbear1Row.locator('[data-testid="combatant-monster-type"]')).toHaveText('Bugbear');
     await expect(bugbear1Row.locator('[data-testid="combatant-coordinates"]')).toContainText('H1');
-    await expect(bugbear1Row.locator('[data-testid="combatant-coordinates"]')).toContainText('Lucidian Ocean');
+    await expect(bugbear1Row.locator('[data-testid="combatant-coordinates"]')).toContainText('North Woods');
     await expect(bugbear1Row.locator('[data-testid="combatant-phase"]')).toHaveText('Phase 2: Reinforcements');
     await expect(bugbear1Row.locator('[data-testid="combatant-faction"]')).toContainText('enemy');
 

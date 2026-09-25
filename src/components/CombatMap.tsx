@@ -196,7 +196,7 @@ export function CombatMap({
 
       return {
         backdropSize: `${scaledW}px ${scaledH}px`,
-        backdropPosition: `-${scaledX}px -${scaledY}px`
+        backdropPosition: `${-scaledX}px ${-scaledY}px`
       };
     }
     return {

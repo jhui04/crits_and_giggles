@@ -42,6 +42,14 @@ export function setDb(newDb) {
   return db;
 }
 
+export const MAP_OVERRIDES_DDL = `CREATE TABLE IF NOT EXISTS map_overrides (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  map_id TEXT NOT NULL,
+  op_json TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_map_overrides_map ON map_overrides(map_id);`;
+
 export function initDb(targetDb = db) {
   // We need to support multi-tenancy where multiple campaigns can have assets/chapters with the same "natural" ID (e.g. from a template)
   // To do this properly, we use composite primary keys (id, campaign_id).
@@ -169,6 +177,9 @@ export function initDb(targetDb = db) {
       PRIMARY KEY (instanceId, campaign_id),
       FOREIGN KEY (encounter_id, campaign_id) REFERENCES encounters(id, campaign_id) ON DELETE CASCADE
     );
+
+    -- DM corrections to compiled maps (public/data/maps is generated and never edited). Applied in id order.
+    ${MAP_OVERRIDES_DDL}
 
     CREATE TABLE IF NOT EXISTS vector_chunks (
       id TEXT PRIMARY KEY,

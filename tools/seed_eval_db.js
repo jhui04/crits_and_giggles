@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { initDb } from '../server/db.js';
+import { getMapDocumentByUrl } from '../server/maps/mapStore.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -206,7 +207,12 @@ export async function seedEvalDatabase(targetDbPath = DEFAULT_SEED_PATH) {
       'Goliath Barbarian with 68 hit points'
     );
 
-    // Palma Flora Tactical Encounter
+    // Palma Flora Tactical Encounter, placed on the compiled map grid (67 by 43).
+    const PALMA_URL = '/maps/5.1-palma-flora.png';
+    const palmaDoc = getMapDocumentByUrl(PALMA_URL);
+    if (!palmaDoc) throw new Error('Compiled map data for Palma Flora is missing. Run npm run maps:build first.');
+    const grogCell = { x: 26, y: 17 };
+    const sahuaginCell = { x: 32, y: 17 };
     const runningState = {
       isCombatStarted: true,
       round: 1,
@@ -221,7 +227,7 @@ export async function seedEvalDatabase(targetDbPath = DEFAULT_SEED_PATH) {
           dexMod: 2,
           initiative: 14,
           isPlayer: true,
-          position: { x: 12, y: 8 },
+          position: grogCell,
           conditions: [],
         },
         {
@@ -233,7 +239,7 @@ export async function seedEvalDatabase(targetDbPath = DEFAULT_SEED_PATH) {
           dexMod: 1,
           initiative: 11,
           isPlayer: false,
-          position: { x: 15, y: 8 },
+          position: sahuaginCell,
           conditions: ['Poisoned'],
         },
       ],
@@ -250,8 +256,8 @@ export async function seedEvalDatabase(targetDbPath = DEFAULT_SEED_PATH) {
       JSON.stringify(runningState),
       '/maps/5.1-palma-flora.png',
       '/maps/5.1-palma-flora-player.png',
-      JSON.stringify({ width: 33, height: 21 }),
-      JSON.stringify({ columns: 33, rows: 21, cellPitch: 74 })
+      JSON.stringify({ width: palmaDoc.grid.columns, height: palmaDoc.grid.rows }),
+      JSON.stringify({ mapId: palmaDoc.mapId, schemaVersion: 2 })
     );
 
     db.prepare('INSERT OR REPLACE INTO encounter_chapters (encounter_id, chapter_id, campaign_id) VALUES (?, ?, ?)').run(
@@ -283,8 +289,8 @@ export async function seedEvalDatabase(targetDbPath = DEFAULT_SEED_PATH) {
       14,
       10,
       1,
-      12,
-      8,
+      grogCell.x,
+      grogCell.y,
       1
     );
 
@@ -302,8 +308,8 @@ export async function seedEvalDatabase(targetDbPath = DEFAULT_SEED_PATH) {
       11,
       9,
       0,
-      15,
-      8,
+      sahuaginCell.x,
+      sahuaginCell.y,
       1
     );
   });

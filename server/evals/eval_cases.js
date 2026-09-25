@@ -103,7 +103,7 @@ export const BONUS_EVAL_CASES = [
     encounterId: 'enc-palma-flora',
     expectedTool: 'get_entity_position',
     acceptableTools: ['get_current_map'],
-    expectedFact: 'Grog is at position (12, 8) or cell M9.',
+    expectedFact: 'Grog is at position (26, 17) or cell AA18.',
     category: 'bonus-tool',
   },
   {
@@ -131,6 +131,58 @@ export const BONUS_EVAL_CASES = [
     expectedFact: 'The party arrives in Palma Flora just as sea raiders emerge from the tides along the docks.',
     category: 'bonus-tool',
   },
+  {
+    id: 'eval-14-place-at-water-edge',
+    query: "Move the Sahuagin Raider to P1, right at the water's edge but still on the beach.",
+    campaignId: 'test-campaign',
+    encounterId: 'enc-palma-flora',
+    screen: 'run.combat',
+    expectedTool: 'find_positions',
+    acceptableTools: ['move_combatant'],
+    expectedFact: 'The answer picks a sand cell in P1 South Shore that touches water and stages (or proposes) moving the Sahuagin Raider there, awaiting DM approval.',
+    category: 'map',
+  },
+  {
+    id: 'eval-15-surroundings-and-cover',
+    query: 'What terrain is around the Sahuagin Raider, and what can it use for cover?',
+    campaignId: 'test-campaign',
+    encounterId: 'enc-palma-flora',
+    screen: 'run.combat',
+    expectedTool: 'describe_surroundings',
+    expectedFact: 'The answer names the ground the Sahuagin Raider stands on and the nearest terrain changes or objects that give cover, using the tool result.',
+    category: 'map',
+  },
+  {
+    id: 'eval-16-areas-by-water',
+    query: 'Which areas of the map are next to the water?',
+    campaignId: 'test-campaign',
+    encounterId: 'enc-palma-flora',
+    screen: 'run.combat',
+    expectedTool: 'get_map_overview',
+    expectedFact: 'The answer lists map areas (such as P1 South Shore) whose borders include water.',
+    category: 'map',
+  },
+  {
+    id: 'eval-17-hide-from-grog',
+    query: 'Hide the Sahuagin Raider from Grog.',
+    campaignId: 'test-campaign',
+    encounterId: 'enc-palma-flora',
+    screen: 'run.combat',
+    expectedTool: 'find_positions',
+    acceptableTools: ['move_combatant'],
+    expectedFact: 'The answer finds a cell with no line of sight from Grog and proposes moving the Sahuagin Raider there for DM approval.',
+    category: 'map',
+  },
+  {
+    id: 'eval-18-correct-map-terrain',
+    query: 'The map data is wrong: cells M4 and M5 are mud, not sand. Please fix that.',
+    campaignId: 'test-campaign',
+    encounterId: 'enc-palma-flora',
+    screen: 'run.combat',
+    expectedTool: 'propose_map_patch',
+    expectedFact: 'The answer stages a map correction marking M4 and M5 as mud and says it awaits DM approval.',
+    category: 'map',
+  },
 ];
 
 /** Combat tools that story/world/encounter-builder screens must never execute. */
@@ -143,6 +195,10 @@ export const LIVE_COMBAT_TOOLS = [
   'get_entity_position',
   'get_initiative_order',
   'get_current_map',
+  'get_map_overview',
+  'describe_surroundings',
+  'find_positions',
+  'propose_map_patch',
 ];
 
 /** Screen-aware context profile cases (docs/CONTEXT_AWARE_ASSISTANT.md, section 6.3). */

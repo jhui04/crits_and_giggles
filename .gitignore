@@ -45,3 +45,7 @@ eval_report.json
 test_seed.sqlite
 test_eval_cache.json
 test_eval_report.json
+
+# Raw third-party map data (copyrighted; fetched by tools/maps/fetch_sources.py)
+tools/external/cache/
+

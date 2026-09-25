@@ -663,6 +663,7 @@ app.delete('/api/danger/reset', async (req, res) => {
     db.prepare('DELETE FROM campaigns').run();
     db.prepare('DELETE FROM worlds').run();
     db.prepare('DELETE FROM vector_chunks').run();
+    db.prepare('DELETE FROM map_overrides').run();
     clearLlmMetrics();
     invalidateVectorCache();
     await indexSrdAndJsonData();

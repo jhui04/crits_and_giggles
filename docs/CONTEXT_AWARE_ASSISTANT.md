@@ -101,6 +101,7 @@ Measured from `ASSISTANT_TOOLS` (13 read + 5 write = 18 tools). Cost is `JSON.st
 | `combat_read` | get_monster_hp, get_character_hp, get_entity_position, get_initiative_order, get_current_map | 528 |
 | `combat_write` | move_combatant, apply_combat_damage, remove_combatant, update_combatant | 1,037 |
 | `encounter_setup_write` | configure_encounter_combatants | 272 |
+| `map_write` | propose_map_patch | (run_combat only) |
 
 Observation: `get_monster_hp` / `get_character_hp` / `lookup_monster` overlap by design (evals accept alternates, see `acceptableTools` in `eval_cases.js`). That overlap is itself a small-model selection hazard, and a reason to prefer fewer tools per screen.
 

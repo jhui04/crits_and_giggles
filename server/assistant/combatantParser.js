@@ -341,8 +341,18 @@ export function parseScenarioCombatants(
     let detectedCoord = null;
     let detectedRegionName = undefined;
 
-    // Region check against encounter regions
+    // Region check against encounter regions, by name and by book key ("in P1"). A key such as
+    // P1 also reads as a grid cell (column P, row 1), so keys win over cell labels below.
+    const regionKeys = new Set();
     for (const reg of regions) {
+      if (!reg.id || !/^[A-Za-z]+\d+$/.test(reg.id)) continue;
+      if (new RegExp(String.raw`\b${reg.id}\b`).test(clause)) {
+        regionKeys.add(reg.id.toUpperCase());
+        if (!detectedRegionName) detectedRegionName = reg.name;
+      }
+    }
+    for (const reg of regions) {
+      if (detectedRegionName) break;
       if (reg.name && lowerClause.includes(reg.name.toLowerCase())) {
         detectedRegionName = reg.name;
         break;
@@ -360,7 +370,7 @@ export function parseScenarioCombatants(
     // Coordinate with preposition: e.g. at B3, from H1
     if (!detectedCoord) {
       const prepCoordMatch = clause.match(/\b(?:at|from|in|to)\s+(([A-Za-z]+\d+)|(\d+\s*,\s*\d+))\b/i);
-      if (prepCoordMatch) {
+      if (prepCoordMatch && !regionKeys.has(prepCoordMatch[1].toUpperCase())) {
         try {
           detectedCoord = labelToCoordinate(prepCoordMatch[1]);
         } catch {}
@@ -370,17 +380,24 @@ export function parseScenarioCombatants(
     // Standalone coordinate label check e.g. "B3", "H1", "M9"
     if (!detectedCoord) {
       const standaloneMatch = clause.match(/\b([A-Za-z]\d{1,2})\b/);
-      if (standaloneMatch) {
+      if (standaloneMatch && !regionKeys.has(standaloneMatch[1].toUpperCase())) {
         try {
           detectedCoord = labelToCoordinate(standaloneMatch[1]);
         } catch {}
       }
     }
 
-    // If no coordinate found but region was found, pick region's first cell
+    // If no coordinate found but region was found, place inside the region. Compiled maps supply
+    // placeInRegion (an engine search near the region's label that skips occupied cells) so tokens
+    // do not pile into a corner; otherwise fall back to the region's first cell.
     if (!detectedCoord && detectedRegionName) {
       const regObj = regions.find((r) => r.name === detectedRegionName);
-      if (regObj && regObj.cells && regObj.cells.length > 0) {
+      if (regObj && typeof gridData?.placeInRegion === 'function') {
+        try {
+          detectedCoord = gridData.placeInRegion(regObj, occupiedCells) || null;
+        } catch {}
+      }
+      if (!detectedCoord && regObj && regObj.cells && regObj.cells.length > 0) {
         try {
           detectedCoord = labelToCoordinate(regObj.cells[0]);
         } catch {}

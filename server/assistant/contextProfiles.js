@@ -91,11 +91,11 @@ const PROFILES = Object.freeze({
   }),
   run_combat: Object.freeze({
     id: 'run_combat',
-    groups: ['reference', 'campaign', 'combat_read', 'combat_write', 'encounter_setup_write'],
+    groups: ['reference', 'campaign', 'combat_read', 'combat_write', 'encounter_setup_write', 'map_write'],
     extraTools: [],
     gameState: 'full',
     addendum:
-      'FOCUS: Running the fight. HP, conditions, initiative, positions, adjacency and cover, monster tactics, and map questions (always call get_current_map for those). Moves, damage, and roster changes are proposed for DM approval, never applied. Be terse: numbers first.',
+      'FOCUS: Running the fight. HP, conditions, initiative, positions, adjacency and cover, monster tactics, and map questions. For map questions call get_map_overview; for what is around a creature call describe_surroundings; to choose where a creature should go call find_positions and use one of its cells in move_combatant. Never work out coordinates yourself. If the DM says the map data is wrong, propose the fix with propose_map_patch, only when they ask. Moves, damage, roster changes, and map corrections are proposed for DM approval, never applied. Be terse: numbers first.',
   }),
 });
 

@@ -155,6 +155,8 @@ The framework standardizes the confirmation container shell while allowing custo
   - `destinationAdjacencies`: `{ allies: string[], enemies: string[], neutral: string[] }`
 - **`damage` (`DamageProposalPayload`)**:
   - `targets`: Array of `{ combatantId, combatantName, amount, actionType, damageType, currentHp, currentTempHp, maxHp, projectedHp, projectedTempHp, effectiveChange }`
+- **`map_patch` (`MapPatchProposalPayload`)** (`propose_map_patch`):
+  - `map`, `Change`, and the detail lines for that change (cells, terrain, object kind, cover, region, new name). Approval appends operations to the `map_overrides` table; `buildMapModel` applies them in order. The generated `public/data/maps/*.json` is never modified. The state hash is a fingerprint of the map id and its stored corrections, so approving one correction makes other pending ones for the same map stale. Corrections belong to the map, not to a campaign: every campaign that uses that map sees them.
 - **`combatant_config` (`CombatantConfigProposalPayload`)**:
   - `encounterId`, `encounterName`, `scenarioTextSummary`
   - `combatants`: Array of `{ name, coordinates: { x, y, label, regionName }, phase, faction, hp }`

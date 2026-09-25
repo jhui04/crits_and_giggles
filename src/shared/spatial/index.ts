@@ -1,0 +1,12 @@
+export * from './types.ts';
+export * from './labels.ts';
+export * from './geometry.ts';
+export * from './terrainRules.ts';
+export * from './objectRules.ts';
+export { buildMapModel, applyOverrides, coverAtLeast, sizeInCells, normalizeName } from './mapModel.ts';
+export type { MapModel, StepBlock } from './mapModel.ts';
+export { findPositions, speedBudget, directionWord } from './queries.ts';
+export type { PositionQuery, PositionResult, PositionSearch, RankBy, Stage } from './queries.ts';
+export { describeSurroundings, describePlacement, mapOverview, opponentsOf } from './describe.ts';
+export type { PlacementInfo } from './describe.ts';
+export { mapDocumentToGridConfig, regionToLegacy, legacyEdgeToSegment, legacyObstacleToObject } from './adapter.ts';

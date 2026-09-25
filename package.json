@@ -10,6 +10,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "benchmark": "node scripts/benchmark-llm.js",
+    "maps:fetch": "python tools/maps/fetch_sources.py",
+    "maps:build": "python tools/maps/build_maps.py",
     "seed:eval": "node tools/seed_eval_db.js",
     "eval": "node server/evals/run_evals.js",
     "eval:bonus": "node server/evals/run_evals.js --bonus",

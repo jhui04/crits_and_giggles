@@ -1,7 +1,9 @@
 import type { MapGridConfig, MapSize } from '../types';
 import { detectGridFromImage } from '../utils/gridDetection';
+import { mapDataService } from './MapDataService';
 
-const STORAGE_KEY = 'crits_map_grid_cache';
+// v2: earlier detections used wrong grid scales, so old cached grids are dropped.
+const STORAGE_KEY = 'crits_map_grid_cache_v2';
 const STATIC_CACHE_URL = '/data/map_grids.json';
 
 class MapGridService {
@@ -98,6 +100,9 @@ class MapGridService {
    */
   public getCachedGrid(url?: string): MapGridConfig | null {
     if (!url) return null;
+    // Compiled map documents win over anything detected or cached earlier.
+    const compiled = mapDataService.getCachedGridForUrl(url);
+    if (compiled) return compiled;
     const candidateKeys = this.normalizeKey(url);
     for (const key of candidateKeys) {
       if (this.memoryCache.has(key)) {
@@ -118,6 +123,10 @@ class MapGridService {
     existingConfig?: MapGridConfig | (MapSize & { cellPitch?: number; offsetX?: number; offsetY?: number })
   ): Promise<MapGridConfig | null> {
     if (!url) return null;
+
+    // 0. A compiled MapDocument for this image is the source of truth (see tools/maps).
+    const compiled = await mapDataService.getGridForUrl(url);
+    if (compiled) return compiled;
 
     // 1. If existing valid config was provided, save and return
     if (existingConfig && 'cellPitch' in existingConfig && existingConfig.cellPitch) {

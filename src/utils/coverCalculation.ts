@@ -1,4 +1,6 @@
 import type { Position, MapWallsData, WallEdge, CoverResult, WallType } from '../types';
+import type { WallSegment } from '../shared/spatial/types.ts';
+import { segmentsIntersect, sideOf } from '../shared/spatial/geometry.ts';
 
 interface Point2D {
   x: number;
@@ -54,28 +56,13 @@ export function wallEdgeToSegment(edge: WallEdge): Segment2D {
 
 /**
  * Tests if ray segment PQ intersects wall segment AB.
+ * The implementation lives in src/shared/spatial so the server can use it too.
  */
-export function lineSegmentsIntersect(
-  p: Point2D,
-  q: Point2D,
-  a: Point2D,
-  b: Point2D,
-  epsilon = 0.001
-): boolean {
-  const dx = q.x - p.x;
-  const dy = q.y - p.y;
-  const daX = b.x - a.x;
-  const daY = b.y - a.y;
+export const lineSegmentsIntersect = segmentsIntersect;
 
-  const denom = dx * daY - dy * daX;
-  if (Math.abs(denom) < 1e-9) {
-    return false;
-  }
-
-  const t = ((a.x - p.x) * daY - (a.y - p.y) * daX) / denom;
-  const u = ((a.x - p.x) * dy - (a.y - p.y) * dx) / denom;
-
-  return t > epsilon && t < 1 - epsilon && u >= -epsilon && u <= 1 + epsilon;
+/** Compiled-map segments the rules should honour: trusted, visible, and not an open door. */
+function isRulesSegment(seg: WallSegment): boolean {
+  return seg.kind !== 'invisible' && seg.provenance.confidence >= 0.5 && seg.door?.state !== 'open';
 }
 
 /**
@@ -155,6 +142,22 @@ function testRay(
     }
   }
 
+  // Check compiled free-form wall segments
+  if (walls.segments) {
+    for (const seg of walls.segments) {
+      if (!isRulesSegment(seg) || !lineSegmentsIntersect(start, end, seg.a, seg.b)) continue;
+      const name = seg.name || seg.kind.replace(/_/g, ' ');
+      if (seg.cover === 'total') return { blocked: true, blockType: 'full', blockerName: name };
+      if (seg.cover === 'three_quarters') {
+        highestBlock = 'three_quarters';
+        blockerName = name;
+      } else if (highestBlock === 'none') {
+        highestBlock = 'half';
+        blockerName = name;
+      }
+    }
+  }
+
   // Check interior obstacle cells
   if (walls.obstacleCells) {
     for (const [, obs] of Object.entries(walls.obstacleCells)) {
@@ -202,7 +205,7 @@ export function calculateCover(
   targetPos: Position,
   walls?: MapWallsData
 ): CoverResult {
-  if (!walls || ((!walls.edges || walls.edges.length === 0) && (!walls.obstacleCells || Object.keys(walls.obstacleCells).length === 0))) {
+  if (!walls || ((!walls.edges || walls.edges.length === 0) && (!walls.segments || walls.segments.length === 0) && (!walls.obstacleCells || Object.keys(walls.obstacleCells).length === 0))) {
     return {
       type: 'none',
       acBonus: 0,
@@ -408,6 +411,27 @@ export function isStepBlockedByWall(
           };
         }
       }
+    }
+  }
+
+  // 1b. Compiled wall segments crossing the line between the two cell centres
+  if (walls.segments) {
+    const a = { x: from.x + 0.5, y: from.y + 0.5 };
+    const b = { x: to.x + 0.5, y: to.y + 0.5 };
+    for (const seg of walls.segments) {
+      if (!seg.blocksMovement || !isRulesSegment(seg) || !lineSegmentsIntersect(a, b, seg.a, seg.b)) continue;
+      if (seg.oneWay) {
+        // A one-way wall only stops creatures approaching from its marked side.
+        const s = sideOf(seg.a, seg.b, a);
+        if (!(seg.oneWay === 'left' ? s < 0 : s > 0)) continue;
+      }
+      const name = seg.name || seg.kind.replace(/_/g, ' ');
+      return {
+        blocked: true,
+        wallType: seg.cover === 'total' ? 'full' : seg.cover,
+        wallName: name,
+        reason: `Blocked by ${name}`
+      };
     }
   }
 

@@ -1,4 +1,6 @@
-﻿"""
+"""
+LEGACY: superseded by the map compiler in tools/maps/ (build_maps.py), which writes public/data/maps/*.json.
+Kept only for reference; do not run it, it would overwrite nothing the app reads any more.
 Map Region Segmenter for Crits & Giggles.
 Extracts irregular semantic regions from battlemaps using computer vision:
 - Locates keyed badge markers (e.g. P1..P10, room numbers)

@@ -21,7 +21,7 @@ describe('MapGridService', () => {
     mapGridService.cacheResult('/maps/real-grid.png', {
       columns: 30, rows: 20, cellPitch: 70, offsetX: 1, offsetY: 2, confidence: 1
     });
-    const raw = localStorage.getItem('crits_map_grid_cache') || '';
+    const raw = localStorage.getItem('crits_map_grid_cache_v2') || '';
     expect(raw).not.toContain('fallback-only.png');
     expect(raw).toContain('real-grid.png');
   });

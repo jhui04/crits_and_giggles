@@ -1,3 +1,4 @@
+import type { WallSegment, TerrainLayer, MapObject } from './shared/spatial/types.ts';
 export type LoreItem = 
   | string 
   | { type: 'list', items: string[] }
@@ -89,6 +90,8 @@ export interface ObstacleCell {
 export interface MapWallsData {
   edges: WallEdge[];
   obstacleCells?: Record<string, ObstacleCell>; // key "x,y"
+  /** Free wall segments in grid units from a compiled MapDocument (see src/shared/spatial). */
+  segments?: WallSegment[];
 }
 
 export type CoverType = 'none' | 'half' | 'three_quarters' | 'total';
@@ -112,6 +115,11 @@ export interface MapGridConfig {
   confidence?: number;
   regions?: MapRegion[];
   walls?: MapWallsData;
+  /** Set when the grid comes from a compiled MapDocument. */
+  mapId?: string;
+  mapKind?: 'tactical' | 'overview';
+  terrain?: TerrainLayer;
+  objects?: MapObject[];
 }
 
 export interface MapSize {
@@ -290,7 +298,7 @@ export interface MagicItemFilters {
 
 export type HitlAction = 'approve' | 'deny';
 export type ProposalStatus = 'pending' | 'approved' | 'denied' | 'stale';
-export type HitlPayloadType = 'movement' | 'damage' | 'combatant_config' | 'generic';
+export type HitlPayloadType = 'movement' | 'damage' | 'combatant_config' | 'map_patch' | 'generic';
 
 export interface MovementProposalPayload {
   combatantId: string;
@@ -306,6 +314,10 @@ export interface MovementProposalPayload {
     y: number;
     label: string;
     regionName?: string;
+    /** Ground under the destination in words, from the compiled map. */
+    terrain?: string;
+    /** Plain-English facts about the destination (water contact, cover, hazards). */
+    notes?: string[];
   };
   originAdjacencies?: {
     allies: string[];
@@ -363,6 +375,12 @@ export interface CombatantConfigProposalPayload {
   combatants: CombatantConfigEntry[];
 }
 
+export interface MapPatchProposalPayload {
+  map: string;
+  Change: string;
+  [detail: string]: string;
+}
+
 export interface GenericProposalPayload {
   [key: string]: unknown;
 }
@@ -371,6 +389,7 @@ export type ToolProposalPayload =
   | MovementProposalPayload
   | DamageProposalPayload
   | CombatantConfigProposalPayload
+  | MapPatchProposalPayload
   | GenericProposalPayload;
 
 export interface ConfirmationProposal<T = ToolProposalPayload> {

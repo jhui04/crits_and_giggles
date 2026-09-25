@@ -1,4 +1,6 @@
 """
+LEGACY: superseded by the map compiler in tools/maps/ (build_maps.py), which writes public/data/maps/*.json.
+Kept only for reference; do not run it, it would overwrite nothing the app reads any more.
 Map Wall and Cover Generator for Crits & Giggles.
 Combines topological boundary extraction with localized OpenCV edge analysis
 to generate discrete wall edges, doors, and obstacle cells for parsed battlemaps.

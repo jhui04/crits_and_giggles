@@ -112,6 +112,32 @@ export const MovementProposalCard: React.FC<MovementProposalCardProps> = ({ payl
         </section>
       </div>
 
+      {payload.destination?.notes && payload.destination.notes.length > 0 && (
+        <section
+          aria-labelledby="movement-dest-notes-heading"
+          data-testid="movement-dest-notes"
+          style={{
+            backgroundColor: '#1a202c',
+            border: '1px solid #2d3748',
+            padding: '0.6rem 0.85rem',
+            borderRadius: '4px',
+            marginBottom: '0.75rem',
+          }}
+        >
+          <h4
+            id="movement-dest-notes-heading"
+            style={{ margin: 0, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#cbd5e0' }}
+          >
+            Destination Notes ({destCoordLabel})
+          </h4>
+          <ul style={{ margin: '0.35rem 0 0 0', paddingLeft: '1.2rem', fontSize: '0.85rem' }}>
+            {payload.destination.notes.map((note) => (
+              <li key={note} style={{ color: '#e2e8f0' }}>{note}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {(payload.originAdjacencies || payload.destinationAdjacencies) && (
         <div
           style={{

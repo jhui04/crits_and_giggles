@@ -21,6 +21,25 @@ except ImportError:
 
 STATE_FILE = "tools/adventure_scraper_state.json"
 DATA_FILE = "public/data/scraped_campaign.json"
+MAPS_DIR = "public/data/maps"
+
+
+def compiled_map_grid(*urls):
+    """Compiled tactical map (from npm run maps:build) for the first matching image URL, as (mapSize, gridConfig)."""
+    try:
+        with open(os.path.join(MAPS_DIR, "index.json"), encoding="utf-8") as f:
+            index = json.load(f)
+    except OSError:
+        return None
+    for url in urls:
+        map_id = index.get("byImage", {}).get(url or "")
+        entry = index.get("maps", {}).get(map_id) if map_id else None
+        if entry and entry.get("kind") == "tactical":
+            with open(os.path.join(MAPS_DIR, entry["file"]), encoding="utf-8") as f:
+                grid = json.load(f)["grid"]
+            return {"width": grid["columns"], "height": grid["rows"]}, {"mapId": map_id, "schemaVersion": 2}
+    return None
+
 
 def download_map_image(url, output_dir="public/maps"):
     if not url:
@@ -338,7 +357,10 @@ def main():
 
                             enc_map_size = {"width": 20, "height": 20}
                             enc_grid_config = None
-                            if get_or_create_grid_cache:
+                            compiled = compiled_map_grid(dm_local, player_local)
+                            if compiled:
+                                enc_map_size, enc_grid_config = compiled
+                            elif get_or_create_grid_cache:
                                 grid_cache = get_or_create_grid_cache()
                                 grid_info = grid_cache.get(dm_local) or grid_cache.get(player_local)
                                 if grid_info:

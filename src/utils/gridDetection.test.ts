@@ -138,7 +138,7 @@ describe('MapGridService Caching System', () => {
     expect(cached?.cellPitch).toBe(75);
 
     // Check localStorage persistence
-    const rawStorage = localStorage.getItem('crits_map_grid_cache');
+    const rawStorage = localStorage.getItem('crits_map_grid_cache_v2');
     expect(rawStorage).toContain('custom-test-map.png');
   });
 
