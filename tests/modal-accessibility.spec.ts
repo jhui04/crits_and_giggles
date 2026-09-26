@@ -238,6 +238,45 @@ test.describe('Create Mode Accessibility', () => {
     await checkA11y(page, 'Monster Search Modal');
     await verifyModalClosed(page, trigger);
   });
+
+  test('Encounter Builder Unit Stats Modal', async ({ page }) => {
+    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    await verifyModalOpen(page, 'Encounter Builder');
+    const trigger = page.getByRole('button', { name: /View stats$/i }).first();
+    await trigger.click();
+    await verifyModalOpen(page, /Stats/);
+    await checkA11y(page, 'Encounter Builder Unit Stats');
+    await verifyModalClosed(page, trigger);
+  });
+
+  test('Encounter Builder Unit Options Modal', async ({ page }) => {
+    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    await verifyModalOpen(page, 'Encounter Builder');
+    const trigger = page.getByRole('button', { name: /^Options for/i }).first();
+    await trigger.click();
+    await verifyModalOpen(page, /^Options for/);
+    await checkA11y(page, 'Encounter Builder Unit Options');
+    await verifyModalClosed(page, trigger);
+  });
+
+  test('Encounter Builder Link Monster Modal', async ({ page }) => {
+    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    await verifyModalOpen(page, 'Encounter Builder');
+    const trigger = page.getByRole('button', { name: /^Options for/i }).first();
+    await trigger.click();
+    await verifyModalOpen(page, /^Options for/);
+    await page.getByRole('button', { name: /^(Link to a monster|Change linked monster)/i }).click();
+    await verifyModalOpen(page, /to Monster/);
+    await checkA11y(page, 'Encounter Builder Link Monster');
+    await verifyModalClosed(page, trigger);
+  });
+
+  test('Encounter Builder unit phase is a single screen reader element', async ({ page }) => {
+    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    await verifyModalOpen(page, 'Encounter Builder');
+    await expect(page.getByRole('combobox', { name: /^Phase for/i }).first()).toBeVisible();
+    await expect(page.getByText('Phase:', { exact: true })).toHaveCount(0);
+  });
 });
 
 test.describe('Run Mode Accessibility', () => {
