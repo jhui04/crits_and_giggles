@@ -1,0 +1,14 @@
+{
+  "name": "crits-and-giggles-nvda-runner",
+  "private": true,
+  "description": "Real-NVDA screen reader tests. Runs only inside the NVDA test VM, via tools/nvda-vm/run-tests.ps1. Never run on the host.",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@guidepup/guidepup": "0.34.0",
+    "@guidepup/playwright": "0.19.1",
+    "@guidepup/setup": "0.29.1",
+    "@playwright/test": "1.63.0"
+  }
+}

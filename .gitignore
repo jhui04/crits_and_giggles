@@ -49,3 +49,5 @@ test_eval_report.json
 # Raw third-party map data (copyrighted; fetched by tools/maps/fetch_sources.py)
 tools/external/cache/
 
+# NVDA VM test results (tools/nvda-vm/run-tests.ps1, setup-vm.ps1)
+tools/nvda-vm/results/
