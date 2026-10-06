@@ -391,6 +391,7 @@ export function EncounterBuilder({ initialEncounter, chapterId, onClose }: Encou
             <MonsterBrowser
               onSelect={linkMonster}
               ctaLabel={linkingInstanceId ? 'Link to Unit' : 'Add to Encounter'}
+              headingLevel={4}
             />
             <button type="button" onClick={closeModal} style={{ marginTop: '1rem', width: '100%', padding: '0.75rem' }}>Cancel (Esc)</button>
           </div>

@@ -80,7 +80,7 @@ test.describe('Global / App Level Accessibility', () => {
     const mainMenuTrigger = page.getByRole('button', { name: 'Open Main Menu' });
     await mainMenuTrigger.click();
     await page.getByRole('button', { name: /The Oracle/ }).click();
-    const searchInput = page.getByLabel('Search Name:');
+    const searchInput = page.getByLabel('Search Monsters');
     await expect(searchInput).toBeFocused();
     await checkA11y(page, 'The Oracle');
     await verifyModalClosed(page, mainMenuTrigger);

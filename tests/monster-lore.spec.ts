@@ -32,7 +32,7 @@ test.describe('Monster Lore Visibility', () => {
     await expect(page.locator('text=Loading monsters...')).not.toBeVisible({ timeout: 15000 });
 
     // Search for Adult Black Dragon to make it visible
-    await page.getByPlaceholder(/Search monsters.../i).fill('Adult Black Dragon');
+    await page.getByLabel('Search Monsters').fill('Adult Black Dragon');
 
     // Select "Adult Black Dragon" (which we know has lore)
     const dragonLink = page.getByRole('button', { name: /Adult Black Dragon/i }).first();

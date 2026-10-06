@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { checkA11y } from './utils/axe-helper';
+import { chooseDisclosureOption } from './utils/disclosure-select-helper';
 import { getSeedState } from './seed-data';
 
 const SUITE_ID = 'magic-item-suite';
@@ -33,14 +34,15 @@ test.describe('Oracle Magic Item Accessibility', () => {
     await expect(oracle).toBeVisible();
 
     // Switch Search Type to Magic Items
-    await page.selectOption('#oracle-type-filter', 'item');
+    // Wait for the Oracle's initial focus (the monster search field), then
+    // switch Search Type by keyboard; focus stays on the Search Type button.
+    await expect(page.locator('#monster-search')).toBeFocused();
+    await chooseDisclosureOption(page, page.locator('#oracle-type-filter'), 'Magic Items');
 
-    // Heading must receive focus first (confirms SR exits Forms Mode before input takes over)
-    await expect(page.locator('#oracle-title')).toBeFocused();
-
-    // Focus must land on the magic item search input automatically
+    // A Search Type change no longer moves focus to the search field
     const searchInput = page.locator('#magic-item-search');
-    await expect(searchInput).toBeFocused();
+    await expect(searchInput).toBeVisible();
+    await expect(searchInput).not.toBeFocused();
 
     // Query for "Acheron Blade"
     await searchInput.fill('Acheron Blade');
@@ -79,10 +81,10 @@ test.describe('Oracle Magic Item Accessibility', () => {
     await page.click('button:has-text("The Oracle")');
 
     // Switch Search Type to Magic Items
-    await page.selectOption('#oracle-type-filter', 'item');
-
-    // Heading must receive focus first (confirms SR exits Forms Mode before input takes over)
-    await expect(page.locator('#oracle-title')).toBeFocused();
+    // Wait for the Oracle's initial focus (the monster search field), then
+    // switch Search Type by keyboard; focus stays on the Search Type button.
+    await expect(page.locator('#monster-search')).toBeFocused();
+    await chooseDisclosureOption(page, page.locator('#oracle-type-filter'), 'Magic Items');
 
     const oracle = page.locator('[role="dialog"][aria-labelledby="oracle-title"]');
     const searchInput = oracle.locator('#magic-item-search');
@@ -97,7 +99,7 @@ test.describe('Oracle Magic Item Accessibility', () => {
     await expect(detailsHeading).toBeFocused();
 
     // Verify focus trapping
-    const closeBtn = page.locator('[role="dialog"][aria-labelledby="preview-title"]').getByRole('button', { name: 'Close', exact: true });
+    const closeBtn = page.locator('[role="dialog"][aria-labelledby="details-title"]').getByRole('button', { name: 'Close', exact: true });
     await closeBtn.focus();
     await expect(closeBtn).toBeFocused();
 
@@ -120,10 +122,10 @@ test.describe('Oracle Magic Item Accessibility', () => {
     await page.click('button:has-text("The Oracle")');
 
     // Switch Search Type to Magic Items
-    await page.selectOption('#oracle-type-filter', 'item');
-
-    // Heading must receive focus first (confirms SR exits Forms Mode before input takes over)
-    await expect(page.locator('#oracle-title')).toBeFocused();
+    // Wait for the Oracle's initial focus (the monster search field), then
+    // switch Search Type by keyboard; focus stays on the Search Type button.
+    await expect(page.locator('#monster-search')).toBeFocused();
+    await chooseDisclosureOption(page, page.locator('#oracle-type-filter'), 'Magic Items');
 
     // Click Filters to open filters modal
     const oracle = page.locator('[role="dialog"][aria-labelledby="oracle-title"]');
@@ -138,10 +140,13 @@ test.describe('Oracle Magic Item Accessibility', () => {
     await applyButton.focus();
     await expect(applyButton).toBeFocused();
 
-    // Tab forward - should wrap to the first element (summary tag)
+    // Tab forward - should wrap to the dialog heading, then the first filter group
     await page.keyboard.press('Tab');
-    const firstElement = page.locator('summary:has-text("Type")');
-    await expect(firstElement).toBeFocused();
+    await expect(page.locator('#filters-title')).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(page.locator('summary:has-text("Type")')).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(page.locator('#filters-title')).toBeFocused();
 
     // Shift+Tab backward - should wrap back to the last element (Apply Filters button)
     await page.keyboard.press('Shift+Tab');
@@ -156,10 +161,10 @@ test.describe('Oracle Magic Item Accessibility', () => {
     // Open Oracle via Main Menu
     await page.click('button[aria-label="Open Main Menu"]');
     await page.click('button:has-text("The Oracle")');
-    await page.selectOption('#oracle-type-filter', 'item');
-
-    // Heading must receive focus first (confirms SR exits Forms Mode before input takes over)
-    await expect(page.locator('#oracle-title')).toBeFocused();
+    // Wait for the Oracle's initial focus (the monster search field), then
+    // switch Search Type by keyboard; focus stays on the Search Type button.
+    await expect(page.locator('#monster-search')).toBeFocused();
+    await chooseDisclosureOption(page, page.locator('#oracle-type-filter'), 'Magic Items');
 
     const oracle = page.locator('[role="dialog"][aria-labelledby="oracle-title"]');
     await oracle.locator('button:has-text("Filters")').click();
@@ -167,11 +172,11 @@ test.describe('Oracle Magic Item Accessibility', () => {
     const filterModal = page.locator('[role="dialog"][aria-labelledby="filters-title"]');
     await expect(filterModal).toBeVisible();
 
-    // Expand Source Book section
-    await page.click('summary:has-text("Source Book")');
+    // Expand Source section
+    await page.click('summary:has-text("Source")');
 
     // Click first source book checkbox
-    const sourceCheckbox = filterModal.locator('fieldset:has(legend:has-text("Source Book")) label input[type="checkbox"]').first();
+    const sourceCheckbox = filterModal.locator('fieldset:has(legend:has-text("Source")) label input[type="checkbox"]').first();
     await sourceCheckbox.check();
 
     // Apply filters

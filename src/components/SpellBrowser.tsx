@@ -1,11 +1,21 @@
-import { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import type { Spell } from '../types';
 import { DiceService } from '../services/DiceService';
 import { dataService } from '../services/DataService';
+import { useFocusRestore } from './uiHelpers';
+import {
+  DETAILS_TITLE_ID, OracleDialog, OracleDialogActions, OracleFiltersDialog, OracleResultItem,
+  OracleResults, OracleSearchBar,
+} from './OracleBrowserParts';
+import { asOptions, toggleIn, useInitialSearchFocus } from '../utils/oracleBrowser';
 
 interface SpellBrowserProps {
   autoFocus?: boolean;
 }
+
+type FilterKey = 'levels' | 'schools' | 'sources';
+
+const LEVEL_OPTIONS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(l => ({ value: String(l), label: l === 0 ? 'Cantrip' : `Level ${l}` }));
 
 export function SpellBrowser({ autoFocus = false }: SpellBrowserProps) {
   const [spells, setSpells] = useState<Spell[]>([]);
@@ -14,60 +24,8 @@ export function SpellBrowser({ autoFocus = false }: SpellBrowserProps) {
   const [filters, setFilters] = useState({ search: '', levels: [] as string[], schools: [] as string[], sources: [] as string[] });
   const [selectedSpell, setSelectedSpell] = useState<Spell | null>(null);
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
-
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const filtersHeadingRef = useRef<HTMLHeadingElement>(null);
-  const lastFocusedElementRef = useRef<HTMLElement | null>(null);
-  const detailsContentRef = useRef<HTMLDivElement>(null);
-  const filtersContentRef = useRef<HTMLDivElement>(null);
-
-  const selectedSpellRef = useRef<Spell | null>(null);
-  const isFiltersOpenRef = useRef(false);
-  useLayoutEffect(() => {
-    selectedSpellRef.current = selectedSpell;
-    isFiltersOpenRef.current = isFiltersOpen;
-  });
-
-  useEffect(() => {
-    const handleFocusTrap = (e: KeyboardEvent, container: HTMLDivElement | null, includeHeading = false) => {
-      if (e.key !== 'Tab' || !container) return;
-
-      const selector = includeHeading
-        ? 'a[href], button:not([disabled]), textarea, input[type="text"], input[type="checkbox"], select, summary, h3[tabIndex="-1"]'
-        : 'a[href], button:not([disabled]), textarea, input[type="text"], input[type="checkbox"], select, summary';
-
-      const focusableElements = container.querySelectorAll(selector);
-      if (focusableElements.length === 0) return;
-
-      const firstElement = focusableElements[0] as HTMLElement;
-      const lastElement = focusableElements[focusableElements.length - 1] as HTMLElement;
-
-      if (e.shiftKey) { // Shift + Tab
-        if (document.activeElement === firstElement) {
-          lastElement.focus();
-          e.preventDefault();
-        }
-      } else { // Tab
-        if (document.activeElement === lastElement) {
-          firstElement.focus();
-          e.preventDefault();
-        }
-      }
-    };
-
-    const listener = (e: KeyboardEvent) => {
-      if (selectedSpell) {
-        handleFocusTrap(e, detailsContentRef.current, true);
-      } else if (isFiltersOpen) {
-        handleFocusTrap(e, filtersContentRef.current, false);
-      }
-    };
-
-    if (selectedSpell || isFiltersOpen) {
-      window.addEventListener('keydown', listener);
-    }
-    return () => window.removeEventListener('keydown', listener);
-  }, [selectedSpell, isFiltersOpen]);
+  const { remember, restore } = useFocusRestore();
 
   useEffect(() => {
     let isMounted = true;
@@ -88,238 +46,63 @@ export function SpellBrowser({ autoFocus = false }: SpellBrowserProps) {
     return () => { isMounted = false; };
   }, []);
 
-  useEffect(() => {
-    if (isFiltersOpen && filtersHeadingRef.current) {
-      filtersHeadingRef.current.focus();
-    }
-  }, [isFiltersOpen]);
-
-  useEffect(() => {
-    if (autoFocus && !isLoading) {
-      const timer = setTimeout(() => {
-        // Guard: don't steal focus if a detail or filters modal opened within the 50ms window
-        if (!selectedSpellRef.current && !isFiltersOpenRef.current) {
-          searchInputRef.current?.focus();
-        }
-      }, 50);
-      return () => clearTimeout(timer);
-    }
-  }, [autoFocus, isLoading]);
+  useInitialSearchFocus(autoFocus, !isLoading, searchInputRef, () => selectedSpell !== null || isFiltersOpen);
 
   const availableFilters = useMemo(() => dataService.getSpellFilters(spells), [spells]);
+  const filteredSpells = useMemo(() => dataService.filterSpells(spells, filters), [spells, filters]);
 
-  const filteredSpells = useMemo(() => {
-    return dataService.filterSpells(spells, filters);
-  }, [spells, filters]);
+  const focusSearch = () => searchInputRef.current?.focus();
+  const closeDetails = () => { setSelectedSpell(null); restore('details', focusSearch); };
+  const closeFilters = () => { setIsFiltersOpen(false); restore('filters', focusSearch); };
 
-  const handleSelectSpell = (spell: Spell) => {
-    setSelectedSpell(spell);
-  };
-
-  const handleCloseSpellDetails = () => {
-    setSelectedSpell(null);
-    setTimeout(() => {
-      lastFocusedElementRef.current?.focus();
-    }, 0);
-  };
-
-  const toggleFilter = (category: 'levels' | 'schools' | 'sources', value: string) => {
-    setFilters(prev => {
-      const currentList = prev[category];
-      const updatedList = currentList.includes(value) 
-        ? currentList.filter(v => v !== value) 
-        : [...currentList, value];
-      return { ...prev, [category]: updatedList };
-    });
-  };
-
-  const handleCloseFilters = () => {
-    setIsFiltersOpen(false);
-    setTimeout(() => lastFocusedElementRef.current?.focus(), 0);
-  };
-
-  if (isLoading) return <p aria-live="polite">Loading spells...</p>;
-  if (error) return <p style={{ color: 'red' }}>{error}</p>;
+  if (isLoading) return <p role="status">Loading spells...</p>;
+  if (error) return <p role="alert">{error}</p>;
 
   return (
-    <section aria-labelledby="spell-browser-title" >
-      <h2 id="spell-browser-title" className="sr-only">Spell Browser</h2>
-      
-      <form onSubmit={(e) => e.preventDefault()} className="search-bar" style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', alignItems: 'flex-end' }}>
-        <div style={{ flexGrow: 1 }}>
-          <label htmlFor="spell-search" style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.25rem' }}>Search Spells</label>
-          <input 
-            id="spell-search"
-            ref={searchInputRef}
-            type="text"
-            value={filters.search}
-            onChange={e => setFilters({ ...filters, search: e.target.value })}
-            placeholder="e.g. Fireball"
-            style={{ width: '100%', padding: '0.5rem' }}
+    <div className="spell-browser">
+      <OracleSearchBar
+        id="spell-search"
+        label="Search Spells"
+        value={filters.search}
+        onChange={search => setFilters(prev => ({ ...prev, search }))}
+        inputRef={searchInputRef}
+        activeFilterCount={filters.levels.length + filters.schools.length + filters.sources.length}
+        onOpenFilters={trigger => { remember('filters', trigger); setIsFiltersOpen(true); }}
+      />
+
+      <OracleResults
+        noun={['spell', 'spells']}
+        items={filteredSpells}
+        renderItem={s => (
+          <OracleResultItem
+            key={s.id}
+            name={s.name}
+            details={[s.level === 0 ? 'Cantrip' : `Level ${s.level}`, s.school, s.source]}
+            onOpen={trigger => { remember('details', trigger); setSelectedSpell(s); }}
           />
-        </div>
-        <button 
-          type="button" 
-          onClick={(e) => {
-            lastFocusedElementRef.current = e.currentTarget;
-            setIsFiltersOpen(true);
-          }}
-          style={{ padding: '0.5rem 1rem', height: 'fit-content' }}
-        >
-          Filters
-        </button>
-      </form>
-
-      <p role="status" aria-live="polite" style={{ marginBottom: '1rem' }}>
-        Showing {filteredSpells.length} spells.
-      </p>
-
-      <div style={{ maxHeight: '600px', overflowY: 'auto', border: '1px solid #ccc', borderRadius: '4px' }}>
-        <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-          {filteredSpells.map(s => (
-            <li key={s.id} style={{ borderBottom: '1px solid #eee' }}>
-              <button 
-                type="button"
-                onClick={(e) => {
-                  lastFocusedElementRef.current = e.currentTarget;
-                  handleSelectSpell(s);
-                }}
-                style={{
-                  width: '100%', textAlign: 'left', padding: '0.75rem', 
-                  border: 'none', background: 'none', cursor: 'pointer',
-                  display: 'block', color: 'inherit'
-                }}
-              >
-                <div style={{ pointerEvents: 'none' }}>
-                  <strong style={{ fontSize: '1.1rem' }}>{s.name}</strong>
-                  <div style={{ fontSize: '0.9rem', color: 'var(--color-text-muted)', marginTop: '0.25rem' }}>
-                    <span>{s.level === 0 ? 'Cantrip' : `Level ${s.level}`}</span> | <span>{s.school}</span> | <span>{s.source}</span>
-                    <span className="sr-only">. Click to view details.</span>
-                  </div>
-                </div>
-              </button>
-            </li>
-          ))}
-          {filteredSpells.length === 0 && <li style={{ padding: '1rem' }}>No spells match your filters.</li>}
-        </ul>
-      </div>
+        )}
+      />
 
       {isFiltersOpen && (
-        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="filters-title" style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex',
-          alignItems: 'center', justifyContent: 'center', zIndex: 10000
-        }}>
-          <div className="modal-content" ref={filtersContentRef} style={{
-            backgroundColor: 'white', color: 'black', padding: '2rem', borderRadius: '8px',
-            maxWidth: '600px', width: '90%', maxHeight: '90vh', overflowY: 'auto'
-          }}>
-            <h3 id="filters-title" ref={filtersHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>
-              Filter Spells
-            </h3>
-            <form onSubmit={(e) => { e.preventDefault(); handleCloseFilters(); }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
-                <details>
-                  <summary style={{ fontWeight: 'bold', cursor: 'pointer', padding: '0.5rem', backgroundColor: '#f5f5f5' }}>Level</summary>
-                  <fieldset style={{ border: 'none', padding: '0.5rem 0 0 0', margin: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '200px', overflowY: 'auto' }}>
-                    <legend className="sr-only">Level</legend>
-                    {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(l => (
-                      <label key={l} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <input
-                          type="checkbox"
-                          checked={filters.levels.includes(l.toString())}
-                          onChange={() => toggleFilter('levels', l.toString())}
-                        />
-                        {l === 0 ? 'Cantrip' : `Level ${l}`}
-                      </label>
-                    ))}
-                  </fieldset>
-                </details>
-
-                <details>
-                  <summary style={{ fontWeight: 'bold', cursor: 'pointer', padding: '0.5rem', backgroundColor: '#f5f5f5' }}>School</summary>
-                  <fieldset style={{ border: 'none', padding: '0.5rem 0 0 0', margin: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '200px', overflowY: 'auto' }}>
-                    <legend className="sr-only">School</legend>
-                    {availableFilters.schools.map(s => (
-                      <label key={s} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <input
-                          type="checkbox"
-                          checked={filters.schools.includes(s)}
-                          onChange={() => toggleFilter('schools', s)}
-                        />
-                        {s}
-                      </label>
-                    ))}
-                  </fieldset>
-                </details>
-
-                <details>
-                  <summary style={{ fontWeight: 'bold', cursor: 'pointer', padding: '0.5rem', backgroundColor: '#f5f5f5' }}>Source</summary>
-                  <fieldset style={{ border: 'none', padding: '0.5rem 0 0 0', margin: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '200px', overflowY: 'auto' }}>
-                    <legend className="sr-only">Source</legend>
-                    {(availableFilters.sources || []).map(s => (
-                      <label key={s} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <input
-                          type="checkbox"
-                          checked={filters.sources.includes(s)}
-                          onChange={() => toggleFilter('sources', s)}
-                        />
-                        {s}
-                      </label>
-                    ))}
-                  </fieldset>
-                </details>
-              </div>
-
-              <div style={{ marginTop: '1.5rem', display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
-                <button type="submit" style={{ padding: '0.75rem 1.5rem', fontWeight: 'bold' }}>
-                  Apply Filters
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <OracleFiltersDialog
+          title="Filter Spells"
+          groups={[
+            { key: 'levels', legend: 'Level', options: LEVEL_OPTIONS, selected: filters.levels },
+            { key: 'schools', legend: 'School', options: asOptions(availableFilters.schools), selected: filters.schools },
+            { key: 'sources', legend: 'Source', options: asOptions(availableFilters.sources || []), selected: filters.sources },
+          ]}
+          onToggle={(key, value) => setFilters(prev => ({ ...prev, [key]: toggleIn(prev[key as FilterKey], value) }))}
+          onClose={closeFilters}
+        />
       )}
 
       {selectedSpell && (
-        <div 
-          className="modal-overlay" 
-          role="dialog" 
-          aria-modal="true" 
-          aria-labelledby="spell-preview-title" 
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') {
-              e.stopPropagation();
-              handleCloseSpellDetails();
-            }
-          }}
-          style={{
-            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex',
-            alignItems: 'center', justifyContent: 'center', zIndex: 10000
-          }}
-        >
-          <div className="modal-content" ref={detailsContentRef} style={{
-            backgroundColor: 'white', color: 'black', padding: '2rem', borderRadius: '8px',
-            maxWidth: '800px', width: '90%', maxHeight: '90vh', overflowY: 'auto'
-          }}>
-            <SpellDetail 
-              spell={selectedSpell} 
-              id="spell-preview-title"
-            />
-            <div style={{ marginTop: '1.5rem', display: 'flex', gap: '1rem' }}>
-              <button 
-                type="button" 
-                onClick={handleCloseSpellDetails} 
-                style={{ flex: 1, padding: '0.75rem', fontWeight: 'bold' }}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
+        <OracleDialog labelledBy={DETAILS_TITLE_ID} onClose={closeDetails}>
+          <SpellDetail spell={selectedSpell} id={DETAILS_TITLE_ID} />
+          <OracleDialogActions onClose={closeDetails} />
+        </OracleDialog>
       )}
-    </section>
+    </div>
   );
 }
 

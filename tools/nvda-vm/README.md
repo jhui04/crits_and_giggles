@@ -10,6 +10,7 @@ An automated test suite that drives the real NVDA screen reader against the Crit
 - The tests (in `runner/tests/app.nvda.spec.ts`, with shared setup in `runner/tests/app-fixtures.ts`):
   - The Oracle: Alt+O speaks the dialog name, and Escape closes it and returns to the button you started from.
   - The dice roller: Alt+R speaks the dialog, and rolling speaks the result from the live region.
+  - The Oracle's Search Type disclosure (`runner/tests/oracle-disclosure.nvda.spec.ts`): one browse-mode stop, one Enter or Space opens the list of pressed/not pressed buttons without NVDA switching to focus mode, Down Arrow and Enter in browse mode choose and return to the button, Escape cancels, and the Tab path.
 - Nothing here is part of `npm run test`. The suite has its own project in `tools/nvda-vm/runner/`, with its own `package.json`, so Guidepup never enters the root `package.json`. The root `eslint.config.js` ignores `runner/`, and the root TypeScript build does not include it.
 
 ## One-time setup
@@ -94,6 +95,7 @@ These facts were measured with NVDA 2026.2 and Guidepup 0.34, and the tests rely
 - NVDA plays a sound, not speech, when it switches between browse and focus mode. The tests set `virtualBuffers.passThroughAudioIndication` to false, so NVDA says "focus mode" and "browse mode" and the spoken log shows the mode.
 - When focus lands in a text field or combo box, NVDA switches to focus mode on its own. The first Escape then only returns to browse mode, and NVDA keeps the key. A second Escape reaches the page. So closing the Oracle from its search field takes two Escapes.
 - In browse mode, Enter on a form field such as a text field or combo box switches NVDA to focus mode, and NVDA keeps the Enter itself, the same as for a native `<select>`. The control does not act on that Enter: a combo box's list stays closed, and the next key, for example ArrowDown, reaches the page.
+- A button does not switch NVDA to focus mode. (The Search Type control is a disclosure: a plain button with no `aria-haspopup`, because JAWS keeps forms mode on buttons with `aria-haspopup` and inside a `role="menu"`, so NVDA reads it as a plain button with its expanded state.) Reaching it with Tab or Shift+Tab switches NVDA to browse mode, so ArrowDown moves the browse cursor and does not move DOM focus. In browse mode, Enter and Space click the button. Its options are also plain buttons (`aria-pressed`), so when focus moves to one NVDA stays in browse mode: Down Arrow moves the browse cursor to the next option, and Enter clicks the option under the cursor. To move DOM focus between options under NVDA, use Tab and Shift+Tab. Escape in browse mode reaches the page.
 
 ## Design
 

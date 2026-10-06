@@ -77,7 +77,7 @@ test.describe('Core User Journeys', () => {
     // 4. Add Monster
     await page.click('button:has-text("Add Monster...")');
     // MonsterBrowser search
-    await page.fill('input[placeholder="Search monsters..."]', 'Goblin');
+    await page.getByLabel('Search Monsters').fill('Goblin');
     // Select the Goblin from the list (this opens preview)
     await page.getByRole('button', { name: 'Goblin', exact: false }).first().click();
     // Click "Add to Encounter" in the preview modal

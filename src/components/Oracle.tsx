@@ -3,6 +3,8 @@ import { MonsterBrowser } from './MonsterBrowser';
 import { SpellBrowser } from './SpellBrowser';
 import { MagicItemBrowser } from './MagicItemBrowser';
 import { WorldAssetBrowser } from './WorldAssetBrowser';
+import { DisclosureSelect } from './DisclosureSelect';
+import type { DisclosureSelectOption } from './DisclosureSelect';
 
 interface OracleProps {
   isOpen: boolean;
@@ -11,8 +13,23 @@ interface OracleProps {
 
 type OracleFilterType = 'monster' | 'spell' | 'item' | 'world';
 
+const SEARCH_TYPES: DisclosureSelectOption<OracleFilterType>[] = [
+  { value: 'monster', label: 'Monsters' },
+  { value: 'spell', label: 'Spells' },
+  { value: 'item', label: 'Magic Items' },
+  { value: 'world', label: 'World Assets' },
+];
+
 export function Oracle({ isOpen, onClose }: OracleProps) {
   const [filterType, setFilterType] = useState<OracleFilterType>('monster');
+  // The browser's search field takes focus when the Oracle opens, but not
+  // after a Search Type change: focus then stays on the Search Type button.
+  const [autoFocusSearch, setAutoFocusSearch] = useState(true);
+  const [wasOpen, setWasOpen] = useState(isOpen);
+  if (isOpen !== wasOpen) {
+    setWasOpen(isOpen);
+    if (isOpen) setAutoFocusSearch(true);
+  }
   const modalHeadingRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
@@ -21,7 +38,12 @@ export function Oracle({ isOpen, onClose }: OracleProps) {
         modalHeadingRef.current?.focus();
       }, 0);
     }
-  }, [isOpen, filterType]);
+  }, [isOpen]);
+
+  const changeFilterType = (type: OracleFilterType) => {
+    setAutoFocusSearch(false);
+    setFilterType(type);
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
@@ -56,42 +78,27 @@ export function Oracle({ isOpen, onClose }: OracleProps) {
         </div>
 
         <div style={{ marginBottom: '2rem' }}>
-          <label htmlFor="oracle-type-filter" style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.5rem' }}>Search Type:</label>
-          <select 
+          <DisclosureSelect
             id="oracle-type-filter"
+            label="Search Type"
             value={filterType}
-            onChange={(e) => setFilterType(e.target.value as OracleFilterType)}
-            style={{ 
-              width: '100%', padding: '1rem', 
-              background: '#333', color: 'white', 
-              border: '1px solid #444', borderRadius: '4px', 
-              fontWeight: 'bold', fontSize: '1rem' 
+            options={SEARCH_TYPES}
+            onChange={changeFilterType}
+            buttonStyle={{
+              width: '100%', padding: '1rem',
+              background: '#333', color: 'white',
+              border: '1px solid #444', borderRadius: '4px',
+              fontWeight: 'bold', fontSize: '1rem'
             }}
-          >
-            <option value="monster">Monsters</option>
-            <option value="spell">Spells</option>
-            <option value="item">Magic Items</option>
-            <option value="world">World Assets</option>
-          </select>
+          />
         </div>
 
-        {filterType === 'monster' ? (
-          <div style={{ background: '#222', padding: '1.5rem', borderRadius: '4px' }}>
-            <MonsterBrowser onSelect={undefined} autoFocus />
-          </div>
-        ) : filterType === 'spell' ? (
-          <div style={{ background: '#222', padding: '1.5rem', borderRadius: '4px' }}>
-            <SpellBrowser autoFocus />
-          </div>
-        ) : filterType === 'world' ? (
-          <div style={{ background: '#222', padding: '1.5rem', borderRadius: '4px' }}>
-            <WorldAssetBrowser autoFocus />
-          </div>
-        ) : (
-          <div style={{ background: '#222', padding: '1.5rem', borderRadius: '4px' }}>
-            <MagicItemBrowser autoFocus />
-          </div>
-        )}
+        <div style={{ background: '#222', padding: '1.5rem', borderRadius: '4px' }}>
+          {filterType === 'monster' ? <MonsterBrowser autoFocus={autoFocusSearch} />
+            : filterType === 'spell' ? <SpellBrowser autoFocus={autoFocusSearch} />
+            : filterType === 'item' ? <MagicItemBrowser autoFocus={autoFocusSearch} />
+            : <WorldAssetBrowser autoFocus={autoFocusSearch} />}
+        </div>
       </div>
     </div>
   );
