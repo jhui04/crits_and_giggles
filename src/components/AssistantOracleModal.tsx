@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { AssistantMarkdown } from './AssistantMarkdown';
+import { DisclosureSelect } from './DisclosureSelect';
 import { SpellDetail } from './SpellBrowser';
 import { MonsterDetails } from './MonsterDetails';
 import { MagicItemDetail } from './MagicItemBrowser';
@@ -656,8 +657,7 @@ export function AssistantOracleModal({
     }
   };
 
-  const handleModelChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newModel = e.target.value;
+  const handleModelChange = async (newModel: string) => {
     setActiveModel(newModel);
     if (typeof localStorage !== 'undefined') {
       try {
@@ -1522,36 +1522,24 @@ export function AssistantOracleModal({
 
         {/* Model Selection Combo Box under edit box and send button */}
         <div style={{ display: 'flex', justifyContent: 'flex-start', marginTop: '0.5rem' }}>
-          <select
+          <DisclosureSelect
             id="assistant-model-select"
-            value={noModels ? '' : activeModel}
+            label="Current Model"
+            value={activeModel}
+            options={(installedModels ?? [activeModel]).map((m) => ({ value: m, label: getModelDisplayName(m) }))}
             onChange={handleModelChange}
-            disabled={noModels || installedModels === null}
-            aria-label={
-              noModels
-                ? 'Model: no models installed'
-                : `Current Model: ${getModelDisplayName(activeModel)}`
-            }
-            style={{
+            disabled={installedModels === null}
+            emptyText="No models installed"
+            buttonStyle={{
               background: '#222',
               color: '#ccc',
               border: '1px solid #444',
               borderRadius: '4px',
               padding: '0.25rem 0.6rem',
               fontSize: '0.85rem',
-              cursor: noModels || installedModels === null ? 'not-allowed' : 'pointer',
+              minWidth: '16rem',
             }}
-          >
-            {noModels && <option value="">No models installed</option>}
-            {installedModels === null && (
-              <option value={activeModel}>{getModelDisplayName(activeModel)}</option>
-            )}
-            {(installedModels ?? []).map((m) => (
-              <option key={m} value={m}>
-                {getModelDisplayName(m)}
-              </option>
-            ))}
-          </select>
+          />
         </div>
       </div>
 

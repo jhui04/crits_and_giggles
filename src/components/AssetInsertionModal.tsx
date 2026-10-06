@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import type { Asset, AssetType, Monster, Spell, MagicItem } from '../types';
 import { dataService } from '../services/DataService';
+import { DisclosureSelect } from './DisclosureSelect';
+import { ASSET_TYPE_FILTER_OPTIONS } from '../utils/assetUtils';
 
 interface AssetInsertionModalProps {
   isOpen: boolean;
@@ -226,27 +228,14 @@ export function AssetInsertionModal({
                   />
                 </div>
                 <div>
-                  <label htmlFor="asset-type-filter" className="sr-only">Filter by Type</label>
-                  <select
+                  <DisclosureSelect
                     id="asset-type-filter"
+                    label="Filter by Type"
                     value={typeFilter}
-                    onChange={e => setTypeFilter(e.target.value as AssetType | 'All')}
-                    style={{ padding: '0.5rem' }}
-                  >
-                    <option value="All">All Types</option>
-                    <option value="NPC">NPC</option>
-                    <option value="Location">Location</option>
-                    <option value="Item">Item</option>
-                    <option value="Spell">Spell</option>
-                    <option value="Organization">Organization</option>
-                    <option value="Religion">Religion</option>
-                    <option value="Lore">Lore</option>
-                    <option value="Faction">Faction</option>
-                    <option value="Race">Race</option>
-                    <option value="Class">Class</option>
-                    <option value="Background">Background</option>
-                    <option value="Note">Note</option>
-                  </select>
+                    options={ASSET_TYPE_FILTER_OPTIONS}
+                    onChange={setTypeFilter}
+                    buttonStyle={{ padding: '0.5rem', minWidth: '13rem' }}
+                  />
                 </div>
               </div>
 

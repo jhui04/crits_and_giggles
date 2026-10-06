@@ -3,6 +3,7 @@ import { checkA11y } from './utils/axe-helper';
 import { getSeedState } from './seed-data';
 import fs from 'fs';
 import path from 'path';
+import { chooseDisclosureOption } from './utils/disclosure-select-helper';
 
 const monstersData = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'public/data/monsters.json'), 'utf-8'));
 const mockMonster = monstersData[0];
@@ -274,8 +275,24 @@ test.describe('Create Mode Accessibility', () => {
   test('Encounter Builder unit phase is a single screen reader element', async ({ page }) => {
     await page.getByRole('button', { name: 'Edit', exact: true }).click();
     await verifyModalOpen(page, 'Encounter Builder');
-    await expect(page.getByRole('combobox', { name: /^Phase for/i }).first()).toBeVisible();
+    const phase = page.getByRole('button', { name: /^Phase for .+: 1$/ }).first();
+    await expect(phase).toBeVisible();
+    await expect(phase).toHaveAttribute('aria-expanded', 'false');
     await expect(page.getByText('Phase:', { exact: true })).toHaveCount(0);
+
+    // Choosing a phase by keyboard updates the toggle's name.
+    const phaseName = (await phase.textContent())!.replace(/: 1.*$/, '');
+    const toggle = page.locator(`[id="${await phase.getAttribute('id')}"]`);
+    await chooseDisclosureOption(page, toggle, '3');
+    await expect(toggle).toHaveAccessibleName(`${phaseName}: 3`);
+
+    // Escape inside the open list closes only the list, not the Encounter Builder.
+    await page.keyboard.press('Enter');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await page.keyboard.press('Escape');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(toggle).toBeFocused();
+    await expect(page.getByRole('heading', { name: 'Encounter Builder' })).toBeVisible();
   });
 });
 

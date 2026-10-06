@@ -9,8 +9,9 @@ import { SpellDetail } from './SpellBrowser';
 import { MagicItemDetail } from './MagicItemBrowser';
 import { dataService } from '../services/DataService';
 import { AssetInsertionModal } from './AssetInsertionModal';
+import { DisclosureSelect } from './DisclosureSelect';
 import { WorldBuilder } from './WorldBuilder';
-import { parseMentionedAssets } from '../utils/assetUtils';
+import { parseMentionedAssets, ASSET_TYPE_FILTER_OPTIONS } from '../utils/assetUtils';
 import { isInteractiveTarget, useFocusRestore } from './uiHelpers';
 import { useAssistantScreen } from '../context/AssistantScreenContext';
 import type { AssistantScreenId } from '../utils/assistantScreens';
@@ -822,17 +823,13 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
                 style={{ flex: 1, padding: '0.5rem' }}
                 aria-label="Search world assets"
               />
-              <select 
+              <DisclosureSelect
+                label="Filter by Type"
                 value={linkAssetTypeFilter}
-                onChange={e => setLinkAssetTypeFilter(e.target.value)}
-                style={{ padding: '0.5rem' }}
-                aria-label="Filter by type"
-              >
-                <option value="All">All Types</option>
-                {['NPC', 'Location', 'Item', 'Spell', 'Organization', 'Religion', 'Lore', 'Faction', 'Race', 'Class', 'Background', 'Note'].map(t => (
-                  <option key={t} value={t}>{t}</option>
-                ))}
-              </select>
+                options={ASSET_TYPE_FILTER_OPTIONS}
+                onChange={setLinkAssetTypeFilter}
+                buttonStyle={{ padding: '0.5rem', minWidth: '13rem' }}
+              />
             </div>
 
             {(() => {
@@ -936,19 +933,15 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
           {/* Chapter Selector */}
           <section style={{ borderBottom: '2px solid #eee', paddingBottom: '1rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-              <span aria-hidden="true" style={{ fontWeight: 'bold' }}>Current Chapter:</span>
-              <select
+              <DisclosureSelect
                 id="chapter-select"
-                aria-label="Current Chapter:"
+                label="Current Chapter"
                 value={selectedChapterId || ''}
-                onChange={(e) => setSelectedChapterId(e.target.value || null)}
-                style={{ padding: '0.5rem', minWidth: '200px' }}
-              >
-                {activeCampaign.chapters.map(c => (
-                  <option key={c.id} value={c.id}>{c.title}</option>
-                ))}
-                {activeCampaign.chapters.length === 0 && <option value="">No Chapters</option>}
-              </select>
+                options={activeCampaign.chapters.map(c => ({ value: c.id, label: c.title }))}
+                onChange={(id) => setSelectedChapterId(id || null)}
+                emptyText="No Chapters"
+                buttonStyle={{ padding: '0.5rem', minWidth: '260px', fontWeight: 'bold' }}
+              />
             </div>
           </section>
 

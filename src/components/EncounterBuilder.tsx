@@ -1,11 +1,15 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { MonsterBrowser } from './MonsterBrowser';
 import { MonsterDetails } from './MonsterDetails';
+import { DisclosureSelect } from './DisclosureSelect';
+import type { DisclosureSelectOption } from './DisclosureSelect';
 import { dataService } from '../services/DataService';
 import type { Monster, EncounterUnit, Encounter } from '../types';
 import { useCampaigns } from '../context/CampaignContext';
 import { isInteractiveTarget } from './uiHelpers';
 import { useAssistantScreen } from '../context/AssistantScreenContext';
+
+const PHASE_OPTIONS: DisclosureSelectOption<string>[] = [1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: String(n) }));
 
 interface EncounterBuilderProps {
   initialEncounter: Encounter | null;
@@ -345,18 +349,13 @@ export function EncounterBuilder({ initialEncounter, chapterId, onClose }: Encou
                   );
                 })()}
                 <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-                  <select
-                    value={unit.phase ?? 1}
-                    onChange={(e) => updateUnitPhase(unit.instanceId, parseInt(e.target.value, 10))}
-                    aria-label={`Phase for ${unit.name}`}
-                    style={{ padding: '0.25rem 0.5rem' }}
-                  >
-                    <option value={1}>Phase 1</option>
-                    <option value={2}>Phase 2</option>
-                    <option value={3}>Phase 3</option>
-                    <option value={4}>Phase 4</option>
-                    <option value={5}>Phase 5</option>
-                  </select>
+                  <DisclosureSelect
+                    label={`Phase for ${unit.name}`}
+                    value={String(unit.phase ?? 1)}
+                    options={PHASE_OPTIONS}
+                    onChange={(v) => updateUnitPhase(unit.instanceId, parseInt(v, 10))}
+                    buttonStyle={{ padding: '0.25rem 0.5rem', minWidth: '11rem' }}
+                  />
                   <button type="button" onClick={() => handleOpenOptions(unit.instanceId)} aria-label={`Options for ${unit.name}`}>
                     Options
                   </button>

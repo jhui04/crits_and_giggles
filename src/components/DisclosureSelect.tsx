@@ -15,6 +15,12 @@ interface DisclosureSelectProps<T extends string> {
   /** id for the toggle button, so tests and other code can find it. */
   id?: string;
   buttonStyle?: CSSProperties;
+  /** Style for the wrapper around the button and list (e.g. flex sizing in a row). */
+  style?: CSSProperties;
+  /** Disables the toggle. It is also disabled while there are no options. */
+  disabled?: boolean;
+  /** Shown as the value while there are no options: "Chapter: None". */
+  emptyText?: string;
 }
 
 /**
@@ -46,11 +52,11 @@ interface DisclosureSelectProps<T extends string> {
  * sighted keyboard users) wrap. Tab out of the last option or Shift+Tab out
  * of the toggle lifts the inert first, so focus still leaves natively.
  */
-export function DisclosureSelect<T extends string>({ label, value, options, onChange, id, buttonStyle }: DisclosureSelectProps<T>) {
+export function DisclosureSelect<T extends string>({ label, value, options, onChange, id, buttonStyle, style, disabled = false, emptyText = 'None' }: DisclosureSelectProps<T>) {
   const autoId = useId();
   const buttonId = id ?? `${autoId}-button`;
   const listId = `${buttonId}-list`;
-  const [isOpen, setIsOpen] = useState(false);
+  const [openState, setIsOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const optionRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -58,6 +64,9 @@ export function DisclosureSelect<T extends string>({ label, value, options, onCh
 
   const selectedIndex = Math.max(0, options.findIndex((o) => o.value === value));
   const current = options[selectedIndex];
+  const isDisabled = disabled || options.length === 0;
+  // Disabling (or losing every option) while open closes the list.
+  const isOpen = openState && !isDisabled;
 
   // Opening moves focus to the pressed option (after it has rendered).
   // The value cannot change while the list is open (choosing closes it).
@@ -146,20 +155,21 @@ export function DisclosureSelect<T extends string>({ label, value, options, onCh
   };
 
   return (
-    <div ref={wrapperRef} style={{ position: 'relative' }} onKeyDown={handleWrapperKeyDown} onBlur={handleWrapperBlur}>
+    <div ref={wrapperRef} style={{ position: 'relative', ...style }} onKeyDown={handleWrapperKeyDown} onBlur={handleWrapperBlur}>
       <button
         ref={buttonRef}
         id={buttonId}
         type="button"
         aria-expanded={isOpen}
+        disabled={isDisabled}
         aria-controls={isOpen ? listId : undefined}
         onClick={() => (isOpen ? closeToButton() : setIsOpen(true))}
         // While open, a mouse press on the toggle must not move focus first;
         // the click then closes the list and focuses the toggle.
         onMouseDown={(e) => { if (isOpen) e.preventDefault(); }}
-        style={{ textAlign: 'left', cursor: 'pointer', ...buttonStyle }}
+        style={{ textAlign: 'left', cursor: isDisabled ? 'not-allowed' : 'pointer', ...buttonStyle }}
       >
-        {label}: {current?.label}
+        {label}: {current?.label ?? emptyText}
         <span aria-hidden="true" style={{ float: 'right' }}>{isOpen ? '▲' : '▼'}</span>
       </button>
       {isOpen && (

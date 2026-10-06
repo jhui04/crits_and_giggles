@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { checkA11y } from './utils/axe-helper';
+import { chooseDisclosureOption } from './utils/disclosure-select-helper';
 
 test.describe('Campaign Builder Chapters', () => {
   const campaign = {
@@ -49,8 +50,8 @@ test.describe('Campaign Builder Chapters', () => {
     await expect(chaptersTab).toHaveAttribute('aria-current', 'page');
 
     // Assert "Chapter 1" is selected by default
-    const chapterSelect = page.getByLabel(/Current Chapter:/i);
-    await expect(chapterSelect).toHaveValue('chap-1');
+    const chapterSelect = page.getByRole('button', { name: /^Current Chapter:/ });
+    await expect(chapterSelect).toHaveAccessibleName('Current Chapter: Chapter 1');
 
     // Assert Chapter 1 content is visible
     await expect(page.getByText('Content of Chapter 1')).toBeVisible();
@@ -69,7 +70,7 @@ test.describe('Campaign Builder Chapters', () => {
     await expect(page.getByText('Encounter C (0 units)')).not.toBeVisible();
 
     // Switch to Chapter 2
-    await chapterSelect.selectOption('chap-2');
+    await chooseDisclosureOption(page, chapterSelect, 'Chapter 2');
 
     // Assert Chapter 2 content is visible
     await expect(page.getByText('Content of Chapter 2')).toBeVisible();
@@ -108,8 +109,8 @@ test.describe('Campaign Builder Chapters', () => {
 
   test('should assign chapterId when creating items from "Chapters" view', async ({ page }) => {
     // Ensure we are in Chapter 1
-    const chapterSelect = page.getByLabel(/Current Chapter:/i);
-    await chapterSelect.selectOption('chap-1');
+    const chapterSelect = page.getByRole('button', { name: /^Current Chapter:/ });
+    await chooseDisclosureOption(page, chapterSelect, 'Chapter 1');
 
     // Add Asset
     await page.getByRole('button', { name: /\+ Add Asset/i }).click();
@@ -120,7 +121,7 @@ test.describe('Campaign Builder Chapters', () => {
     await expect(page.getByText('New Chapter Asset (NPC)')).toBeVisible();
 
     // Switch to Chapter 2 and assert it is NOT there
-    await chapterSelect.selectOption('chap-2');
+    await chooseDisclosureOption(page, chapterSelect, 'Chapter 2');
     await expect(page.getByText('New Chapter Asset (NPC)')).not.toBeVisible();
 
     // Switch to All Assets and assert it IS there
@@ -130,8 +131,8 @@ test.describe('Campaign Builder Chapters', () => {
 
   test('preserves selected chapter when switching between Create Mode and Run Mode and on app reload', async ({ page }) => {
     // 1. In Create Mode, select Chapter 2
-    const chapterSelect = page.getByLabel(/Current Chapter:/i);
-    await chapterSelect.selectOption('chap-2');
+    const chapterSelect = page.getByRole('button', { name: /^Current Chapter:/ });
+    await chooseDisclosureOption(page, chapterSelect, 'Chapter 2');
     await expect(page.getByText('Content of Chapter 2')).toBeVisible();
 
     // 2. Switch to Run Mode (Alt+m)
@@ -139,13 +140,13 @@ test.describe('Campaign Builder Chapters', () => {
     await expect(page.getByRole('heading', { name: 'Run Mode' })).toBeVisible();
 
     // 3. Verify Run Mode shows Chapter 2 selected in the sidebar dropdown and its content
-    const runChapterSelect = page.getByLabel('Chapters');
-    await expect(runChapterSelect).toHaveValue('chap-2');
+    const runChapterSelect = page.getByRole('button', { name: /^Chapter:/ });
+    await expect(runChapterSelect).toHaveAccessibleName('Chapter: Chapter 2');
     await expect(page.getByRole('heading', { level: 3, name: 'Chapter 2' })).toBeVisible();
     await expect(page.getByText('Content of Chapter 2')).toBeVisible();
 
     // 4. In Run Mode, switch to Chapter 1
-    await runChapterSelect.selectOption('chap-1');
+    await chooseDisclosureOption(page, runChapterSelect, 'Chapter 1');
     await expect(page.getByRole('heading', { level: 3, name: 'Chapter 1' })).toBeVisible();
     await expect(page.getByText('Content of Chapter 1')).toBeVisible();
 
@@ -154,21 +155,21 @@ test.describe('Campaign Builder Chapters', () => {
     await expect(page.getByRole('button', { name: /Chapters/i })).toBeVisible();
 
     // 6. Verify Create Mode now shows Chapter 1
-    const createChapterSelect = page.getByLabel(/Current Chapter:/i);
-    await expect(createChapterSelect).toHaveValue('chap-1');
+    const createChapterSelect = page.getByRole('button', { name: /^Current Chapter:/ });
+    await expect(createChapterSelect).toHaveAccessibleName('Current Chapter: Chapter 1');
     await expect(page.getByText('Content of Chapter 1')).toBeVisible();
 
     // Switch back to Chapter 2
-    await createChapterSelect.selectOption('chap-2');
-    await expect(createChapterSelect).toHaveValue('chap-2');
+    await chooseDisclosureOption(page, createChapterSelect, 'Chapter 2');
+    await expect(createChapterSelect).toHaveAccessibleName('Current Chapter: Chapter 2');
 
     // 7. Reload the page (simulating closing and reopening the app)
     await page.reload();
     await page.waitForSelector('header');
 
     // 8. Verify Chapter 2 is still selected on restart
-    const reloadedSelect = page.getByLabel(/Current Chapter:/i);
-    await expect(reloadedSelect).toHaveValue('chap-2');
+    const reloadedSelect = page.getByRole('button', { name: /^Current Chapter:/ });
+    await expect(reloadedSelect).toHaveAccessibleName('Current Chapter: Chapter 2');
     await expect(page.getByText('Content of Chapter 2')).toBeVisible();
   });
 
@@ -178,8 +179,8 @@ test.describe('Campaign Builder Chapters', () => {
     await expect(page.getByRole('heading', { name: 'Run Mode' })).toBeVisible();
 
     // Select Chapter 1 (which has markdown headings)
-    const runChapterSelect = page.getByLabel('Chapters');
-    await runChapterSelect.selectOption('chap-1');
+    const runChapterSelect = page.getByRole('button', { name: /^Chapter:/ });
+    await chooseDisclosureOption(page, runChapterSelect, 'Chapter 1');
 
     // Verify Chapter Title is an H3
     const chapterHeading = page.getByRole('heading', { level: 3, name: 'Chapter 1' });

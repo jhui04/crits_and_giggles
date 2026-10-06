@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { useWorlds } from '../context/WorldContext';
 import type { WorldAsset, WorldAssetConnection, WorldAssetType, World } from '../types';
-
-const ASSET_TYPES: WorldAssetType[] = ['NPC', 'Location', 'Item', 'Spell', 'Organization', 'Religion', 'Lore', 'Faction', 'Race', 'Class', 'Background', 'Note'];
+import { DisclosureSelect } from './DisclosureSelect';
+import { ASSET_TYPES, ASSET_TYPE_FILTER_OPTIONS } from '../utils/assetUtils';
 
 export function WorldBuilder() {
   const { activeWorld, updateWorld } = useWorlds();
@@ -622,17 +622,15 @@ export function WorldBuilder() {
               style={{ width: '100%', padding: '0.5rem' }}
             />
           </div>
-          <div style={{ minWidth: '150px' }}>
-            <label htmlFor="filter-type">Filter by Type:</label>
-            <select 
+          <div style={{ minWidth: '200px', alignSelf: 'flex-end' }}>
+            <DisclosureSelect
               id="filter-type"
+              label="Filter by Type"
               value={typeFilter}
-              onChange={e => setTypeFilter(e.target.value)}
-              style={{ width: '100%', padding: '0.5rem' }}
-            >
-              <option value="All">All Types</option>
-              {ASSET_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
+              options={ASSET_TYPE_FILTER_OPTIONS}
+              onChange={setTypeFilter}
+              buttonStyle={{ width: '100%', padding: '0.5rem' }}
+            />
           </div>
         </div>
 

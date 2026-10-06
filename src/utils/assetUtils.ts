@@ -1,4 +1,12 @@
-import type { ChapterAssetRef } from '../types';
+import type { ChapterAssetRef, WorldAssetType } from '../types';
+
+export const ASSET_TYPES: WorldAssetType[] = ['NPC', 'Location', 'Item', 'Spell', 'Organization', 'Religion', 'Lore', 'Faction', 'Race', 'Class', 'Background', 'Note'];
+
+/** Options for a "Filter by Type" DisclosureSelect: All Types, then every asset type. */
+export const ASSET_TYPE_FILTER_OPTIONS: { value: WorldAssetType | 'All'; label: string }[] = [
+  { value: 'All', label: 'All Types' },
+  ...ASSET_TYPES.map((t) => ({ value: t, label: t })),
+];
 
 /** Matches @Campaign[id]{Name}, @Monster[id]{Name}, @Spell[id]{Name}, @Item[id]{Name}, @World[id]{Name} */
 const MENTION_REGEX = /@(Campaign|Monster|Spell|Item|World)\[([^\]]+)\](?:\{[^}]+\})?/g;

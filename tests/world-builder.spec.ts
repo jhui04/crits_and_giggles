@@ -1,6 +1,7 @@
 import { test, expect, Page } from '@playwright/test';
 import { checkA11y, navigateToChangeWorld, closeCampaignSettingsAfterWorldSelect } from './utils/axe-helper';
 import { getSeedState } from './seed-data';
+import { chooseDisclosureOption } from './utils/disclosure-select-helper';
 
 const SUITE_ID = 'world-builder-suite';
 const suiteSeed = getSeedState(SUITE_ID);
@@ -113,12 +114,12 @@ test.describe('World Builder Panel CRUD E2E and A11y', () => {
 
     // Clear Search, test Type Filter
     await page.getByLabel('Search assets:').fill('');
-    await page.getByLabel('Filter by Type:').selectOption('NPC');
+    await chooseDisclosureOption(page, page.getByRole('button', { name: /^Filter by Type:/ }), 'NPC');
     await expect(page.locator('ul[aria-label="World assets list"] > li').filter({ has: page.locator('strong', { hasText: /^Elminster$/ }) })).toBeVisible();
     await expect(page.locator('ul[aria-label="World assets list"] > li').filter({ has: page.locator('strong', { hasText: /^Waterdeep$/ }) })).not.toBeVisible();
 
     // Reset filters
-    await page.getByLabel('Filter by Type:').selectOption('All');
+    await chooseDisclosureOption(page, page.getByRole('button', { name: /^Filter by Type:/ }), 'All Types');
 
     // 5. Delete Waterdeep
     const waterdeepBtn = page.locator('ul[aria-label="World assets list"] > li').getByRole('button', { name: 'Waterdeep', exact: false });
