@@ -8,6 +8,7 @@ import { SpellDetail } from './SpellBrowser';
 import { MagicItemDetail } from './MagicItemBrowser';
 import { dataService } from '../services/DataService';
 import { isInteractiveTarget } from './uiHelpers';
+import { DisclosureSelect } from './DisclosureSelect';
 import { useAssistantScreen } from '../context/AssistantScreenContext';
 
 export function CampaignRunner() {
@@ -124,22 +125,17 @@ export function CampaignRunner() {
       <div style={{ display: 'flex', gap: '2rem' }}>
         {/* Navigation Sidebar */}
         <div style={{ flex: '0 0 200px', borderRight: '1px solid #ccc', paddingRight: '1rem' }}>
-          <label htmlFor="chapter-select" style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>Chapters</label>
           {activeCampaign.chapters.length === 0 ? (
             <p>No chapters written.</p>
           ) : (
-            <select 
+            <DisclosureSelect
               id="chapter-select"
-              value={currentChapterId || ''} 
-              onChange={(e) => setActiveChapterId(e.target.value)}
-              style={{ width: '100%', padding: '0.5rem' }}
-            >
-              {activeCampaign.chapters.sort((a, b) => a.order - b.order).map(chap => (
-                <option key={chap.id} value={chap.id}>
-                  {chap.title}
-                </option>
-              ))}
-            </select>
+              label="Chapter"
+              value={currentChapterId || ''}
+              options={[...activeCampaign.chapters].sort((a, b) => a.order - b.order).map(chap => ({ value: chap.id, label: chap.title }))}
+              onChange={setActiveChapterId}
+              buttonStyle={{ width: '100%', padding: '0.5rem' }}
+            />
           )}
         </div>
 

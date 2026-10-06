@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { checkA11y } from './utils/axe-helper';
+import { chooseDisclosureOption } from './utils/disclosure-select-helper';
 
 test.describe('Campaign Creation Flow', () => {
   test.beforeEach(async ({ page }) => {
@@ -89,11 +90,11 @@ test.describe('Campaign Creation Flow', () => {
     
     // Template should have chapters, verify first chapter is visible
     // "Tide of Retribution" usually starts with a specific chapter title
-    // Let's just check if "Current Chapter:" select has options
-    const chapterSelect = page.getByLabel(/Current Chapter:/i);
+    // Let's just check that the "Current Chapter" picker has chapters to choose from
+    const chapterSelect = page.getByRole('button', { name: /^Current Chapter:/ });
     await expect(chapterSelect).toBeVisible();
-    const chapterOptions = await chapterSelect.locator('option').allInnerTexts();
-    expect(chapterOptions.length).toBeGreaterThan(0);
+    await expect(chapterSelect).toBeEnabled();
+    await expect(chapterSelect).not.toHaveAccessibleName('Current Chapter: No Chapters');
   });
 
   test('should render asset links in default adventure chapters with proper whitespace and separation', async ({ page }) => {
@@ -107,9 +108,9 @@ test.describe('Campaign Creation Flow', () => {
     }
 
     // 2. Select "Hunger of the Deep" chapter which contains monster and item links
-    const chapterSelect = page.getByLabel(/Current Chapter:/i);
+    const chapterSelect = page.getByRole('button', { name: /^Current Chapter:/ });
     await expect(chapterSelect).toBeVisible();
-    await chapterSelect.selectOption({ label: 'Hunger of the Deep' });
+    await chooseDisclosureOption(page, chapterSelect, 'Hunger of the Deep');
 
     // 3. Verify chapter heading is visible
     const chapterHeading = page.getByRole('heading', { name: 'Hunger of the Deep', level: 3 });

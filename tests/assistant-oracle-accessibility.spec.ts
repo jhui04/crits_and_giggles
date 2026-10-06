@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { getSeedState } from './seed-data';
 import { checkA11y } from './utils/axe-helper';
+import { chooseDisclosureOption } from './utils/disclosure-select-helper';
 
 const SUITE_ID = 'assistant-suite';
 const suiteSeed = getSeedState(SUITE_ID);
@@ -192,8 +193,7 @@ test.describe('Assistant Oracle Accessibility & Interaction', () => {
 
     const modelSelect = modal.locator('#assistant-model-select');
     await expect(modelSelect).toBeDisabled();
-    await expect(modelSelect).toHaveAttribute('aria-label', 'Model: no models installed');
-    await expect(modelSelect.locator('option')).toHaveText(['No models installed']);
+    await expect(modelSelect).toHaveAccessibleName('Current Model: No models installed');
     await modal.locator('textarea').fill('Hello');
     await expect(modal.getByRole('button', { name: 'Ask' })).toBeDisabled();
     await checkA11y(page, 'Assistant Oracle with no models installed');
@@ -210,17 +210,15 @@ test.describe('Assistant Oracle Accessibility & Interaction', () => {
 
     const modelSelect = modal.locator('#assistant-model-select');
     await expect(modelSelect).toBeVisible();
-    await expect(modelSelect).toHaveAttribute('aria-label', 'Current Model: Qwen3.5-9B');
+    await expect(modelSelect).toHaveAccessibleName('Current Model: Qwen3.5-9B');
 
     // Switch to fallback 4B model
-    await modelSelect.selectOption('qwen3.5:4b');
-    await expect(modelSelect).toHaveValue('qwen3.5:4b');
-    await expect(modelSelect).toHaveAttribute('aria-label', 'Current Model: Qwen3.5-4B');
+    await chooseDisclosureOption(page, modelSelect, 'Qwen3.5-4B');
+    await expect(modelSelect).toHaveAccessibleName('Current Model: Qwen3.5-4B');
 
     // Switch to competitor Llama 3 (8B) model
-    await modelSelect.selectOption('llama3');
-    await expect(modelSelect).toHaveValue('llama3');
-    await expect(modelSelect).toHaveAttribute('aria-label', 'Current Model: Llama 3 (8B)');
+    await chooseDisclosureOption(page, modelSelect, 'Llama 3 (8B)');
+    await expect(modelSelect).toHaveAccessibleName('Current Model: Llama 3 (8B)');
 
     // Verify accessible state with Axe
     await checkA11y(page, 'Assistant Oracle with Llama 3 selected');
@@ -237,13 +235,11 @@ test.describe('Assistant Oracle Accessibility & Interaction', () => {
     const openBtn = page.getByRole('button', { name: 'Open Assistant Oracle (Alt+A)' });
     await openBtn.click();
     await expect(modal).toBeVisible();
-    await expect(modelSelect).toHaveValue('llama3');
-    await expect(modelSelect).toHaveAttribute('aria-label', 'Current Model: Llama 3 (8B)');
+    await expect(modelSelect).toHaveAccessibleName('Current Model: Llama 3 (8B)');
 
     // Switch back to primary 9B model
-    await modelSelect.selectOption('qwen3.5:9b');
-    await expect(modelSelect).toHaveValue('qwen3.5:9b');
-    await expect(modelSelect).toHaveAttribute('aria-label', 'Current Model: Qwen3.5-9B');
+    await chooseDisclosureOption(page, modelSelect, 'Qwen3.5-9B');
+    await expect(modelSelect).toHaveAccessibleName('Current Model: Qwen3.5-9B');
 
     await page.keyboard.press('Escape');
     await expect(modal).not.toBeVisible();
