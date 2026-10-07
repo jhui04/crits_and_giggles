@@ -10,6 +10,7 @@ import { projectHpApplication } from './combatHpUtils.js';
 import { validateAgainstSchema, formatSchemaErrors } from './schemaValidator.js';
 import { getMapDocumentByUrl, getGridDataFromDocument } from '../maps/mapStore.js';
 import { TERRAIN_RULES, describePlacement, findPositions as engineFindPositions } from '../../src/shared/spatial/index.ts';
+import { stripMentionTags } from '../../src/shared/mentionTags.ts';
 import {
   MAP_READ_TOOL_DEFS,
   runGetMapOverview,
@@ -931,9 +932,16 @@ export function parseChapterOutline(content) {
 }
 
 /**
- * Resolves a chapter from SQLite based on explicit name/ID or context.
+ * Resolves a chapter from SQLite based on explicit name/ID or context. The
+ * returned title has its @Tag[id]{Name} markup replaced by the names, since
+ * it is shown to the model.
  */
 export function resolveChapter(chapterIdentifier, context = {}) {
+  const ch = findChapter(chapterIdentifier, context);
+  return ch ? { ...ch, title: stripMentionTags(ch.title || '') } : ch;
+}
+
+function findChapter(chapterIdentifier, context) {
   const { campaignId, chapterId, chapterName } = context;
   const cols = 'id, campaign_id, title, content';
 
@@ -963,10 +971,14 @@ export function resolveChapter(chapterIdentifier, context = {}) {
     const allChaps = campaignId
       ? db.prepare(`SELECT ${cols} FROM chapters WHERE campaign_id = ?`).all(campaignId)
       : db.prepare(`SELECT ${cols} FROM chapters`).all();
+    // The model only ever sees titles with tags stripped, so match those too.
+    ch = allChaps.find((c) => stripMentionTags(c.title || '').toLowerCase() === lower);
+    if (ch) return ch;
+
     let bestMatch = null;
     let bestScore = 0;
     for (const c of allChaps) {
-      const sim = nameSimilarity(raw, c.title);
+      const sim = nameSimilarity(raw, stripMentionTags(c.title || ''));
       if (sim > bestScore) {
         bestScore = sim;
         bestMatch = c;
@@ -976,7 +988,7 @@ export function resolveChapter(chapterIdentifier, context = {}) {
       return bestMatch;
     }
 
-    const available = allChaps.slice(0, 25).map((c) => `"${c.title}" (${c.id})`);
+    const available = allChaps.slice(0, 25).map((c) => `"${stripMentionTags(c.title || '')}" (${c.id})`);
     throw new Error(
       `Chapter "${raw}" not found. ${
         available.length > 0 ? `Available chapters: ${available.join(', ')}.` : 'There are no chapters available.'
@@ -3084,7 +3096,7 @@ export async function executeTool(toolName, rawArgs, context = {}) {
             chap = db.prepare('SELECT id, title, content FROM chapters WHERE LOWER(title) = ? OR id = ?').get(nameOrId, nameOrId);
           }
           if (chap) {
-            asset = { id: chap.id, type: 'Chapter', name: chap.title, description: chap.content };
+            asset = { id: chap.id, type: 'Chapter', name: stripMentionTags(chap.title || ''), description: chap.content };
           }
         }
 
@@ -3126,12 +3138,13 @@ export async function executeTool(toolName, rawArgs, context = {}) {
 
           for (const ch of allChapters) {
             if (!ch.title) continue;
-            const sim = nameSimilarity(nameOrId, ch.title);
+            const title = stripMentionTags(ch.title);
+            const sim = nameSimilarity(nameOrId, title);
             const tokenSim = matchTokens(qTokens, ch.content || '');
             const score = Math.max(sim, tokenSim * 0.85);
             if (score > bestScore) {
               bestScore = score;
-              bestMatch = { id: ch.id, type: 'Chapter', name: ch.title, description: ch.content, source: 'chapter', matchScore: Number(score.toFixed(3)) };
+              bestMatch = { id: ch.id, type: 'Chapter', name: title, description: ch.content, source: 'chapter', matchScore: Number(score.toFixed(3)) };
             }
           }
 
@@ -3355,13 +3368,14 @@ export async function executeTool(toolName, rawArgs, context = {}) {
               : db.prepare('SELECT id, title, content FROM chapters').all();
             for (const ch of chaps) {
               if (!ch.title) continue;
-              const sim = nameSimilarity(query, ch.title);
+              const title = stripMentionTags(ch.title);
+              const sim = nameSimilarity(query, title);
               const descMatch = matchTokens(qTokens, ch.content || '');
               const score = Math.max(sim, descMatch * 0.85);
               if (score >= 0.45) {
                 candidates.push({
                   type: 'Chapter Note',
-                  name: ch.title,
+                  name: title,
                   snippet: (ch.content || '').slice(0, 120),
                   score,
                 });

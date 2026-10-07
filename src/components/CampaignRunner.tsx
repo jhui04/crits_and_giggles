@@ -9,6 +9,7 @@ import { MagicItemDetail } from './MagicItemBrowser';
 import { dataService } from '../services/DataService';
 import { isInteractiveTarget } from './uiHelpers';
 import { DisclosureSelect } from './DisclosureSelect';
+import { stripMentionTags } from '../utils/assetUtils';
 import { useAssistantScreen } from '../context/AssistantScreenContext';
 
 export function CampaignRunner() {
@@ -132,7 +133,7 @@ export function CampaignRunner() {
               id="chapter-select"
               label="Chapter"
               value={currentChapterId || ''}
-              options={[...activeCampaign.chapters].sort((a, b) => a.order - b.order).map(chap => ({ value: chap.id, label: chap.title }))}
+              options={[...activeCampaign.chapters].sort((a, b) => a.order - b.order).map(chap => ({ value: chap.id, label: stripMentionTags(chap.title) }))}
               onChange={setActiveChapterId}
               buttonStyle={{ width: '100%', padding: '0.5rem' }}
             />
@@ -143,7 +144,7 @@ export function CampaignRunner() {
         <div style={{ flex: 1 }}>
           {activeChapter ? (
             <div>
-              <h3 style={{ marginTop: 0 }}>{activeChapter.title}</h3>
+              <h3 style={{ marginTop: 0 }}>{stripMentionTags(activeChapter.title)}</h3>
               <div style={{ marginTop: '1rem' }}>
                 <Markdown 
                   content={activeChapter.content} 

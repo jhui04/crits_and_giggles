@@ -11,7 +11,7 @@ import { dataService } from '../services/DataService';
 import { AssetInsertionModal } from './AssetInsertionModal';
 import { DisclosureSelect } from './DisclosureSelect';
 import { WorldBuilder } from './WorldBuilder';
-import { parseMentionedAssets, ASSET_TYPE_FILTER_OPTIONS } from '../utils/assetUtils';
+import { parseMentionedAssets, stripMentionTags, ASSET_TYPE_FILTER_OPTIONS } from '../utils/assetUtils';
 import { isInteractiveTarget, useFocusRestore } from './uiHelpers';
 import { useAssistantScreen } from '../context/AssistantScreenContext';
 import type { AssistantScreenId } from '../utils/assistantScreens';
@@ -937,7 +937,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
                 id="chapter-select"
                 label="Current Chapter"
                 value={selectedChapterId || ''}
-                options={activeCampaign.chapters.map(c => ({ value: c.id, label: c.title }))}
+                options={activeCampaign.chapters.map(c => ({ value: c.id, label: stripMentionTags(c.title) }))}
                 onChange={(id) => setSelectedChapterId(id || null)}
                 emptyText="No Chapters"
                 buttonStyle={{ padding: '0.5rem', minWidth: '260px', fontWeight: 'bold' }}
@@ -960,7 +960,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
                       }}>Chapter Options</button>
                     </div>
                     <div style={{ padding: '1.5rem', border: '1px solid #ccc', borderRadius: '4px', backgroundColor: '#f9f9f9' }}>
-                      <h3 style={{ marginTop: 0 }}>{chapter.title}</h3>
+                      <h3 style={{ marginTop: 0 }}>{stripMentionTags(chapter.title)}</h3>
                       <Markdown
                         content={chapter.content}
                         onAssetClick={handleAssetLinkClick}
@@ -1244,7 +1244,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
                           }
                         }}
                       />
-                      {c.title}
+                      {stripMentionTags(c.title)}
                     </label>
                   ))}
                   {activeCampaign.chapters.length === 0 && <p style={{ margin: 0, fontSize: '0.9rem', color: '#666' }}>No chapters created yet.</p>}
