@@ -11,6 +11,13 @@
   --color-bg-main: #1a1a1a;
 }
 
+/* A light panel inside a .dark-theme container (e.g. OracleDialog in the Oracle). */
+.light-theme {
+  --color-text-main: #000;
+  --color-text-muted: #595959;
+  --color-bg-main: #fff;
+}
+
 body {
   font-family: sans-serif;
   line-height: 1.5;
@@ -115,10 +122,10 @@ main {
 }
 
 /* Dark mode overrides for Markdown Body:
-   1. Descendant of .dark-theme (unless explicitly .markdown-body--light)
+   1. Descendant of .dark-theme (unless explicitly .markdown-body--light, or inside a .light-theme panel)
    2. Explicitly .markdown-body--dark
 */
-.dark-theme .markdown-body:not(.markdown-body--light),
+.dark-theme .markdown-body:not(.markdown-body--light):not(.light-theme .markdown-body),
 .markdown-body--dark {
   --md-heading-color: #ffffff;
   --md-code-bg: #2a2a2a;
@@ -142,7 +149,6 @@ main {
 /* Auto theme handling system preference */
 @media (prefers-color-scheme: dark) {
   .markdown-body--auto {
-    --md-heading-color: #ffffff;
     --md-code-bg: #2a2a2a;
     --md-code-color: #4da6ff;
     --md-pre-bg: #111;
@@ -150,14 +156,11 @@ main {
     --md-blockquote-bg: #161616;
     --md-blockquote-border: #0066cc;
     --md-blockquote-color: #ccc;
-    --md-link-color: #4da6ff;
     --md-table-border: #444;
     --md-table-row-border: #333;
     --md-thead-bg: #222;
     --md-thead-border: #555;
     --md-th-color: #ffffff;
-    --md-td-color: #dddddd;
-    --md-del-color: #a0a0a0;
     --md-hr-border: #444;
   }
 }
@@ -297,55 +300,34 @@ main {
   border-radius: 2px;
 }
 
-.dark-theme .asset-link-btn:not(.markdown-body--light .asset-link-btn),
+.dark-theme .asset-link-btn:not(.markdown-body--light .asset-link-btn, .light-theme .asset-link-btn),
 .markdown-body--dark .asset-link-btn {
   color: #4da6ff;
 }
 
-.dark-theme .asset-link-btn:hover:not(.markdown-body--light .asset-link-btn:hover),
+.dark-theme .asset-link-btn:hover:not(.markdown-body--light .asset-link-btn:hover, .light-theme .asset-link-btn:hover),
 .markdown-body--dark .asset-link-btn:hover {
   color: #80bfff;
 }
 
-.dark-theme .asset-link-btn:focus-visible:not(.markdown-body--light .asset-link-btn:focus-visible),
+.dark-theme .asset-link-btn:focus-visible:not(.markdown-body--light .asset-link-btn:focus-visible, .light-theme .asset-link-btn:focus-visible),
 .markdown-body--dark .asset-link-btn:focus-visible {
   outline-color: #4da6ff;
 }
 
-.dark-theme .encounter-link:not(.markdown-body--light .encounter-link),
+.dark-theme .encounter-link:not(.markdown-body--light .encounter-link, .light-theme .encounter-link),
 .markdown-body--dark .encounter-link {
   color: #ff4d4d;
 }
 
-.dark-theme .encounter-link:hover:not(.markdown-body--light .encounter-link:hover),
+.dark-theme .encounter-link:hover:not(.markdown-body--light .encounter-link:hover, .light-theme .encounter-link:hover),
 .markdown-body--dark .encounter-link:hover {
   color: #ff8080;
 }
 
-.dark-theme .encounter-link:focus-visible:not(.markdown-body--light .encounter-link:focus-visible),
+.dark-theme .encounter-link:focus-visible:not(.markdown-body--light .encounter-link:focus-visible, .light-theme .encounter-link:focus-visible),
 .markdown-body--dark .encounter-link:focus-visible {
   outline-color: #ff4d4d;
-}
-
-@media (prefers-color-scheme: dark) {
-  .markdown-body--auto .asset-link-btn {
-    color: #4da6ff;
-  }
-  .markdown-body--auto .asset-link-btn:hover {
-    color: #80bfff;
-  }
-  .markdown-body--auto .asset-link-btn:focus-visible {
-    outline-color: #4da6ff;
-  }
-  .markdown-body--auto .encounter-link {
-    color: #ff4d4d;
-  }
-  .markdown-body--auto .encounter-link:hover {
-    color: #ff8080;
-  }
-  .markdown-body--auto .encounter-link:focus-visible {
-    outline-color: #ff4d4d;
-  }
 }
 
 

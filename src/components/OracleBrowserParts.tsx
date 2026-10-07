@@ -84,7 +84,7 @@ export function OracleDialog({ labelledBy, onClose, maxWidth = '800px', children
         alignItems: 'center', justifyContent: 'center', zIndex: 10000,
       }}
     >
-      <div className="modal-content" ref={contentRef} style={{ ...panelStyle, maxWidth }}>
+      <div className="modal-content light-theme" ref={contentRef} style={{ ...panelStyle, maxWidth }}>
         {children}
       </div>
     </div>
