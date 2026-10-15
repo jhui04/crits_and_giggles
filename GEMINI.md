@@ -47,7 +47,7 @@ Logic-heavy, screen-reader-adjacent operations are encapsulated in `src/services
 
 ### 5. Data Sources
 - `public/data/*.json`: static D&D reference data served straight to the client — `monsters.json`, `spells.json`, `magic_items.json`, `srd_rules.json`, `map_grids.json`, plus pre-built `scraped_world.json` / `scraped_campaign.json` templates.
-- `tools/*.py`: scrapers and generators that produce the above (monster/spell/magic-item/adventure/world scrapers, plus `map_grid_detector.py`, `map_region_segmenter.py`, `map_wall_generator.py` for tactical map prep). Treat `dnd_beyond/` as scraper input/cache, not source of truth for the app.
+- `tools/*.py`: scrapers and generators that produce the above (monster/spell/magic-item/adventure/world scrapers, plus `map_grid_detector.py` and the `maps/` compiler for tactical map prep). Treat `dnd_beyond/` as scraper input/cache, not source of truth for the app.
 - `data/campaigns.sqlite3`: the live application database (worlds, campaigns, chapters, assets, players, encounters, combatants). Do not hand-edit; go through the Express API or migrations in `server/db.js`.
 
 ## Accessibility Mandates (Non-Negotiable)

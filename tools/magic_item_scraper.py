@@ -21,8 +21,9 @@ from urllib.parse import urljoin
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from scraper_base import ScraperManager, RequestLimitExceeded
 
-STATE_FILE = "tools/state/magic_item_scraper_state.json"
-DATA_FILE = "public/data/magic_items.json"
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+STATE_FILE = os.path.join(ROOT_DIR, "tools/state/magic_item_scraper_state.json")
+DATA_FILE = os.path.join(ROOT_DIR, "public/data/magic_items.json")
 BASE_URL = "https://www.dndbeyond.com"
 
 def slugify(text):
@@ -248,7 +249,7 @@ def main():
     args = parser.parse_args()
 
     manager = ScraperManager(
-        cache_dir="dnd_beyond/magic_items",
+        cache_dir=os.path.join(ROOT_DIR, "dnd_beyond/magic_items"),
         state_file=STATE_FILE,
         validate_asset_fn=validate_magic_item,
         offline=args.offline,

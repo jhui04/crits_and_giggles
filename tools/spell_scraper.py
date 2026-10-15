@@ -20,9 +20,10 @@ if hasattr(sys.stderr, 'reconfigure'):
     try: sys.stderr.reconfigure(encoding='utf-8')
     except: pass
 
-STATE_FILE = "tools/state/spell_scraper_state.json"
-DATA_FILE = "public/data/spells.json"
-DB_FILE = "tools/state/spells.sqlite3"
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+STATE_FILE = os.path.join(ROOT_DIR, "tools/state/spell_scraper_state.json")
+DATA_FILE = os.path.join(ROOT_DIR, "public/data/spells.json")
+DB_FILE = os.path.join(ROOT_DIR, "tools/state/spells.sqlite3")
 BASE_URL = "https://www.dndbeyond.com"
 
 def slugify(text):
@@ -378,7 +379,7 @@ def main():
     args = parser.parse_args()
 
     manager = ScraperManager(
-        cache_dir="dnd_beyond/spells",
+        cache_dir=os.path.join(ROOT_DIR, "dnd_beyond/spells"),
         state_file=STATE_FILE,
         validate_asset_fn=validate_spell,
         offline=args.offline,

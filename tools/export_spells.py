@@ -1,5 +1,8 @@
 import sqlite3
 import json
+import os
+
+STATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'state')
 
 def export_db_to_json(db_path, json_path):
     conn = sqlite3.connect(db_path)
@@ -32,4 +35,4 @@ def export_db_to_json(db_path, json_path):
     print(f"Exported {len(spells)} spells to {json_path}")
 
 if __name__ == '__main__':
-    export_db_to_json('spells.sqlite3', 'spells.json')
+    export_db_to_json(os.path.join(STATE_DIR, 'spells.sqlite3'), os.path.join(STATE_DIR, 'spells.json'))

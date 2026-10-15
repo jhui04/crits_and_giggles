@@ -9,6 +9,9 @@ import tempfile
 import pytest
 import zipfile
 import tarfile
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tools.cache_manager import (
     export_cache,

@@ -10,8 +10,9 @@ import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from scraper_base import ScraperManager, RequestLimitExceeded
 
-STATE_FILE = "tools/state/monster_scraper_state.json"
-DATA_FILE = "public/data/monsters.json"
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+STATE_FILE = os.path.join(ROOT_DIR, "tools/state/monster_scraper_state.json")
+DATA_FILE = os.path.join(ROOT_DIR, "public/data/monsters.json")
 BASE_URL = "https://www.dndbeyond.com"
 
 def slugify(text):
@@ -478,7 +479,7 @@ def main():
     args = parser.parse_args()
 
     manager = ScraperManager(
-        cache_dir="dnd_beyond/monsters",
+        cache_dir=os.path.join(ROOT_DIR, "dnd_beyond/monsters"),
         state_file=STATE_FILE,
         validate_asset_fn=validate_monster,
         offline=args.offline,

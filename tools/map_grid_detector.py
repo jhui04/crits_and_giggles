@@ -4,7 +4,8 @@ import json
 import cv2
 import numpy as np
 
-CACHE_FILE = "public/data/map_grids.json"
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CACHE_FILE = os.path.join(ROOT_DIR, *'public/data/map_grids.json'.split("/"))
 
 def detect_map_grid(img_path, patch_size=512, step=256, min_pitch=25, max_pitch=140):
     """
@@ -109,7 +110,7 @@ def detect_map_grid(img_path, patch_size=512, step=256, min_pitch=25, max_pitch=
         'confidence': round(float(best_score), 3)
     }
 
-def get_or_create_grid_cache(maps_dir="public/maps", cache_file=CACHE_FILE):
+def get_or_create_grid_cache(maps_dir=os.path.join(ROOT_DIR, "public", "maps"), cache_file=CACHE_FILE):
     cache = {}
     if os.path.exists(cache_file):
         try:

@@ -24,9 +24,10 @@ try:
 except ImportError:
     from maps.spawn_units import apply_spawn_units
 
-STATE_FILE = "tools/adventure_scraper_state.json"
-DATA_FILE = "public/data/scraped_campaign.json"
-MAPS_DIR = "public/data/maps"
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+STATE_FILE = os.path.join(ROOT_DIR, "tools/adventure_scraper_state.json")
+DATA_FILE = os.path.join(ROOT_DIR, "public/data/scraped_campaign.json")
+MAPS_DIR = os.path.join(ROOT_DIR, "public/data/maps")
 
 
 def compiled_map_grid(*urls):
@@ -46,7 +47,7 @@ def compiled_map_grid(*urls):
     return None
 
 
-def download_map_image(url, output_dir="public/maps"):
+def download_map_image(url, output_dir=os.path.join(ROOT_DIR, "public", "maps")):
     if not url:
         return None
     os.makedirs(output_dir, exist_ok=True)
@@ -162,8 +163,8 @@ def main():
 
     # Read base URL
     base_url = "https://www.dndbeyond.com/sources/dnd/egtw"
-    if os.path.exists('url.txt'):
-        with open('url.txt', 'r', encoding='utf-8') as f:
+    if os.path.exists(os.path.join(ROOT_DIR, "url.txt")):
+        with open(os.path.join(ROOT_DIR, "url.txt"), 'r', encoding='utf-8') as f:
             content = f.read().strip()
             if content:
                 base_url = content
@@ -218,8 +219,8 @@ def main():
         # Load wildemount asset mapping if available
         wildemount_asset_ids = {}
         world_assets_by_id = {}
-        mapping_path = "tools/state/wildemount_asset_ids.json"
-        world_path = "public/data/scraped_world.json"
+        mapping_path = os.path.join(ROOT_DIR, "tools/state/wildemount_asset_ids.json")
+        world_path = os.path.join(ROOT_DIR, "public/data/scraped_world.json")
         if os.path.exists(mapping_path):
             with open(mapping_path, 'r', encoding='utf-8') as f:
                 wildemount_asset_ids = json.load(f)
@@ -233,7 +234,7 @@ def main():
                     print(f"Error loading scraped_world.json: {e}")
 
         monsters_by_id = {}
-        monsters_path = "public/data/monsters.json"
+        monsters_path = os.path.join(ROOT_DIR, "public/data/monsters.json")
         if os.path.exists(monsters_path):
             with open(monsters_path, 'r', encoding='utf-8') as f:
                 try:
@@ -244,7 +245,7 @@ def main():
                     print(f"Error loading monsters.json: {e}")
 
         # 1. Fetch main index
-        index_filepath = os.path.join("dnd_beyond", "adventures", "index.html")
+        index_filepath = os.path.join(ROOT_DIR, "dnd_beyond", "adventures", "index.html")
         os.makedirs(os.path.dirname(index_filepath), exist_ok=True)
         index_html = ""
         if os.path.exists(index_filepath) and not args.force:
@@ -287,7 +288,7 @@ def main():
         for adv_link in adventure_links:
             adv_url = urljoin(base_url, adv_link)
             adv_slug = adv_link.split('/')[-1]
-            adv_filepath = os.path.join("dnd_beyond", "adventures", f"{adv_slug}.html")
+            adv_filepath = os.path.join(ROOT_DIR, "dnd_beyond", "adventures", f"{adv_slug}.html")
 
             adv_html = ""
             if os.path.exists(adv_filepath) and not args.force:

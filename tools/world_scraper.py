@@ -12,9 +12,11 @@ from urllib.parse import urljoin
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from scraper_base import ScraperManager, RequestLimitExceeded, ChromeConnectionError
 
-STATE_FILE = "tools/state/world_scraper_state.json"
-DATA_FILE = "public/data/scraped_world.json"
-MAPPING_FILE = "tools/state/wildemount_asset_ids.json"
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+STATE_FILE = os.path.join(ROOT_DIR, "tools/state/world_scraper_state.json")
+DATA_FILE = os.path.join(ROOT_DIR, "public/data/scraped_world.json")
+URL_FILE = os.path.join(ROOT_DIR, "url.txt")
+MAPPING_FILE = os.path.join(ROOT_DIR, "tools/state/wildemount_asset_ids.json")
 WILDEMOUNT_WORLD_ID = "4a2b9c3d-1e5f-4a7b-8c9d-1e5f4a7b8c9d"
 
 
@@ -47,12 +49,12 @@ def main():
     args = parser.parse_args()
 
     base_url = "https://www.dndbeyond.com"
-    if os.path.exists('url.txt'):
-        with open('url.txt', 'r', encoding='utf-8') as f:
+    if os.path.exists(URL_FILE):
+        with open(URL_FILE, 'r', encoding='utf-8') as f:
             base_url = f.read().strip()
 
     manager = ScraperManager(
-        cache_dir="dnd_beyond/egtw",
+        cache_dir=os.path.join(ROOT_DIR, "dnd_beyond/egtw"),
         state_file=STATE_FILE,
         validate_asset_fn=validate_world_page,
         offline=args.offline,
@@ -451,7 +453,7 @@ def main():
             json.dump(name_to_id, f, indent=2)
         print(f"Saved asset-to-ID mapping dictionary to {MAPPING_FILE}")
 
-        headings_file = "tools/state/world_headings.txt"
+        headings_file = os.path.join(ROOT_DIR, "tools/state/world_headings.txt")
         os.makedirs(os.path.dirname(headings_file), exist_ok=True)
         with open(headings_file, 'w', encoding='utf-8') as f:
             f.write("\n".join(heading_logs) + "\n")
