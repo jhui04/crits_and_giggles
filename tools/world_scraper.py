@@ -289,6 +289,8 @@ def main():
                         is_sub_section_to_compress = True
                     elif lower_text_clean in compress_exact:
                         is_sub_section_to_compress = True
+                    elif lower_text_clean.endswith(" adventures"):
+                        is_sub_section_to_compress = True
                     elif any(lower_text_clean.startswith(prefix) for prefix in compress_starts_with):
                         is_sub_section_to_compress = True
 
