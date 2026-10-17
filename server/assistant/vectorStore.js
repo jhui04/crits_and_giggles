@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { db } from '../db.js';
+import { stripMentionTags } from '../../src/shared/mentionTags.ts';
 import {
   computeSemanticEmbedding,
   computeSemanticEmbeddingsBatch,
@@ -425,7 +426,9 @@ async function indexCampaignLoreOnce(campaignId) {
   const chunks = [];
 
   // Chapters: chunked by heading and paragraph with breadcrumbs
-  const chapters = db.prepare('SELECT id, title, content FROM chapters WHERE campaign_id = ?').all(campaignId);
+  // Titles are indexed and shown to the model without their @Tag[id]{Name} markup.
+  const chapters = db.prepare('SELECT id, title, content FROM chapters WHERE campaign_id = ?').all(campaignId)
+    .map((chap) => ({ ...chap, title: stripMentionTags(chap.title || '') }));
   for (const chap of chapters) {
     const chapterChunks = chunkMarkdownChapter(chap.title, chap.content || '', 1500);
     chapterChunks.forEach((cChunk, cIdx) => {

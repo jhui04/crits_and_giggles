@@ -1,5 +1,7 @@
 import type { ChapterAssetRef, WorldAssetType } from '../types';
 
+export { stripMentionTags } from '../shared/mentionTags';
+
 export const ASSET_TYPES: WorldAssetType[] = ['NPC', 'Location', 'Item', 'Spell', 'Organization', 'Religion', 'Lore', 'Faction', 'Race', 'Class', 'Background', 'Note'];
 
 /** Options for a "Filter by Type" DisclosureSelect: All Types, then every asset type. */

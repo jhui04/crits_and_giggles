@@ -2,6 +2,7 @@ import { db } from '../db.js';
 import { hitlManager } from './hitlManager.js';
 import { getProfileToolNames } from './contextProfiles.js';
 import { WRITE_TOOL_NAMES } from './toolController.js';
+import { stripMentionTags } from '../../src/shared/mentionTags.ts';
 
 /**
  * Accurate and conservative token estimator.
@@ -152,7 +153,7 @@ export function getAuthoritativeGameState({
     campaign: campaign ? { id: campaign.id, name: campaign.name } : null,
     activeChapter: (chapter || chapterId || chapterName) ? {
       id: chapter?.id || chapterId || 'unknown',
-      title: chapter?.title || chapterName || 'Current Chapter',
+      title: stripMentionTags(chapter?.title || chapterName || 'Current Chapter'),
       contentPreview: chapter?.content ? (chapter.content.length > 2000 ? chapter.content.slice(0, 2000) + '...' : chapter.content) : null,
     } : null,
     world: (world || worldName) ? {
