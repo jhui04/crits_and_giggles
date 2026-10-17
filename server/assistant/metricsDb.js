@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 /**
  * Dedicated SQLite store for LLM telemetry, deliberately separate from the
  * campaign database (data/campaigns.sqlite3). Campaign data is reset/reseeded
- * by tests and dev workflows; telemetry must survive that, so it lives in the
+ * by dev workflows; telemetry must survive that, so it lives in the
  * per-user application data directory.
  *
  * Resolution order:

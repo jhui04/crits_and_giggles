@@ -25,10 +25,9 @@ db.pragma('journal_mode = WAL');
 // Enable foreign keys
 db.pragma('foreign_keys = ON');
 
-// Wait for the write lock instead of throwing SQLITE_BUSY immediately. All
-// vitest files share this same on-disk DB_PATH and run in parallel worker
-// threads/processes, so two files writing at once (e.g. both approving a
-// HITL proposal) can otherwise collide and surface as a spurious 500.
+// Wait for the write lock instead of throwing SQLITE_BUSY immediately, so
+// overlapping writers (e.g. concurrent HITL approvals) don't surface as a
+// spurious 500.
 db.pragma('busy_timeout = 5000');
 
 export function setDb(newDb) {
