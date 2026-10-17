@@ -347,76 +347,82 @@ def main():
                         if l > level:
                             last_header_of_level.pop(l)
 
-                    # Look for closest higher level parent in Gazetteer
-                    if asset_type == "Location":
-                        parent_id = None
-                        for l in sorted(last_header_of_level.keys(), reverse=True):
-                            if l < level:
-                                parent_id = last_header_of_level[l]
-                                break
-                        if parent_id:
-                            # Create connection: child is located in parent
-                            conn_counter += 1
-                            conn_id = str(conn_counter)
-                            current_asset["connections"].append({
-                                "id": conn_id,
-                                "targetId": parent_id,
-                                "relationship": "is located in"
-                            })
-
-                    parent_override = None
-                    if active_sub_section_overrides:
-                        closest_level = max(active_sub_section_overrides.keys())
-                        parent_override = active_sub_section_overrides[closest_level]
-
-                    if parent_override == "SKIPPED":
-                        continue
-
-                    if current_asset:
-                        # Append description text
-                        if child.name == 'p':
-                            # Check for tags in first paragraph
-                            if not current_asset["description"]:
-                                # Look for city indicators: e.g. "(Small City)" or "Large City" in parentheses or italics
-                                italic_elem = child.find('em') or child.find('i')
-                                if italic_elem:
-                                    italic_text = clean_text(italic_elem.get_text())
-                                    for ind in loc_indicators:
-                                        if ind in italic_text.lower():
-                                            tag = italic_text.strip('() ')
-                                            if tag and tag not in current_asset["tags"]:
-                                                current_asset["tags"].append(tag)
-                                # Regular patterns: "Nicodranas (Small City)..."
-                                paren_match = re.search(r'\(([^)]+)\)', text[:100])
-                                if paren_match:
-                                    for ind in loc_indicators:
-                                        if ind in paren_match.group(1).lower():
-                                            tag = paren_match.group(1).strip()
-                                            if tag and tag not in current_asset["tags"]:
-                                                current_asset["tags"].append(tag)
-
-                            current_asset["description"] += f"{text}\n\n"
-                        elif child.name in ['ul', 'ol']:
-                            list_items = []
-                            for li in child.find_all('li'):
-                                li_text = clean_text(li.get_text())
-                                if li_text:
-                                    list_items.append(li_text)
-                                    # Capture sub-references or list tags if helpful
-                            if list_items:
-                                markdown_list = "\n".join([f"- {item}" for item in list_items])
-                                current_asset["description"] += f"{markdown_list}\n\n"
-                        elif child.name == 'table':
-                            # Convert table to simple markdown string
-                            rows = []
-                            for tr in child.find_all('tr'):
-                                cells = [clean_text(td.get_text()) for td in tr.find_all(['td', 'th'])]
-                                if any(cells):
-                                    rows.append(" | ".join(cells))
-                            if rows:
-                                current_asset["description"] += "\n".join(rows) + "\n\n"
+                    # Connect every asset to the closest higher-level parent heading
+                    parent_id = None
+                    for l in sorted(last_header_of_level.keys(), reverse=True):
+                        if l < level:
+                            parent_id = last_header_of_level[l]
+                            break
+                    if parent_id:
+                        parent_type = next((a["type"] for a in assets if a["id"] == parent_id), None)
+                        if asset_type == "Location":
+                            relationship = "is located in"
+                        elif asset_type == "NPC" and parent_type == "Faction":
+                            relationship = "is a member of"
                         else:
-                            current_asset["description"] += f"{text}\n\n"
+                            relationship = "is part of"
+                        conn_counter += 1
+                        current_asset["connections"].append({
+                            "id": str(conn_counter),
+                            "targetId": parent_id,
+                            "relationship": relationship
+                        })
+
+                    continue
+
+                parent_override = None
+                if active_sub_section_overrides:
+                    closest_level = max(active_sub_section_overrides.keys())
+                    parent_override = active_sub_section_overrides[closest_level]
+
+                if parent_override == "SKIPPED":
+                    continue
+
+                if current_asset:
+                    # Append description text
+                    if child.name == 'p':
+                        # Check for tags in first paragraph
+                        if not current_asset["description"]:
+                            # Look for city indicators: e.g. "(Small City)" or "Large City" in parentheses or italics
+                            italic_elem = child.find('em') or child.find('i')
+                            if italic_elem:
+                                italic_text = clean_text(italic_elem.get_text())
+                                for ind in loc_indicators:
+                                    if ind in italic_text.lower():
+                                        tag = italic_text.strip('() ')
+                                        if tag and tag not in current_asset["tags"]:
+                                            current_asset["tags"].append(tag)
+                            # Regular patterns: "Nicodranas (Small City)..."
+                            paren_match = re.search(r'\(([^)]+)\)', text[:100])
+                            if paren_match:
+                                for ind in loc_indicators:
+                                    if ind in paren_match.group(1).lower():
+                                        tag = paren_match.group(1).strip()
+                                        if tag and tag not in current_asset["tags"]:
+                                            current_asset["tags"].append(tag)
+
+                        current_asset["description"] += f"{text}\n\n"
+                    elif child.name in ['ul', 'ol']:
+                        list_items = []
+                        for li in child.find_all('li'):
+                            li_text = clean_text(li.get_text())
+                            if li_text:
+                                list_items.append(li_text)
+                                # Capture sub-references or list tags if helpful
+                        if list_items:
+                            markdown_list = "\n".join([f"- {item}" for item in list_items])
+                            current_asset["description"] += f"{markdown_list}\n\n"
+                    elif child.name == 'table':
+                        # Convert table to simple markdown string
+                        rows = []
+                        for tr in child.find_all('tr'):
+                            cells = [clean_text(td.get_text()) for td in tr.find_all(['td', 'th'])]
+                            if any(cells):
+                                rows.append(" | ".join(cells))
+                        if rows:
+                            current_asset["description"] += "\n".join(rows) + "\n\n"
+                    else:
+                        current_asset["description"] += f"{text}\n\n"
 
         # Cleanup whitespace on descriptions
         for as_item in assets:

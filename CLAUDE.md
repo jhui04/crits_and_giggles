@@ -36,6 +36,7 @@ docs/HITL_WRITE_TOOLS.md   Spec for the write-confirmation framework — read be
 - `npm run eval` / `npm run eval:mock` / `npm run eval:bonus` — LLM assistant evals (`server/evals/run_evals.js`); use `--mock` if there's no local Ollama server running.
 - `npm run test:eval` — Vitest-based eval harness (`vitest.eval.config.ts`).
 - `npm run seed:eval` — seed the eval SQLite fixture (`tools/seed_eval_db.js`).
+- `python tools/<scraper>.py --offline` (add `--force` to reparse cached chapters) — **safe for AIs to run**: it makes no web requests and only reads the local HTML cache, so it is the way to regenerate `public/data/*.json` after a scraper change. Running a scraper *without* `--offline` needs the user's logged-in dev Chrome; don't. `python tools/cache_manager.py regenerate` runs all scrapers offline.
 
 **Definition of done for code changes:** `npm run build`, `npm run test`, and `npm run lint` all pass. If you touched `server/assistant/`, also consider whether `server/evals/eval_cases.js` needs a new case and whether the change needs adversarial coverage (see `*Adversarial.test.js` files) — the HITL boundary is a security/safety boundary, not just a feature.
 

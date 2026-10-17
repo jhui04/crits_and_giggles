@@ -69,9 +69,16 @@ test.describe('World Asset Connections E2E and A11y', () => {
     await checkA11y(page, 'World Asset Details Modal');
 
     // 2. Add connection: "is located in" -> Waterdeep
-    await connSection.getByLabel('Relationship:').fill('is located in');
-    await connSection.getByLabel('Target Asset:').selectOption({ label: 'Waterdeep' });
-    await connSection.getByRole('button', { name: 'Add Connection' }).click();
+    const addRelationBtn = connSection.getByRole('button', { name: 'Add Connection' });
+    await addRelationBtn.click();
+    const relationDialog = page.getByRole('dialog', { name: /Add Connection for Elminster/ });
+    await expect(relationDialog.getByRole('heading', { name: /Add Connection for Elminster/ })).toBeFocused();
+    await checkA11y(page, 'Add Connection Modal');
+    await relationDialog.getByLabel('Relationship:').fill('is located in');
+    await relationDialog.getByLabel('Target Asset:').selectOption({ label: 'Waterdeep' });
+    await relationDialog.getByRole('button', { name: 'Add Connection' }).click();
+    await expect(relationDialog).toBeHidden();
+    await expect(addRelationBtn).toBeFocused();
 
     // Verify connection is displayed on Elminster
     await expect(connSection.locator('li', { hasText: '"is located in" → Waterdeep (Location)' })).toBeVisible();

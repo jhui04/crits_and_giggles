@@ -36,6 +36,10 @@ export function WorldBuilder() {
   // Connection Add State
   const [connRelationship, setConnRelationship] = useState('');
   const [connTargetId, setConnTargetId] = useState('');
+  const [showRelationModal, setShowRelationModal] = useState(false);
+  const addRelationBtnRef = useRef<HTMLButtonElement>(null);
+  const relationModalContentRef = useRef<HTMLDivElement>(null);
+  const relationHeadingRef = useRef<HTMLHeadingElement>(null);
 
   // Accessibility Announcements
   const [announcement, setAnnouncement] = useState('');
@@ -126,11 +130,42 @@ export function WorldBuilder() {
       }
     };
 
-    if (selectedWorldAssetId) {
+    if (selectedWorldAssetId && !showRelationModal) {
       window.addEventListener('keydown', handleFocusTrap);
     }
     return () => window.removeEventListener('keydown', handleFocusTrap);
-  }, [selectedWorldAssetId]);
+  }, [selectedWorldAssetId, showRelationModal]);
+
+  // Focus management and focus trap for the Add Connection modal
+  useEffect(() => {
+    if (!showRelationModal) return;
+    relationHeadingRef.current?.focus();
+
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setShowRelationModal(false);
+        setTimeout(() => addRelationBtnRef.current?.focus(), 50);
+        return;
+      }
+      if (e.key !== 'Tab' || !relationModalContentRef.current) return;
+      const focusable = relationModalContentRef.current.querySelectorAll<HTMLElement>(
+        'h2[tabindex], button:not([disabled]), input[type="text"], select'
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        last.focus();
+        e.preventDefault();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        first.focus();
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [showRelationModal]);
 
   if (!activeWorld) {
     return (
@@ -350,6 +385,7 @@ export function WorldBuilder() {
   const selectedWorldAsset = activeWorld.assets.find(a => a.id === selectedWorldAssetId) || null;
 
   const closeWorldAssetDetails = () => {
+    setShowRelationModal(false);
     setSelectedWorldAssetId(null);
     setDeleteConfirmId(null);
     setTimeout(() => {
@@ -412,6 +448,19 @@ export function WorldBuilder() {
     setAnnouncement(`Added connection: "${connRelationship}" to ${targetAsset.name}.`);
     setConnRelationship('');
     setConnTargetId('');
+    setShowRelationModal(false);
+    setTimeout(() => addRelationBtnRef.current?.focus(), 50);
+  };
+
+  const openRelationModal = () => {
+    setConnRelationship('');
+    setConnTargetId('');
+    setShowRelationModal(true);
+  };
+
+  const closeRelationModal = () => {
+    setShowRelationModal(false);
+    setTimeout(() => addRelationBtnRef.current?.focus(), 50);
   };
 
   const handleRemoveConnection = async (sourceId: string, connId: string, targetName: string) => {
@@ -819,8 +868,72 @@ export function WorldBuilder() {
                 </ul>
               )}
 
-              {/* Add Connection Form */}
-              <form onSubmit={(e) => handleAddConnection(e, selectedWorldAsset.id)} style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-end', borderTop: '1px dashed #ddd', paddingTop: '0.75rem' }}>
+              <div style={{ borderTop: '1px dashed #ddd', paddingTop: '0.75rem' }}>
+                <button
+                  type="button"
+                  ref={addRelationBtnRef}
+                  onClick={openRelationModal}
+                  style={{ padding: '0.4rem 0.8rem', fontSize: '0.9rem', fontWeight: 'bold' }}
+                >
+                  Add Connection
+                </button>
+              </div>
+            </div>
+
+            {/* Edit / Delete Buttons */}
+            <div style={{ display: 'flex', gap: '1rem', marginTop: '2rem', borderTop: '1px solid #eee', paddingTop: '1.5rem' }}>
+              <button 
+                type="button" 
+                onClick={handleEditFromModal}
+                style={{ padding: '0.5rem 1rem', flex: 1 }}
+              >
+                Edit Asset
+              </button>
+              <button 
+                type="button" 
+                onClick={() => handleAssetDelete(selectedWorldAsset.id, selectedWorldAsset.name)}
+                style={{ 
+                  padding: '0.5rem 1rem', 
+                  flex: 1,
+                  background: deleteConfirmId === selectedWorldAsset.id ? '#c62828' : '#d32f2f', 
+                  color: 'white',
+                  border: 'none',
+                  fontWeight: deleteConfirmId === selectedWorldAsset.id ? 'bold' : 'normal'
+                }}
+              >
+                {deleteConfirmId === selectedWorldAsset.id ? 'Confirm Delete' : 'Delete Asset'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Connection Modal */}
+      {selectedWorldAsset && showRelationModal && (
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="add-relation-title"
+          style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex',
+            alignItems: 'center', justifyContent: 'center', zIndex: 2100
+          }}
+        >
+          <div
+            className="modal-content"
+            ref={relationModalContentRef}
+            style={{
+              backgroundColor: 'white', padding: '1.5rem', borderRadius: '8px',
+              maxWidth: '500px', width: '90%', maxHeight: '80vh', overflowY: 'auto',
+              boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
+            }}
+          >
+            <h2 id="add-relation-title" ref={relationHeadingRef} tabIndex={-1} style={{ outline: 'none', margin: '0 0 1rem 0', fontSize: '1.25rem' }}>
+              Add Connection for {selectedWorldAsset.name}
+            </h2>
+            <form onSubmit={(e) => handleAddConnection(e, selectedWorldAsset.id)} style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-end' }}>
                 <div style={{ flex: 2, minWidth: '180px' }}>
                   <label htmlFor={`conn-rel-${selectedWorldAsset.id}`} style={{ fontSize: '0.85rem' }}>Relationship:</label>
                   <input 
@@ -871,33 +984,10 @@ export function WorldBuilder() {
                 <button type="submit" style={{ padding: '0.4rem 0.8rem', fontSize: '0.9rem', fontWeight: 'bold' }}>
                   Add Connection
                 </button>
+                <button type="button" onClick={closeRelationModal} style={{ padding: '0.4rem 0.8rem', fontSize: '0.9rem' }}>
+                  Cancel
+                </button>
               </form>
-            </div>
-
-            {/* Edit / Delete Buttons */}
-            <div style={{ display: 'flex', gap: '1rem', marginTop: '2rem', borderTop: '1px solid #eee', paddingTop: '1.5rem' }}>
-              <button 
-                type="button" 
-                onClick={handleEditFromModal}
-                style={{ padding: '0.5rem 1rem', flex: 1 }}
-              >
-                Edit Asset
-              </button>
-              <button 
-                type="button" 
-                onClick={() => handleAssetDelete(selectedWorldAsset.id, selectedWorldAsset.name)}
-                style={{ 
-                  padding: '0.5rem 1rem', 
-                  flex: 1,
-                  background: deleteConfirmId === selectedWorldAsset.id ? '#c62828' : '#d32f2f', 
-                  color: 'white',
-                  border: 'none',
-                  fontWeight: deleteConfirmId === selectedWorldAsset.id ? 'bold' : 'normal'
-                }}
-              >
-                {deleteConfirmId === selectedWorldAsset.id ? 'Confirm Delete' : 'Delete Asset'}
-              </button>
-            </div>
           </div>
         </div>
       )}
