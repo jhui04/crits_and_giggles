@@ -202,6 +202,7 @@ export interface WorldAssetConnection {
   id: string;
   targetId: string;       // The other WorldAsset's ID
   relationship: string;   // e.g. "is capital of", "rules", "is member of"
+  inverseRelationship?: string; // Label from the target's side, e.g. "is hated by"; blank = derive/fallback
   description?: string;   // Optional detail, e.g. "has lived here for twenty years"
 }
 

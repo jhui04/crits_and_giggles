@@ -11,6 +11,7 @@ import { isInteractiveTarget } from './uiHelpers';
 import { DisclosureSelect } from './DisclosureSelect';
 import { stripMentionTags } from '../utils/assetUtils';
 import { useAssistantScreen } from '../context/AssistantScreenContext';
+import { describeIncoming } from '../utils/relationships';
 
 export function CampaignRunner() {
   const { activeCampaign, activeChapterId, setActiveChapterId } = useCampaigns();
@@ -239,12 +240,12 @@ export function CampaignRunner() {
                 : undefined;
 
               const getIncomingConnections = (assetId: string) => {
-                const incoming: { sourceAsset: WorldAsset, relationship: string }[] = [];
+                const incoming: { sourceAsset: WorldAsset, text: string }[] = [];
                 if (activeWorld) {
                   activeWorld.assets.forEach(as => {
                     as.connections.forEach(conn => {
                       if (conn.targetId === assetId) {
-                        incoming.push({ sourceAsset: as, relationship: conn.relationship });
+                        incoming.push({ sourceAsset: as, text: describeIncoming(as.name, as.type, conn) + (conn.description ? `. ${conn.description}` : '') });
                       }
                     });
                   });
@@ -339,9 +340,9 @@ export function CampaignRunner() {
                               </li>
                             );
                           })}
-                          {incomingConns.map(({ sourceAsset, relationship }, idx) => (
+                          {incomingConns.map(({ text }, idx) => (
                             <li key={idx}>
-                              <strong>{sourceAsset.name} ({sourceAsset.type})</strong> {relationship} this asset
+                              {text}
                             </li>
                           ))}
                         </ul>

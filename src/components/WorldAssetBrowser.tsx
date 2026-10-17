@@ -7,6 +7,7 @@ import {
   OracleResultItem, OracleResults, OracleSearchBar,
 } from './OracleBrowserParts';
 import { asOptions, toggleIn, useInitialSearchFocus } from '../utils/oracleBrowser';
+import { describeIncoming } from '../utils/relationships';
 
 interface WorldAssetBrowserProps {
   autoFocus?: boolean;
@@ -96,7 +97,7 @@ function WorldAssetDetail({ asset, world }: { asset: WorldAsset; world: World })
   const incoming = world.assets.flatMap(source =>
     source.connections
       .filter(conn => conn.targetId === asset.id)
-      .map(conn => ({ key: `${source.id}-${conn.id}`, text: `${source.name} (${source.type}) ${conn.relationship} this asset` })));
+      .map(conn => ({ key: `${source.id}-${conn.id}`, text: `${describeIncoming(source.name, source.type, conn)}${conn.description ? `. ${conn.description}` : ''}` })));
   const connections = [...outgoing, ...incoming];
 
   return (

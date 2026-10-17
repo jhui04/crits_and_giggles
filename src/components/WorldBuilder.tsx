@@ -3,6 +3,7 @@ import { useWorlds } from '../context/WorldContext';
 import type { WorldAsset, WorldAssetConnection, WorldAssetType, World } from '../types';
 import { DisclosureSelect } from './DisclosureSelect';
 import { ASSET_TYPES, ASSET_TYPE_FILTER_OPTIONS } from '../utils/assetUtils';
+import { RELATIONSHIP_SUGGESTIONS, suggestInverse, inverseLabel, describeIncoming } from '../utils/relationships';
 
 export function WorldBuilder() {
   const { activeWorld, updateWorld } = useWorlds();
@@ -35,10 +36,15 @@ export function WorldBuilder() {
 
   // Connection Add State
   const [connRelationship, setConnRelationship] = useState('');
+  const [connInverse, setConnInverse] = useState('');
+  const [connInverseTouched, setConnInverseTouched] = useState(false);
   const [connTargetId, setConnTargetId] = useState('');
   const [showRelationModal, setShowRelationModal] = useState(false);
-  const [optionsConn, setOptionsConn] = useState<{ sourceId: string; connId: string; label: string } | null>(null);
+  const [optionsConn, setOptionsConn] = useState<{ sourceId: string; connId: string; label: string; sourceName: string; targetName: string } | null>(null);
   const [optionsDesc, setOptionsDesc] = useState('');
+  const [optionsRel, setOptionsRel] = useState('');
+  const [optionsInv, setOptionsInv] = useState('');
+  const [optionsInvTouched, setOptionsInvTouched] = useState(false);
   const optionsTriggerRef = useRef<HTMLElement | null>(null);
   const optionsModalContentRef = useRef<HTMLDivElement>(null);
   const optionsHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -156,7 +162,7 @@ export function WorldBuilder() {
       }
       if (e.key !== 'Tab' || !optionsModalContentRef.current) return;
       const focusable = optionsModalContentRef.current.querySelectorAll<HTMLElement>(
-        'h2[tabindex], button:not([disabled]), textarea'
+        'h2[tabindex], button:not([disabled]), textarea, input[type="text"]'
       );
       if (focusable.length === 0) return;
       const first = focusable[0];
@@ -460,7 +466,8 @@ export function WorldBuilder() {
     const newConnection: WorldAssetConnection = {
       id: nextConnId.toString(),
       targetId: connTargetId,
-      relationship: connRelationship.trim()
+      relationship: connRelationship.trim(),
+      inverseRelationship: connInverse.trim()
     };
 
     const updatedAssets = activeWorld.assets.map(as => {
@@ -483,8 +490,10 @@ export function WorldBuilder() {
     };
 
     await updateWorld(updatedWorld);
-    setAnnouncement(`Added connection: "${connRelationship}" to ${targetAsset.name}.`);
+    setAnnouncement(`Added connection: ${connRelationship} ${targetAsset.name}.`);
     setConnRelationship('');
+    setConnInverse('');
+    setConnInverseTouched(false);
     setConnTargetId('');
     setShowRelationModal(false);
     setTimeout(() => addRelationBtnRef.current?.focus(), 50);
@@ -492,6 +501,8 @@ export function WorldBuilder() {
 
   const openRelationModal = () => {
     setConnRelationship('');
+    setConnInverse('');
+    setConnInverseTouched(false);
     setConnTargetId('');
     setShowRelationModal(true);
   };
@@ -505,11 +516,16 @@ export function WorldBuilder() {
     e: React.MouseEvent<HTMLButtonElement>,
     sourceId: string,
     conn: WorldAssetConnection,
-    label: string
+    label: string,
+    sourceName: string,
+    targetName: string
   ) => {
     optionsTriggerRef.current = e.currentTarget;
     setOptionsDesc(conn.description || '');
-    setOptionsConn({ sourceId, connId: conn.id, label });
+    setOptionsRel(conn.relationship);
+    setOptionsInv(inverseLabel(conn));
+    setOptionsInvTouched(true);
+    setOptionsConn({ sourceId, connId: conn.id, label, sourceName, targetName });
   };
 
   const closeConnectionOptions = () => {
@@ -519,14 +535,14 @@ export function WorldBuilder() {
 
   const handleSaveConnectionOptions = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!optionsConn) return;
+    if (!optionsConn || !optionsRel.trim()) return;
     const updatedAssets = activeWorld.assets.map(as =>
       as.id === optionsConn.sourceId
-        ? { ...as, connections: as.connections.map(c => c.id === optionsConn.connId ? { ...c, description: optionsDesc.trim() } : c) }
+        ? { ...as, connections: as.connections.map(c => c.id === optionsConn.connId ? { ...c, relationship: optionsRel.trim(), inverseRelationship: optionsInv.trim(), description: optionsDesc.trim() } : c) }
         : as
     );
     await updateWorld({ ...activeWorld, assets: updatedAssets });
-    setAnnouncement(`Saved description for ${optionsConn.label}.`);
+    setAnnouncement(`Saved connection: ${optionsRel.trim()}.`);
     closeConnectionOptions();
   };
 
@@ -914,7 +930,7 @@ export function WorldBuilder() {
                         </span>
                         <button
                           type="button"
-                          onClick={(e) => openConnectionOptions(e, selectedWorldAsset.id, conn, `${conn.relationship} ${target?.name || 'Unknown'}`)}
+                          onClick={(e) => openConnectionOptions(e, selectedWorldAsset.id, conn, `${conn.relationship} ${target?.name || 'Unknown'}`, selectedWorldAsset.name, target?.name || 'Unknown')}
                           style={{ padding: '0.2rem 0.5rem', fontSize: '0.8rem', background: '#f5f5f5' }}
                           aria-label={`Options for ${conn.relationship} ${target?.name || 'Unknown'}`}
                         >
@@ -928,14 +944,14 @@ export function WorldBuilder() {
                   {getIncomingConnections(selectedWorldAsset.id).map(({ sourceAsset, connection }) => (
                     <li key={`in-${connection.id}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
                       <span>
-                        <strong>{sourceAsset.name} ({sourceAsset.type})</strong> {connection.relationship} this asset
+                        {describeIncoming(sourceAsset.name, sourceAsset.type, connection)}
                         {connection.description && <span style={{ display: 'block', fontSize: '0.9rem', color: '#444' }}>{connection.description}</span>}
                       </span>
                       <button
                         type="button"
-                        onClick={(e) => openConnectionOptions(e, sourceAsset.id, connection, `${sourceAsset.name} ${connection.relationship} ${selectedWorldAsset.name}`)}
+                        onClick={(e) => openConnectionOptions(e, sourceAsset.id, connection, describeIncoming(sourceAsset.name, sourceAsset.type, connection), sourceAsset.name, selectedWorldAsset.name)}
                         style={{ padding: '0.2rem 0.5rem', fontSize: '0.8rem', background: '#f5f5f5' }}
-                        aria-label={`Options for ${sourceAsset.name} ${connection.relationship} this asset`}
+                        aria-label={`Options for ${describeIncoming(sourceAsset.name, sourceAsset.type, connection)}`}
                       >
                         Options
                       </button>
@@ -1010,6 +1026,31 @@ export function WorldBuilder() {
               Options for {optionsConn.label}
             </h2>
             <form onSubmit={handleSaveConnectionOptions}>
+              <label htmlFor="connection-options-rel" style={{ fontSize: '0.85rem' }}>{`Relationship, read from ${optionsConn.sourceName}:`}</label>
+              <input
+                id="connection-options-rel"
+                type="text"
+                list="relationship-suggestions"
+                required
+                value={optionsRel}
+                onChange={e => {
+                  setOptionsRel(e.target.value);
+                  if (!optionsInvTouched) setOptionsInv(suggestInverse(e.target.value));
+                }}
+                style={{ width: '100%', padding: '0.4rem', fontSize: '0.9rem', marginBottom: '0.75rem' }}
+              />
+              <datalist id="relationship-suggestions">
+                {RELATIONSHIP_SUGGESTIONS.map(v => <option key={v} value={v} />)}
+              </datalist>
+              <label htmlFor="connection-options-inv" style={{ fontSize: '0.85rem' }}>{`Reverse relationship, read from ${optionsConn.targetName}:`}</label>
+              <input
+                id="connection-options-inv"
+                type="text"
+                placeholder="e.g. is hated by"
+                value={optionsInv}
+                onChange={e => { setOptionsInv(e.target.value); setOptionsInvTouched(true); }}
+                style={{ width: '100%', padding: '0.4rem', fontSize: '0.9rem', marginBottom: '0.75rem' }}
+              />
               <label htmlFor="connection-options-desc" style={{ fontSize: '0.85rem' }}>Connection Description:</label>
               <textarea
                 id="connection-options-desc"
@@ -1063,19 +1104,26 @@ export function WorldBuilder() {
                     placeholder="e.g. is located in, rules, allied with"
                     required
                     value={connRelationship}
-                    onChange={e => setConnRelationship(e.target.value)}
+                    onChange={e => {
+                      setConnRelationship(e.target.value);
+                      if (!connInverseTouched) setConnInverse(suggestInverse(e.target.value));
+                    }}
                     style={{ width: '100%', padding: '0.4rem', fontSize: '0.9rem' }}
                   />
                   <datalist id="relationship-suggestions">
-                    <option value="is located in" />
-                    <option value="rules" />
-                    <option value="is member of" />
-                    <option value="created" />
-                    <option value="owns" />
-                    <option value="allied with" />
-                    <option value="enemy of" />
-                    <option value="worships" />
+                    {RELATIONSHIP_SUGGESTIONS.map(v => <option key={v} value={v} />)}
                   </datalist>
+                </div>
+                <div style={{ flex: 2, minWidth: '180px' }}>
+                  <label htmlFor={`conn-inv-${selectedWorldAsset.id}`} style={{ fontSize: '0.85rem' }}>Reverse relationship (optional):</label>
+                  <input
+                    id={`conn-inv-${selectedWorldAsset.id}`}
+                    type="text"
+                    placeholder="e.g. is hated by"
+                    value={connInverse}
+                    onChange={e => { setConnInverse(e.target.value); setConnInverseTouched(true); }}
+                    style={{ width: '100%', padding: '0.4rem', fontSize: '0.9rem' }}
+                  />
                 </div>
                 <div style={{ flex: 2, minWidth: '180px' }}>
                   <label htmlFor={`conn-target-${selectedWorldAsset.id}`} style={{ fontSize: '0.85rem' }}>Target Asset:</label>

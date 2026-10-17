@@ -35,7 +35,7 @@ function getFullWorld(id) {
 
   const assets = db.prepare('SELECT id, type, name, description, tags FROM world_assets WHERE world_id = ?').all(id);
   const connsBySource = new Map();
-  for (const c of db.prepare("SELECT id, source_id, target_id as targetId, relationship, COALESCE(description, '') as description FROM world_asset_connections WHERE world_id = ?").all(id)) {
+  for (const c of db.prepare("SELECT id, source_id, target_id as targetId, relationship, COALESCE(description, '') as description, COALESCE(inverse_relationship, '') as inverseRelationship FROM world_asset_connections WHERE world_id = ?").all(id)) {
     const { source_id, ...conn } = c;
     if (!connsBySource.has(source_id)) connsBySource.set(source_id, []);
     connsBySource.get(source_id).push(conn);
@@ -218,7 +218,7 @@ app.post('/api/worlds', (req, res) => {
     
     if (data.assets) {
       const insertAsset = db.prepare('INSERT INTO world_assets (id, world_id, type, name, description, tags) VALUES (?, ?, ?, ?, ?, ?)');
-      const insertConnection = db.prepare('INSERT INTO world_asset_connections (id, source_id, target_id, world_id, relationship, description) VALUES (?, ?, ?, ?, ?, ?)');
+      const insertConnection = db.prepare('INSERT INTO world_asset_connections (id, source_id, target_id, world_id, relationship, description, inverse_relationship) VALUES (?, ?, ?, ?, ?, ?, ?)');
       
       data.assets.forEach(as => {
         insertAsset.run(as.id, data.id, as.type, as.name, as.description, JSON.stringify(as.tags || []));
@@ -227,7 +227,7 @@ app.post('/api/worlds', (req, res) => {
       data.assets.forEach(as => {
         if (as.connections) {
           as.connections.forEach(conn => {
-            insertConnection.run(conn.id, as.id, conn.targetId, data.id, conn.relationship, conn.description || '');
+            insertConnection.run(conn.id, as.id, conn.targetId, data.id, conn.relationship, conn.description || '', conn.inverseRelationship || '');
           });
         }
       });
@@ -260,7 +260,7 @@ app.put('/api/worlds/:id', (req, res) => {
 
     if (data.assets) {
       const insertAsset = db.prepare('INSERT INTO world_assets (id, world_id, type, name, description, tags) VALUES (?, ?, ?, ?, ?, ?)');
-      const insertConnection = db.prepare('INSERT INTO world_asset_connections (id, source_id, target_id, world_id, relationship, description) VALUES (?, ?, ?, ?, ?, ?)');
+      const insertConnection = db.prepare('INSERT INTO world_asset_connections (id, source_id, target_id, world_id, relationship, description, inverse_relationship) VALUES (?, ?, ?, ?, ?, ?, ?)');
       
       data.assets.forEach(as => {
         insertAsset.run(as.id, worldId, as.type, as.name, as.description, JSON.stringify(as.tags || []));
@@ -269,7 +269,7 @@ app.put('/api/worlds/:id', (req, res) => {
       data.assets.forEach(as => {
         if (as.connections) {
           as.connections.forEach(conn => {
-            insertConnection.run(conn.id, as.id, conn.targetId, worldId, conn.relationship, conn.description || '');
+            insertConnection.run(conn.id, as.id, conn.targetId, worldId, conn.relationship, conn.description || '', conn.inverseRelationship || '');
           });
         }
       });

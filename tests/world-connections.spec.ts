@@ -91,20 +91,27 @@ test.describe('World Asset Connections E2E and A11y', () => {
     
     const waterdeepConnSection = page.getByRole('dialog').locator('div').filter({ has: page.getByRole('heading', { name: 'Connections' }) }).first();
     await expect(waterdeepConnSection).toBeVisible();
-    await expect(waterdeepConnSection.locator('li', { hasText: 'Elminster (NPC) is located in this asset' })).toBeVisible();
+    await expect(waterdeepConnSection.locator('li', { hasText: 'contains Elminster (NPC)' })).toBeVisible();
 
     // 4. Remove connection from Waterdeep side
-    const optionsBtn = waterdeepConnSection.getByRole('button', { name: 'Options for Elminster is located in this asset' });
+    const optionsBtn = waterdeepConnSection.getByRole('button', { name: /^Options for / });
     await optionsBtn.click();
-    const optionsDialog = page.getByRole('dialog', { name: /Options for Elminster is located in Waterdeep/ });
+    const optionsDialog = page.getByRole('dialog', { name: /^Options for / });
     await expect(optionsDialog.getByRole('heading', { name: /Options for/ })).toBeFocused();
     await checkA11y(page, 'Connection Options Modal');
+
+    // The reverse label was derived automatically; customize both directions
+    await expect(optionsDialog.getByLabel(/^Relationship, read from Elminster/)).toHaveValue('is located in');
+    await expect(optionsDialog.getByLabel(/^Reverse relationship, read from Waterdeep/)).toHaveValue('contains');
+    await optionsDialog.getByLabel(/^Relationship, read from Elminster/).fill('hates');
+    await optionsDialog.getByLabel(/^Reverse relationship, read from Waterdeep/).fill('is hated by');
 
     // Add a description, then reopen to confirm it was saved
     await optionsDialog.getByLabel('Connection Description:').fill('Has lived there for decades');
     await optionsDialog.getByRole('button', { name: 'Save' }).click();
     await expect(optionsDialog).toBeHidden();
     await expect(optionsBtn).toBeFocused();
+    await expect(waterdeepConnSection.locator('li', { hasText: 'is hated by Elminster (NPC)' })).toBeVisible();
     await expect(waterdeepConnSection.locator('li', { hasText: 'Has lived there for decades' })).toBeVisible();
 
     // Escape closes only the options modal and restores focus
@@ -118,7 +125,7 @@ test.describe('World Asset Connections E2E and A11y', () => {
     await optionsDialog.getByRole('button', { name: 'Delete Connection' }).click();
     
     // Connection should disappear from Waterdeep
-    await expect(waterdeepConnSection.locator('li', { hasText: 'Elminster (NPC) is located in this asset' })).not.toBeVisible();
+    await expect(waterdeepConnSection.locator('li', { hasText: 'contains Elminster (NPC)' })).not.toBeVisible();
 
     // Close Waterdeep details modal
     await page.getByRole('button', { name: 'Close (Esc)' }).click();

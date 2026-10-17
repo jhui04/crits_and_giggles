@@ -82,6 +82,7 @@ export function initDb(targetDb = db) {
       world_id TEXT NOT NULL,
       relationship TEXT NOT NULL,
       description TEXT,
+      inverse_relationship TEXT,
       PRIMARY KEY (id, world_id),
       FOREIGN KEY (source_id, world_id) REFERENCES world_assets(id, world_id) ON DELETE CASCADE,
       FOREIGN KEY (target_id, world_id) REFERENCES world_assets(id, world_id) ON DELETE CASCADE
@@ -247,6 +248,12 @@ export function initDb(targetDb = db) {
 
   try {
     targetDb.exec('ALTER TABLE world_asset_connections ADD COLUMN description TEXT;');
+  } catch (e) {
+    // Column already exists, ignore
+  }
+
+  try {
+    targetDb.exec('ALTER TABLE world_asset_connections ADD COLUMN inverse_relationship TEXT;');
   } catch (e) {
     // Column already exists, ignore
   }
