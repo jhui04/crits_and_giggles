@@ -78,20 +78,26 @@ test.describe('Campaign and World Integration E2E and A11y', () => {
     await expect(page.locator('#world-picker-title')).not.toBeVisible();
     await expect(worldSection).toContainText('Linked to: Integration Test World');
 
-    // 2. Link World Asset
-    await worldSection.getByRole('button', { name: 'Link World Asset' }).click();
-    await expect(page.locator('#link-asset-title')).toBeVisible();
-
-    // Verify A11y of Link Asset Modal
-    await checkA11y(page, 'Link Asset Modal');
-
-    // Link Elminster
-    await page.locator('li', { hasText: 'Elminster' }).getByRole('button', { name: 'Link Asset' }).click();
-    await expect(page.locator('#link-asset-title')).not.toBeVisible();
-
     // Close Campaign Settings Modal
     await page.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(page.locator('#campaign-modal-title')).not.toBeVisible();
+
+    // 2. Insert the world asset into the chapter with the "@" picker
+    await page.getByRole('button', { name: 'Chapter Options' }).click();
+    await page.getByRole('button', { name: 'Edit Chapter' }).click();
+    const textarea = page.locator('#chap-content');
+    await textarea.focus();
+    await page.keyboard.press('@');
+
+    const assetModal = page.getByRole('dialog', { name: 'Insert Asset Link' });
+    await assetModal.getByLabel('Only show assets already in the campaign').uncheck();
+    await assetModal.getByPlaceholder('Search assets...').fill('Elminster');
+    await assetModal.getByRole('button', { name: /Elminster/ }).first().click();
+    await expect(assetModal).not.toBeVisible();
+    expect(await textarea.inputValue()).toContain('@World[npc-elminster]{Elminster}');
+
+    await page.getByRole('button', { name: 'Save' }).click();
+    await expect(page.getByRole('dialog', { name: 'Edit Chapter' })).not.toBeVisible();
 
     // Verify Elminster is added to the chapter content
     await expect(page.getByRole('button', { name: 'Open asset: Elminster' })).toBeVisible();

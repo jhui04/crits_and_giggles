@@ -12,7 +12,7 @@ import { AssetInsertionModal } from './AssetInsertionModal';
 import { DisclosureSelect } from './DisclosureSelect';
 import { CampaignPicker } from './CampaignPicker';
 import { WorldBuilder } from './WorldBuilder';
-import { parseMentionedAssets, stripMentionTags, ASSET_TYPE_FILTER_OPTIONS } from '../utils/assetUtils';
+import { parseMentionedAssets, stripMentionTags } from '../utils/assetUtils';
 import { isInteractiveTarget, useFocusRestore, useFocusTrap } from './uiHelpers';
 import { useAssistantScreen } from '../context/AssistantScreenContext';
 import type { AssistantScreenId } from '../utils/assistantScreens';
@@ -33,9 +33,6 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
   const [isCreatingNewWorld, setIsCreatingNewWorld] = useState(false);
   const [newWorldName, setNewWorldName] = useState('');
   const [newWorldDesc, setNewWorldDesc] = useState('');
-  const [showLinkAssetModal, setShowLinkAssetModal] = useState(false);
-  const [linkAssetSearch, setLinkAssetSearch] = useState('');
-  const [linkAssetTypeFilter, setLinkAssetTypeFilter] = useState('All');
 
   // Player State
   const [showPlayerForm, setShowPlayerForm] = useState(false);
@@ -111,7 +108,6 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
 
   // Modal container refs for Tab focus trapping.
   const worldLinkModalRef = useRef<HTMLDivElement>(null);
-  const linkAssetModalRef = useRef<HTMLDivElement>(null);
   const chapterOptionsModalRef = useRef<HTMLDivElement>(null);
   const chapterModalRef = useRef<HTMLDivElement>(null);
   const assetModalRef = useRef<HTMLDivElement>(null);
@@ -120,7 +116,6 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
   const assetViewerModalRef = useRef<HTMLDivElement>(null);
 
   useFocusTrap(worldLinkModalRef, showWorldLinkModal);
-  useFocusTrap(linkAssetModalRef, showLinkAssetModal);
   useFocusTrap(chapterOptionsModalRef, showChapterOptionsModal);
   useFocusTrap(chapterModalRef, showChapterForm);
   useFocusTrap(assetModalRef, showAssetForm);
@@ -830,101 +825,6 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
         </div>
       )}
 
-      {/* Link World Asset Modal */}
-      {showLinkAssetModal && linkedWorld && (
-        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="link-asset-title" style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex',
-          alignItems: 'center', justifyContent: 'center', zIndex: 2100
-        }}>
-          <div ref={linkAssetModalRef} className="modal-content" style={{
-            backgroundColor: 'white', padding: '2rem', borderRadius: '8px',
-            maxWidth: '500px', width: '90%', maxHeight: '80vh', overflowY: 'auto'
-          }}>
-            <h2 id="link-asset-title" style={{ marginTop: 0 }}>Link World Asset to Campaign</h2>
-            
-            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-              <input 
-                type="search" 
-                placeholder="Search world assets..." 
-                value={linkAssetSearch}
-                onChange={e => setLinkAssetSearch(e.target.value)}
-                style={{ flex: 1, padding: '0.5rem' }}
-                aria-label="Search world assets"
-              />
-              <DisclosureSelect
-                label="Filter by Type"
-                value={linkAssetTypeFilter}
-                options={ASSET_TYPE_FILTER_OPTIONS}
-                onChange={setLinkAssetTypeFilter}
-                buttonStyle={{ padding: '0.5rem', minWidth: '13rem' }}
-              />
-            </div>
-
-            {(() => {
-              const availableAssets = linkedWorld.assets.filter(wa => {
-                const alreadyLinked = activeCampaign.assets.some(a => a.worldAssetId === wa.id);
-                if (alreadyLinked) return false;
-
-                const matchesSearch = wa.name.toLowerCase().includes(linkAssetSearch.toLowerCase()) ||
-                                      wa.description.toLowerCase().includes(linkAssetSearch.toLowerCase());
-                const matchesType = linkAssetTypeFilter === 'All' || wa.type === linkAssetTypeFilter;
-                return matchesSearch && matchesType;
-              });
-
-              if (availableAssets.length === 0) {
-                return <p>No unlinked world assets found matching the criteria.</p>;
-              }
-
-              return (
-                <ul style={{ listStyle: 'none', padding: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  {availableAssets.map(wa => (
-                    <li key={wa.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem', border: '1px solid #eee', borderRadius: '4px' }}>
-                      <div>
-                        <span style={{ fontSize: '0.8rem', textTransform: 'uppercase', backgroundColor: '#eee', padding: '0.1rem 0.3rem', marginRight: '0.5rem', borderRadius: '2px' }}>
-                          {wa.type}
-                        </span>
-                        <strong>{wa.name}</strong>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          if (showChapterForm) {
-                            setChapterContent(prev => prev + ` @World[${wa.id}]{${wa.name}}`);
-                          } else if (selectedChapterId) {
-                            const updatedChapters = activeCampaign.chapters.map(c => 
-                              c.id === selectedChapterId 
-                                ? { ...c, content: c.content + ` @World[${wa.id}]{${wa.name}}` }
-                                : c
-                            );
-                            await updateCampaign({
-                              ...activeCampaign,
-                              chapters: updatedChapters
-                            });
-                          }
-                          setShowLinkAssetModal(false);
-                        }}
-                        style={{ padding: '0.3rem 0.6rem' }}
-                      >
-                        Link Asset
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              );
-            })()}
-
-            <button
-              type="button"
-              onClick={() => setShowLinkAssetModal(false)}
-              style={{ marginTop: '1.5rem', width: '100%', padding: '0.75rem', backgroundColor: '#eee' }}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
       <div className="sub-nav" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
         <h2 id="campaign-builder-heading" tabIndex={-1} style={{ margin: 0, outline: 'none' }}>Create Mode</h2>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -1348,10 +1248,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <button type="button" onClick={(e) => { remember('world', e.currentTarget); setShowWorldLinkModal(true); }}>Change World</button>
                   {activeCampaign.worldId && (
-                    <>
-                      <button type="button" onClick={handleUnlinkWorld}>Unlink World</button>
-                      <button type="button" onClick={() => setShowLinkAssetModal(true)}>Link World Asset</button>
-                    </>
+                    <button type="button" onClick={handleUnlinkWorld}>Unlink World</button>
                   )}
                 </div>
               </div>
