@@ -76,7 +76,7 @@ test.describe('Dice Roll Log Accessibility & Functionality', () => {
     const menuModal = page.locator('[role="dialog"][aria-labelledby="main-menu-title"]');
     await expect(menuModal).toBeVisible();
 
-    const diceLogBtn = page.getByRole('button', { name: /Dice Roller and Log/ });
+    const diceLogBtn = page.getByRole('button', { name: 'Dice Roller' });
     await expect(diceLogBtn).toBeVisible();
     await diceLogBtn.click();
 

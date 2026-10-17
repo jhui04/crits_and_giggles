@@ -51,7 +51,7 @@ Logic-heavy, screen-reader-adjacent operations are encapsulated in `src/services
 - `data/campaigns.sqlite3`: the live application database (worlds, campaigns, chapters, assets, players, encounters, combatants). Do not hand-edit; go through the Express API or migrations in `server/db.js`.
 
 ## Accessibility Mandates (Non-Negotiable)
-1. **Keyboard Shortcuts:** Use the `Alt` (Windows) / `Option` (Mac) modifier for all custom shortcuts (e.g., `Alt+O` for Oracle, `Alt+A` for Assistant Oracle, `Alt+C` for Campaign Switcher, `Alt+M` for Mode Switch, `Alt+H` for Help, `Alt+Y`/`Alt+N` for HITL approve/deny) to avoid conflicts with screen reader navigation keys.
+1. **Keyboard Shortcuts:** Use the `Alt` (Windows) / `Option` (Mac) modifier for all custom shortcuts (e.g., `Alt+O` for Oracle, `Alt+A` for Assistant Oracle, `Alt+C`/`Alt+W` for the Chapters/World tabs, `Alt+M` for Mode Switch, `Alt+H` for Help, `Alt+Y`/`Alt+N` for HITL approve/deny) to avoid conflicts with screen reader navigation keys.
 2. **Semantic HTML:** Use buttons for actions, headings for structure, and lists for data. Avoid `div` click handlers.
 3. **Accessible Modals:** All modals must use `role="dialog"`, `aria-modal="true"`, and manual focus trapping/restoration using React `useRef`. Focus must land on the heading (`h2`/`h3`) upon opening.
 4. **No "Teleporting" Focus:** When a modal closes or a list changes, focus must be returned to a logical and predictable location (e.g., the button that opened it). This applies to HITL proposal cards too: focus always returns to `#assistant-oracle-input` on resolution.

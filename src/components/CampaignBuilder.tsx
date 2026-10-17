@@ -293,6 +293,20 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
     }
   }, [viewMode]);
 
+  // Alt+C / Alt+W switch to the Chapters / World tab (ignored while any dialog is open)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey) return;
+      const key = e.key.toLowerCase();
+      if (key !== 'c' && key !== 'w') return;
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      e.preventDefault();
+      setViewMode(key === 'c' ? 'chapters' : 'world');
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   // Escape key handler for all modals
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -832,6 +846,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
         <div style={{ display: 'flex', gap: '0.5rem' }}>
           <div className="tab-group" style={{ marginRight: '1rem' }}>
             <button
+              id="tab-chapters"
               aria-current={viewMode === 'chapters' ? 'page' : undefined}
               onClick={() => setViewMode('chapters')}
               className={viewMode === 'chapters' ? 'active' : ''}
@@ -840,6 +855,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
               Chapters
             </button>
             <button
+              id="tab-all-assets"
               aria-current={viewMode === 'all' ? 'page' : undefined}
               onClick={() => setViewMode('all')}
               className={viewMode === 'all' ? 'active' : ''}
@@ -848,6 +864,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
               All Assets
             </button>
             <button
+              id="tab-world"
               aria-current={viewMode === 'world' ? 'page' : undefined}
               onClick={() => setViewMode('world')}
               className={viewMode === 'world' ? 'active' : ''}
@@ -1004,7 +1021,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
         !activeWorld ? (
           <div style={{ padding: '2rem', textAlign: 'center' }}>
             <h2 id="world-no-select-heading" tabIndex={-1} style={{ outline: 'none' }}>No World Selected</h2>
-            <p>Please select or create a world using Switch World (Alt+W) to get started.</p>
+            <p>Please select or create a world using Change World in Campaign Settings to get started.</p>
           </div>
         ) : (
           <WorldBuilder />

@@ -203,7 +203,7 @@ function App() {
           else openShortcutsHelp();
           return;
         }
-        if (key === 'r' || key === 'd') {
+        if (key === 'd') {
           e.preventDefault();
           if (isDiceRollerOpen) closeDiceRoller();
           else openDiceRoller();
@@ -212,13 +212,6 @@ function App() {
         if (key === 'm') {
           e.preventDefault();
           toggleMode();
-          return;
-        }
-        if (key === 'c') {
-          e.preventDefault();
-          if (isCampaignModalOpen) closeCampaignModal();
-          else if (isCampaignSettingsOpen) handleCloseCampaignSettings();
-          else if (mode === 'create' && activeCampaign) setIsCampaignSettingsOpen(true);
           return;
         }
       }
@@ -401,7 +394,7 @@ function App() {
                 onClick={() => { closeMainMenu(false); openDiceRoller(); }}
                 style={{ padding: '0.75rem', fontSize: '1.1rem' }}
               >
-                Dice Roller and Log (Alt+R)
+                Dice Roller
               </button>
               <button
                 type="button"
@@ -416,7 +409,7 @@ function App() {
                   onClick={() => { closeMainMenu(false); setIsCampaignSettingsOpen(true); }}
                   style={{ padding: '0.75rem', fontSize: '1.1rem' }}
                 >
-                  Campaign Settings (Alt+C)
+                  Campaign Settings
                 </button>
               )}
               <button

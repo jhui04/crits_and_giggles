@@ -214,7 +214,7 @@ export function WorldBuilder() {
     return (
       <div style={{ padding: '2rem', textAlign: 'center' }}>
         <h2>No World Selected</h2>
-        <p>Please select or create a world using the Switch World (Alt+W) modal.</p>
+        <p>Please select or create a world using Change World in Campaign Settings.</p>
       </div>
     );
   }

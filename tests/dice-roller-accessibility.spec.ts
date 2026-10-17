@@ -27,8 +27,8 @@ test.describe('Dice Roller Accessibility & Functionality', () => {
     await headerBtn.focus();
     await expect(headerBtn).toBeFocused();
 
-    // 2. Open Dice Roller via Alt+R shortcut
-    await page.keyboard.press('Alt+KeyR');
+    // 2. Open Dice Roller via Alt+D shortcut
+    await page.keyboard.press('Alt+KeyD');
 
     const modal = page.locator('[role="dialog"][aria-labelledby="dice-roller-title"]');
     await expect(modal).toBeVisible();

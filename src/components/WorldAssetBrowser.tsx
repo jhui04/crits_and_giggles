@@ -37,7 +37,7 @@ export function WorldAssetBrowser({ autoFocus = false }: WorldAssetBrowserProps)
   }, [activeWorld, search, types]);
 
   if (!activeWorld) {
-    return <p>No world is active. Choose or create one with Switch World (Alt+W).</p>;
+    return <p>No world is active. Choose or create one with Change World in Campaign Settings.</p>;
   }
 
   const focusSearch = () => searchInputRef.current?.focus();

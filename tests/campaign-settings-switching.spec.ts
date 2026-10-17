@@ -92,3 +92,29 @@ test.describe('Campaign Settings: switching, deleting, and empty lists', () => {
     await expect(main).not.toContainText(/No (assets|encounters)/);
   });
 });
+
+test.describe('Create Mode tab shortcuts', () => {
+  test.beforeAll(async ({ request }) => {
+    await request.delete('http://localhost:3005/api/danger/reset');
+    const res = await request.post('http://localhost:3005/api/campaigns', { data: suiteSeed });
+    if (!res.ok()) throw new Error(`Failed to seed: ${res.status()}`);
+  });
+
+  test('Alt+W and Alt+C switch between the World and Chapters tabs', async ({ page }) => {
+    await page.addInitScript((id) => {
+      window.localStorage.clear();
+      window.localStorage.setItem('crits_active_campaign', id);
+    }, SUITE_ID);
+    await page.goto('/');
+    await page.waitForSelector('header');
+    await page.keyboard.press('Alt+w');
+    await expect(page.getByRole('button', { name: 'World', exact: true })).toHaveAttribute('aria-current', 'page');
+    await page.keyboard.press('Alt+c');
+    await expect(page.getByRole('button', { name: 'Chapters', exact: true })).toHaveAttribute('aria-current', 'page');
+
+    await page.getByRole('button', { name: 'Open Main Menu' }).click();
+    await page.keyboard.press('Alt+w');
+    await expect(page.locator('#tab-world')).not.toHaveAttribute('aria-current', 'page');
+    await expect(page.getByRole('button', { name: 'Dice Roller', exact: true })).toBeVisible();
+  });
+});
