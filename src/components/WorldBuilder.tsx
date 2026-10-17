@@ -1026,7 +1026,7 @@ export function WorldBuilder() {
               Options for {optionsConn.label}
             </h2>
             <form onSubmit={handleSaveConnectionOptions}>
-              <div role="group" aria-label="Relationship" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
                 <strong>{optionsConn.sourceName}</strong>
                 <input
                   id="connection-options-rel"
@@ -1046,7 +1046,7 @@ export function WorldBuilder() {
                 </datalist>
                 <strong>{optionsConn.targetName}</strong>
               </div>
-              <div role="group" aria-label="Reverse relationship" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
                 <strong>{optionsConn.targetName}</strong>
                 <input
                   id="connection-options-inv"
