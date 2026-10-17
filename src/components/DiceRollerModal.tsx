@@ -1,12 +1,16 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { DiceService } from '../services/DiceService';
 import type { DiceResult } from '../services/DiceService';
 import { useDiceLog, diceLogService } from '../services/DiceLogService';
+import { formatTimeAgo } from '../utils/relativeTime';
+import { DisclosureSelect } from './DisclosureSelect';
 
 interface DiceRollerModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
+
+const ALL_ROLLERS = 'all';
 
 export function DiceRollerModal({ isOpen, onClose }: DiceRollerModalProps) {
   const [notation, setNotation] = useState('');
@@ -14,6 +18,43 @@ export function DiceRollerModal({ isOpen, onClose }: DiceRollerModalProps) {
   const [currentResult, setCurrentResult] = useState<DiceResult | null>(null);
   const { entries: history, clearLog } = useDiceLog();
   const [announcement, setAnnouncement] = useState('');
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filterSource, setFilterSource] = useState<string>(ALL_ROLLERS);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [now, setNow] = useState(() => Date.now());
+
+  // Keep the "x minutes ago" labels fresh while the dialog is open.
+  useEffect(() => {
+    if (!isOpen) return;
+    const refresh = () => setNow(Date.now());
+    const initial = setTimeout(refresh, 0);
+    const timer = setInterval(refresh, 30_000);
+    return () => { clearTimeout(initial); clearInterval(timer); };
+  }, [isOpen]);
+
+  const sourceOptions = useMemo(() => {
+    const sources = Array.from(new Set(history.map(e => e.source).filter(Boolean))).sort();
+    return [
+      { value: ALL_ROLLERS, label: 'All Rollers' },
+      ...sources.map(s => ({ value: s, label: s })),
+    ];
+  }, [history]);
+
+  // A roller that no longer has entries (e.g. after Clear Log) falls back to all.
+  const activeSource = sourceOptions.some(o => o.value === filterSource) ? filterSource : ALL_ROLLERS;
+
+  const filteredHistory = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return history.filter(entry => {
+      if (activeSource !== ALL_ROLLERS && entry.source !== activeSource) return false;
+      if (!q) return true;
+      return entry.purpose.toLowerCase().includes(q)
+        || entry.source.toLowerCase().includes(q)
+        || entry.formula.toLowerCase().includes(q);
+    });
+  }, [history, activeSource, searchQuery]);
+
+  const activeFilterCount = (activeSource !== ALL_ROLLERS ? 1 : 0) + (searchQuery.trim() ? 1 : 0);
 
   const modalHeadingRef = useRef<HTMLHeadingElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -105,6 +146,15 @@ export function DiceRollerModal({ isOpen, onClose }: DiceRollerModalProps) {
     setError(null);
     setCurrentResult(null);
     setAnnouncement('Input and current result cleared.');
+    inputRef.current?.focus();
+  };
+
+  const handleClearLog = () => {
+    clearLog();
+    setFiltersOpen(false);
+    setFilterSource(ALL_ROLLERS);
+    setSearchQuery('');
+    setAnnouncement('Dice log cleared.');
     inputRef.current?.focus();
   };
 
@@ -240,43 +290,110 @@ export function DiceRollerModal({ isOpen, onClose }: DiceRollerModalProps) {
 
         {history.length > 0 && (
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #444', paddingBottom: '0.5rem', margin: '1.5rem 0 0.5rem 0' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #444', paddingBottom: '0.5rem', margin: '1.5rem 0 0.5rem 0', gap: '0.5rem' }}>
               <h3 style={{ margin: 0 }}>
-                Recent Dice Log
+                Dice Log
               </h3>
-              <button
-                type="button"
-                onClick={clearLog}
-                style={{
-                  background: 'none', border: 'none', color: '#ff8a80',
-                  cursor: 'pointer', fontSize: '0.85rem', textDecoration: 'underline'
-                }}
-              >
-                Clear Log
-              </button>
-            </div>
-            <ul style={{ listStyle: 'none', padding: 0, margin: 0, maxHeight: '200px', overflowY: 'auto' }}>
-              {history.slice(0, 15).map(item => (
-                <li
-                  key={item.id}
+              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  aria-expanded={filtersOpen}
+                  aria-controls="dice-log-filters"
+                  onClick={() => setFiltersOpen(open => !open)}
                   style={{
-                    display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0',
-                    borderBottom: '1px solid #333', fontSize: '0.95rem'
+                    padding: '0.4rem 0.75rem', background: '#333', color: 'white',
+                    border: '1px solid #555', borderRadius: '4px', cursor: 'pointer'
                   }}
                 >
-                  <span>
-                    <span style={{ color: '#aaa' }}>[{item.timestamp}]</span>{' '}
-                    <strong style={{ color: '#90caf9' }}>{item.source}:</strong>{' '}
-                    <span>{item.purpose}</span>{' '}
-                    <code>({item.formula})</code>
-                  </span>
-                  <span>
-                    Total: <strong style={{ color: item.critStatus === 'crit' ? '#ffc107' : item.critStatus === 'fumble' ? '#ff5252' : '#4caf50' }}>{item.total}</strong>{' '}
-                    <span style={{ color: '#aaa' }}>({item.rolls?.join(', ') || ''})</span>
-                  </span>
-                </li>
-              ))}
-            </ul>
+                  {activeFilterCount > 0 ? `Filter, ${activeFilterCount} active` : 'Filter'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClearLog}
+                  style={{
+                    background: 'none', border: 'none', color: '#ff8a80',
+                    cursor: 'pointer', fontSize: '0.85rem', textDecoration: 'underline'
+                  }}
+                >
+                  Clear Log
+                </button>
+              </div>
+            </div>
+
+            {filtersOpen && (
+              <div
+                id="dice-log-filters"
+                style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '0.75rem' }}
+              >
+                <DisclosureSelect
+                  label="Roller"
+                  value={activeSource}
+                  options={sourceOptions}
+                  onChange={setFilterSource}
+                  style={{ flex: '1 1 200px' }}
+                  buttonStyle={{
+                    width: '100%', padding: '0.5rem', background: '#333', color: 'white',
+                    border: '1px solid #555', borderRadius: '4px'
+                  }}
+                />
+                <div style={{ flex: '2 1 250px' }}>
+                  <label htmlFor="dice-log-search" style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.25rem' }}>
+                    Search Purpose / Action
+                  </label>
+                  <input
+                    id="dice-log-search"
+                    type="text"
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    autoComplete="off"
+                    style={{
+                      width: '100%', padding: '0.5rem', background: '#333', color: 'white',
+                      border: '1px solid #555', borderRadius: '4px', boxSizing: 'border-box'
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {filteredHistory.length === 0 ? (
+              <p role="status" style={{ color: '#b5b5b5', fontStyle: 'italic' }}>No rolls match the current filter.</p>
+            ) : (
+              <ul aria-label="Dice rolls" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                {filteredHistory.map(item => {
+                  const totalColor = item.critStatus === 'crit' ? '#ffc107' : item.critStatus === 'fumble' ? '#ff5252' : '#4caf50';
+                  const natLabel = item.critStatus === 'crit' ? 'Natural 20' : item.critStatus === 'fumble' ? 'Natural 1' : '';
+                  const rollsText = item.rolls?.length ? item.rolls.join(', ') : '';
+                  const modText = item.modifier ? `${item.modifier > 0 ? '+' : ''}${item.modifier}` : '';
+                  return (
+                    <li
+                      key={item.id}
+                      style={{
+                        display: 'flex', justifyContent: 'space-between', gap: '1rem', padding: '0.5rem 0',
+                        borderBottom: '1px solid #333', fontSize: '0.95rem'
+                      }}
+                    >
+                      <span>
+                        <span style={{ color: '#aaa' }}>{formatTimeAgo(item.isoTimestamp, now)}</span>{', '}
+                        <strong style={{ color: '#90caf9' }}>{item.source}</strong>{', '}
+                        <span>{item.purpose}</span>{' '}
+                        <code>({item.formula})</code>
+                        {item.details && <span style={{ color: '#ccc', fontStyle: 'italic' }}>{`, ${item.details}`}</span>}
+                      </span>
+                      <span>
+                        {natLabel && <strong style={{ color: totalColor }}>{`${natLabel}, `}</strong>}
+                        Total <strong style={{ color: totalColor }}>{item.total}</strong>
+                        {(rollsText || modText) && (
+                          <span style={{ color: '#aaa' }}>
+                            {rollsText && `, rolls ${rollsText}`}
+                            {modText && `, modifier ${modText}`}
+                          </span>
+                        )}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </div>
         )}
       </div>

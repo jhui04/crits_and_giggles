@@ -100,7 +100,7 @@ const setupApp = async (page: Page) => {
 
 const assistantDialog = (page: Page) => page.locator('[role="dialog"][aria-labelledby="assistant-oracle-title"]');
 const operationsDialog = (page: Page) => page.locator('[role="dialog"][aria-labelledby="ops-modal-title"]');
-const diceLogDialog = (page: Page) => page.locator('[role="dialog"][aria-labelledby="dice-log-title"]');
+const diceLogDialog = (page: Page) => page.locator('[role="dialog"][aria-labelledby="dice-roller-title"]');
 const currentTurnButton = (page: Page) => page.locator('[aria-current="step"]');
 
 test.describe('EncounterRunner global shortcut collisions', () => {
@@ -138,8 +138,8 @@ test.describe('EncounterRunner global shortcut collisions', () => {
 
     await expect(diceLogDialog(page)).toHaveCount(1);
     await expect(diceLogDialog(page)).toBeVisible();
-    // No duplicate "dice-log-title" id anywhere else in the DOM.
-    await expect(page.locator('#dice-log-title')).toHaveCount(1);
+    // No duplicate "dice-roller-title" id anywhere else in the DOM.
+    await expect(page.locator('#dice-roller-title')).toHaveCount(1);
 
     await page.keyboard.press('Escape');
     await expect(diceLogDialog(page)).not.toBeVisible();
@@ -148,7 +148,7 @@ test.describe('EncounterRunner global shortcut collisions', () => {
   test('EncounterRunner\'s own "Dice Log (Alt+D)" button also opens exactly one Dice Log', async ({ page }) => {
     await setupApp(page);
 
-    await page.getByRole('button', { name: 'View DM Dice Roll Log (Alt+D)' }).click();
+    await page.getByRole('button', { name: 'Open Dice Roller and Log (Alt+D)' }).click();
 
     await expect(diceLogDialog(page)).toHaveCount(1);
     await expect(diceLogDialog(page)).toBeVisible();

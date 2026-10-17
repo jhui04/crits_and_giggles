@@ -62,11 +62,13 @@ test.describe('Modal Tab focus trapping', () => {
     await assertTabStaysTrapped(page, dialog);
   });
 
-  test('Switch Campaign modal traps Tab', async ({ page }) => {
+  test('New Campaign modal traps Tab', async ({ page }) => {
     await page.getByRole('button', { name: 'Open Main Menu' }).click();
-    await page.getByRole('button', { name: /Switch Campaign/ }).click();
+    await page.getByRole('button', { name: 'Campaign Settings' }).click();
+    await page.getByLabel('Campaign', { exact: true }).selectOption({ label: 'Add new campaign...' });
     const dialog = page.locator('[role="dialog"][aria-labelledby="switch-camp-title"]');
     await expect(dialog).toBeVisible();
+    await expect(page.locator('#switch-camp-title')).toBeFocused();
     await assertTabStaysTrapped(page, dialog);
   });
 

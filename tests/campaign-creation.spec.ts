@@ -12,28 +12,17 @@ test.describe('Campaign Creation Flow', () => {
   });
 
   test('should create a new blank campaign from the main menu', async ({ page }) => {
-    // 1. Open Main Menu
+    // 1. Main Menu is accessible
     const mainMenuBtn = page.getByRole('button', { name: 'Open Main Menu' });
     await mainMenuBtn.click();
-    
-    // Verify Main Menu is open and accessible
     const mainMenuHeading = page.getByRole('heading', { name: 'Main Menu' });
     await expect(mainMenuHeading).toBeVisible();
     await expect(mainMenuHeading).toBeFocused();
     await checkA11y(page, 'Main Menu Modal');
+    // 2. Campaign Settings has a Campaign combo box whose last option is "Add new campaign..."
+    await page.getByRole('button', { name: 'Campaign Settings' }).click();
+    await page.getByLabel('Campaign', { exact: true }).selectOption({ label: 'Add new campaign...' });
 
-    // 2. Open Switch Campaign Modal
-    await page.getByRole('button', { name: /Switch Campaign/i }).click();
-    
-    // Verify Select Campaign Modal is open
-    const selectCampHeading = page.getByRole('heading', { name: 'Select Campaign' });
-    await expect(selectCampHeading).toBeVisible();
-    await expect(selectCampHeading).toBeFocused();
-    await checkA11y(page, 'Select Campaign Modal');
-
-    // 3. Click + Create New Campaign
-    await page.getByRole('button', { name: /\+ Create New Campaign/i }).click();
-    
     // Verify New Campaign view is open
     const newCampHeading = page.getByRole('heading', { name: 'New Campaign' });
     await expect(newCampHeading).toBeVisible();
@@ -64,8 +53,8 @@ test.describe('Campaign Creation Flow', () => {
   test('should create a new campaign from a template', async ({ page }) => {
     // 1. Navigate to New Campaign modal
     await page.getByRole('button', { name: 'Open Main Menu' }).click();
-    await page.getByRole('button', { name: /Switch Campaign/i }).click();
-    await page.getByRole('button', { name: /\+ Create New Campaign/i }).click();
+    await page.getByRole('button', { name: 'Campaign Settings' }).click();
+    await page.getByLabel('Campaign', { exact: true }).selectOption({ label: 'Add new campaign...' });
 
     // 2. Fill in Details and Select a Template
     const campaignName = 'Tide of Retribution Test';
@@ -102,9 +91,9 @@ test.describe('Campaign Creation Flow', () => {
     const headerText = await page.locator('header').innerText();
     if (!headerText.includes('Tide of Retribution')) {
       await page.getByRole('button', { name: 'Open Main Menu' }).click();
-      await page.getByRole('button', { name: /Switch Campaign/i }).click();
-      const campaignBtn = page.getByRole('button', { name: /Tide of Retribution/i }).first();
-      await campaignBtn.click();
+      await page.getByRole('button', { name: 'Campaign Settings' }).click();
+      await page.getByLabel('Campaign', { exact: true }).selectOption({ label: 'Tide of Retribution Test' });
+      await page.keyboard.press('Escape');
     }
 
     // 2. Select "Hunger of the Deep" chapter which contains monster and item links

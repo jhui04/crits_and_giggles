@@ -18,14 +18,11 @@ test.describe('Core User Journeys', () => {
 
   test('User can create a new campaign and switch to it', async ({ page }) => {
     // Open Main Menu
-    await page.click('button[aria-label="Open Main Menu"]');
-    
-    // Open Switch Campaign modal
-    await page.click('text=Switch Campaign');
-    await expect(page.locator('[role="dialog"]')).toBeVisible();
-
-    // Click Create New Campaign
-    await page.click('text=Create New Campaign');
+    // Choose "Add new campaign..." in the Campaign Settings combo box
+    await page.getByRole('button', { name: 'Open Main Menu' }).click();
+    await page.getByRole('button', { name: 'Campaign Settings' }).click();
+    await page.getByLabel('Campaign', { exact: true }).selectOption({ label: 'Add new campaign...' });
+    await expect(page.getByRole('dialog', { name: 'New Campaign' })).toBeVisible();
     
     // Fill out the form
     await page.fill('#new-camp-name', 'The Lost Mines of Phandelver');
@@ -57,9 +54,9 @@ test.describe('Core User Journeys', () => {
 
   test('User can create an encounter for a chapter and view it in Run Mode', async ({ page }) => {
     // 1. Setup: Create a new blank campaign
-    await page.click('button[aria-label="Open Main Menu"]');
-    await page.click('text=Switch Campaign');
-    await page.click('text=Create New Campaign');
+    await page.getByRole('button', { name: 'Open Main Menu' }).click();
+    await page.getByRole('button', { name: 'Campaign Settings' }).click();
+    await page.getByLabel('Campaign', { exact: true }).selectOption({ label: 'Add new campaign...' });
     await page.fill('#new-camp-name', 'Encounter Test Campaign');
     await page.click('button:has-text("Create & Select")');
 

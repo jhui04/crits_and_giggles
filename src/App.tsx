@@ -6,8 +6,8 @@ import { Oracle } from './components/Oracle';
 import { AssistantOracleModal } from './components/AssistantOracleModal';
 import { ShortcutsHelp } from './components/ShortcutsHelp';
 import { DiceRollerModal } from './components/DiceRollerModal';
-import { DiceLogModal } from './components/DiceLogModal';
 import { DebugInfoModal } from './components/DebugInfoModal';
+import { CampaignPicker } from './components/CampaignPicker';
 import { useCampaigns } from './context/CampaignContext';
 import { useWorlds } from './context/WorldContext';
 import type { Campaign } from './types';
@@ -18,7 +18,7 @@ type AppMode = 'create' | 'run';
 
 function App() {
   const [mode, setMode] = useState<AppMode>('create');
-  const { campaigns, activeCampaign, setActiveCampaignId, createCampaign, deleteCampaign, activeChapterId } = useCampaigns();
+  const { activeCampaign, createCampaign, activeChapterId } = useCampaigns();
   const { activeWorld } = useWorlds();
   const activeChapter = activeCampaign?.chapters?.find((c) => c.id === activeChapterId);
   
@@ -29,10 +29,8 @@ function App() {
   const [isAssistantFocusInput, setIsAssistantFocusInput] = useState(false);
   const [isShortcutsHelpOpen, setIsShortcutsHelpOpen] = useState(false);
   const [isDiceRollerOpen, setIsDiceRollerOpen] = useState(false);
-  const [isDiceLogOpen, setIsDiceLogOpen] = useState(false);
   const [isDebugInfoOpen, setIsDebugInfoOpen] = useState(false);
   const [isMainMenuOpen, setIsMainMenuOpen] = useState(false);
-  const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [newCampName, setNewCampName] = useState('');
   const [newCampDesc, setNewCampDesc] = useState('');
 
@@ -98,7 +96,6 @@ function App() {
 
   const closeCampaignModal = useCallback(() => {
     setIsCampaignModalOpen(false);
-    setIsCreatingNew(false);
     restore('campaign', restoreToMenu);
   }, [restore, restoreToMenu]);
 
@@ -143,16 +140,6 @@ function App() {
     restore('diceRoller', restoreToMenu);
   }, [restore, restoreToMenu]);
 
-  const openDiceLog = useCallback(() => {
-    remember('diceLog');
-    setIsDiceLogOpen(true);
-  }, [remember]);
-
-  const closeDiceLog = useCallback(() => {
-    setIsDiceLogOpen(false);
-    restore('diceLog', restoreToMenu);
-  }, [restore, restoreToMenu]);
-
   const openDebugInfo = useCallback(() => {
     remember('debugInfo');
     setIsDebugInfoOpen(true);
@@ -175,12 +162,8 @@ function App() {
       setNewCampDesc('');
       setSelectedTemplate('none');
       closeCampaignModal();
+      if (isCampaignSettingsOpen) handleCloseCampaignSettings();
     }
-  };
-
-  const handleSelectCampaign = (id: string) => {
-    setActiveCampaignId(id);
-    closeCampaignModal();
   };
 
   // Focus management and escape key for modal
@@ -188,7 +171,7 @@ function App() {
     if (isCampaignModalOpen) {
       setTimeout(() => switchCampHeadingRef.current?.focus(), 50);
     }
-  }, [isCampaignModalOpen, isCreatingNew]);
+  }, [isCampaignModalOpen]);
 
   useEffect(() => {
     if (isMainMenuOpen) {
@@ -220,13 +203,7 @@ function App() {
           else openShortcutsHelp();
           return;
         }
-        if (key === 'd') {
-          e.preventDefault();
-          if (isDiceLogOpen) closeDiceLog();
-          else openDiceLog();
-          return;
-        }
-        if (key === 'r') {
+        if (key === 'r' || key === 'd') {
           e.preventDefault();
           if (isDiceRollerOpen) closeDiceRoller();
           else openDiceRoller();
@@ -240,7 +217,8 @@ function App() {
         if (key === 'c') {
           e.preventDefault();
           if (isCampaignModalOpen) closeCampaignModal();
-          else openCampaignModal();
+          else if (isCampaignSettingsOpen) handleCloseCampaignSettings();
+          else if (mode === 'create' && activeCampaign) setIsCampaignSettingsOpen(true);
           return;
         }
       }
@@ -253,8 +231,6 @@ function App() {
       if (e.key === 'Escape' && !e.defaultPrevented) {
         if (isAssistantOpen) {
           closeAssistant();
-        } else if (isDiceLogOpen) {
-          closeDiceLog();
         } else if (isCampaignModalOpen) {
           closeCampaignModal();
         } else if (isMainMenuOpen) {
@@ -268,14 +244,14 @@ function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isCampaignModalOpen, isOracleOpen, isAssistantOpen, isShortcutsHelpOpen, isDiceRollerOpen, isDiceLogOpen, isDebugInfoOpen, isMainMenuOpen, isCampaignSettingsOpen, mode,
-      openOracle, closeOracle, openAssistant, closeAssistant, openShortcutsHelp, closeShortcutsHelp, openDiceLog, closeDiceLog,
-      openDiceRoller, closeDiceRoller, openCampaignModal, closeCampaignModal, closeDebugInfo]);
+  }, [isCampaignModalOpen, isOracleOpen, isAssistantOpen, isShortcutsHelpOpen, isDiceRollerOpen, isDebugInfoOpen, isMainMenuOpen, isCampaignSettingsOpen, mode, activeCampaign,
+      openOracle, closeOracle, openAssistant, closeAssistant, openShortcutsHelp, closeShortcutsHelp,
+      openDiceRoller, closeDiceRoller, closeCampaignModal, handleCloseCampaignSettings, closeDebugInfo]);
 
   if (targetEncounterId) {
     return (
       <React.Fragment>
-        <div aria-hidden={isAssistantOpen || isOracleOpen || isShortcutsHelpOpen || isDiceRollerOpen || isDiceLogOpen}>
+        <div aria-hidden={isAssistantOpen || isOracleOpen || isShortcutsHelpOpen || isDiceRollerOpen}>
           <main>
             <h1 className="sr-only">Encounter Runner</h1>
             <EncounterRunner targetEncounterId={targetEncounterId} />
@@ -295,14 +271,13 @@ function App() {
         <Oracle isOpen={isOracleOpen} onClose={closeOracle} />
         <ShortcutsHelp isOpen={isShortcutsHelpOpen} onClose={closeShortcutsHelp} />
         <DiceRollerModal isOpen={isDiceRollerOpen} onClose={closeDiceRoller} />
-        <DiceLogModal isOpen={isDiceLogOpen} onClose={closeDiceLog} />
       </React.Fragment>
     );
   }
 
   return (
     <React.Fragment>
-      <div className="app-container" aria-hidden={isMainMenuOpen || isCampaignModalOpen || isOracleOpen || isAssistantOpen || isShortcutsHelpOpen || isDiceRollerOpen || isDiceLogOpen || isDebugInfoOpen}>
+      <div className="app-container" aria-hidden={isMainMenuOpen || isCampaignModalOpen || isOracleOpen || isAssistantOpen || isShortcutsHelpOpen || isDiceRollerOpen || isDebugInfoOpen}>
         <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h1 style={{ margin: 0 }}>
             <button
@@ -349,11 +324,16 @@ function App() {
                 <div style={{ padding: '2rem', textAlign: 'center' }}>
                   <h2 id="campaign-no-select-heading" tabIndex={-1} style={{ outline: 'none' }}>Welcome to Crits & Giggles</h2>
                   <p>Please select or create a campaign to get started.</p>
+                  <div style={{ maxWidth: '400px', margin: '0 auto', textAlign: 'left' }}>
+                    <CampaignPicker id="welcome-campaign-picker" onAddNew={openCampaignModal} />
+                  </div>
                 </div>
               ) : (
                 <CampaignBuilder 
                   isCampaignSettingsOpen={isCampaignSettingsOpen}
                   onCloseCampaignSettings={handleCloseCampaignSettings}
+                  onAddCampaign={openCampaignModal}
+                  isNewCampaignOpen={isCampaignModalOpen}
                 />
               )}
             </div>
@@ -387,7 +367,6 @@ function App() {
       />
       <ShortcutsHelp isOpen={isShortcutsHelpOpen} onClose={closeShortcutsHelp} />
       <DiceRollerModal isOpen={isDiceRollerOpen} onClose={closeDiceRoller} />
-      <DiceLogModal isOpen={isDiceLogOpen} onClose={closeDiceLog} />
       <DebugInfoModal isOpen={isDebugInfoOpen} onClose={closeDebugInfo} />
 
       {/* Main Menu Modal */}
@@ -422,31 +401,8 @@ function App() {
                 onClick={() => { closeMainMenu(false); openDiceRoller(); }}
                 style={{ padding: '0.75rem', fontSize: '1.1rem' }}
               >
-                Quick Dice Roller (Alt+R)
+                Dice Roller and Log (Alt+R)
               </button>
-              <button
-                type="button"
-                onClick={() => { closeMainMenu(false); openDiceLog(); }}
-                style={{ padding: '0.75rem', fontSize: '1.1rem' }}
-              >
-                DM Dice Roll Log (Alt+D)
-              </button>
-              <button
-                type="button"
-                onClick={() => { closeMainMenu(false); openCampaignModal(); }}
-                style={{ padding: '0.75rem', fontSize: '1.1rem' }}
-              >
-                Switch Campaign (Alt+C)
-              </button>
-              {mode === 'create' && activeCampaign && (
-                <button
-                  type="button"
-                  onClick={() => { closeMainMenu(false); setIsCampaignSettingsOpen(true); }}
-                  style={{ padding: '0.75rem', fontSize: '1.1rem' }}
-                >
-                  Campaign Settings
-                </button>
-              )}
               <button
                 type="button"
                 onClick={() => { closeMainMenu(false); toggleMode(); }}
@@ -454,6 +410,15 @@ function App() {
               >
                 Switch to {mode === 'create' ? 'Run Mode' : 'Create Mode'} (Alt+M)
               </button>
+              {mode === 'create' && activeCampaign && (
+                <button
+                  type="button"
+                  onClick={() => { closeMainMenu(false); setIsCampaignSettingsOpen(true); }}
+                  style={{ padding: '0.75rem', fontSize: '1.1rem' }}
+                >
+                  Campaign Settings (Alt+C)
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => { closeMainMenu(false); openShortcutsHelp(); }}
@@ -480,92 +445,57 @@ function App() {
         </div>
       )}
 
-      {/* Switch Campaign Modal */}
+      {/* New Campaign Modal */}
       {isCampaignModalOpen && (
         <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="switch-camp-title" style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, 
-          backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', 
-          alignItems: 'center', justifyContent: 'center', zIndex: 2000
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex',
+          alignItems: 'center', justifyContent: 'center', zIndex: 2200
         }}>
           <div ref={modalRef} className="modal-content" style={{
             backgroundColor: 'white', padding: '2rem', borderRadius: '8px', 
             maxWidth: '500px', width: '90%', maxHeight: '80vh', overflowY: 'auto'
           }}>
-            {!isCreatingNew ? (
-              <>
-                <h2 key="select-campaign-heading" id="switch-camp-title" ref={switchCampHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>Select Campaign</h2>
-                {campaigns.length === 0 ? <p>No campaigns found.</p> : (
-                  <ul style={{ listStyle: 'none', padding: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                    {campaigns.map(c => (
-                      <li key={c.id} style={{ display: 'flex', gap: '0.5rem' }}>
-                        <button 
-                          type="button"
-                          onClick={() => handleSelectCampaign(c.id)}
-                          style={{ flexGrow: 1, textAlign: 'left', padding: '0.75rem', fontWeight: activeCampaign?.id === c.id ? 'bold' : 'normal' }}
-                        >
-                          {c.name} {activeCampaign?.id === c.id && '(Active)'}
-                        </button>
-                        <button 
-                          type="button"
-                          onClick={() => deleteCampaign(c.id)}
-                          style={{ background: '#d32f2f', color: 'white', border: 'none', padding: '0 1rem' }}
-                          aria-label={`Delete ${c.name}`}
-                        >
-                          Delete
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                <div style={{ marginTop: '2rem', display: 'flex', gap: '1rem' }}>
-                  <button type="button" onClick={() => setIsCreatingNew(true)} style={{ flex: 1, padding: '1rem', fontWeight: 'bold' }}>+ Create New Campaign</button>
-                  <button type="button" onClick={closeCampaignModal} style={{ flex: 1, padding: '1rem', background: '#eee' }}>Cancel</button>
-                </div>
-              </>
-            ) : (
-              <>
-                <h2 key="new-campaign-heading" id="switch-camp-title" ref={switchCampHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>New Campaign</h2>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  <div>
-                    <label htmlFor="new-camp-name">Campaign Name:</label>
-                    <input 
-                      id="new-camp-name" 
-                      type="text" 
-                      value={newCampName} 
-                      onChange={e => setNewCampName(e.target.value)} 
-                      style={{ width: '100%', padding: '0.75rem' }}
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="new-camp-desc">Description:</label>
-                    <textarea 
-                      id="new-camp-desc" 
-                      value={newCampDesc} 
-                      onChange={e => setNewCampDesc(e.target.value)} 
-                      style={{ width: '100%', padding: '0.75rem', minHeight: '100px' }}
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="camp-template">Select Template (Optional):</label>
-                    <select 
-                      id="camp-template" 
-                      value={selectedTemplate} 
-                      onChange={e => setSelectedTemplate(e.target.value)}
-                      style={{ width: '100%', padding: '0.75rem' }}
-                    >
-                      <option value="none">Blank Campaign</option>
-                      {scrapedCampaigns.map(c => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
-                    <button type="button" onClick={handleCreate} style={{ flex: 1, padding: '1rem', background: '#1976d2', color: 'white', fontWeight: 'bold' }}>Create & Select</button>
-                    <button type="button" onClick={() => setIsCreatingNew(false)} style={{ flex: 1, padding: '1rem', background: '#eee' }}>Back</button>
-                  </div>
-                </div>
-              </>
-            )}
+            <h2 id="switch-camp-title" ref={switchCampHeadingRef} tabIndex={-1} style={{ outline: 'none', marginTop: 0 }}>New Campaign</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div>
+                <label htmlFor="new-camp-name">Campaign Name:</label>
+                <input
+                  id="new-camp-name"
+                  type="text"
+                  value={newCampName}
+                  onChange={e => setNewCampName(e.target.value)}
+                  style={{ width: '100%', padding: '0.75rem' }}
+                />
+              </div>
+              <div>
+                <label htmlFor="new-camp-desc">Description:</label>
+                <textarea
+                  id="new-camp-desc"
+                  value={newCampDesc}
+                  onChange={e => setNewCampDesc(e.target.value)}
+                  style={{ width: '100%', padding: '0.75rem', minHeight: '100px' }}
+                />
+              </div>
+              <div>
+                <label htmlFor="camp-template">Select Template (Optional):</label>
+                <select
+                  id="camp-template"
+                  value={selectedTemplate}
+                  onChange={e => setSelectedTemplate(e.target.value)}
+                  style={{ width: '100%', padding: '0.75rem' }}
+                >
+                  <option value="none">Blank Campaign</option>
+                  {scrapedCampaigns.map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
+                <button type="button" onClick={handleCreate} style={{ flex: 1, padding: '1rem', background: '#1976d2', color: 'white', fontWeight: 'bold' }}>Create & Select</button>
+                <button type="button" onClick={closeCampaignModal} style={{ flex: 1, padding: '1rem', background: '#eee' }}>Cancel</button>
+              </div>
+            </div>
           </div>
         </div>
       )}

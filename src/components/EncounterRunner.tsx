@@ -814,7 +814,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
           <button
             type="button"
             onClick={openGlobalDiceLog}
-            aria-label="View DM Dice Roll Log (Alt+D)"
+            aria-label="Open Dice Roller and Log (Alt+D)"
             style={{ fontWeight: 'bold' }}
           >
             Dice Log (Alt+D)

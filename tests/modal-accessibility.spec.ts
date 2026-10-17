@@ -58,22 +58,18 @@ test.describe('Global / App Level Accessibility', () => {
     await verifyModalClosed(page, trigger);
   });
 
-  test('Campaign Switcher Modal', async ({ page }) => {
-    const mainMenuTrigger = page.getByRole('button', { name: 'Open Main Menu' });
-    await mainMenuTrigger.click();
-    await page.getByRole('button', { name: /Switch Campaign/ }).click();
-    await verifyModalOpen(page, 'Select Campaign');
-    await checkA11y(page, 'Select Campaign');
-    await verifyModalClosed(page, mainMenuTrigger);
-  });
-
   test('New Campaign Modal', async ({ page }) => {
     const mainMenuTrigger = page.getByRole('button', { name: 'Open Main Menu' });
     await mainMenuTrigger.click();
-    await page.getByRole('button', { name: /Switch Campaign/ }).click();
-    await page.getByRole('button', { name: '+ Create New Campaign' }).click();
+    await page.getByRole('button', { name: 'Campaign Settings' }).click();
+    const picker = page.getByLabel('Campaign', { exact: true });
+    await picker.selectOption({ label: 'Add new campaign...' });
     await verifyModalOpen(page, 'New Campaign');
     await checkA11y(page, 'New Campaign');
+    // Escape closes only the New Campaign dialog, leaving Campaign Settings open
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('heading', { name: 'New Campaign' })).not.toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Campaign Settings' })).toBeVisible();
     await verifyModalClosed(page, mainMenuTrigger);
   });
 

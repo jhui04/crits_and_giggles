@@ -10,6 +10,7 @@ import { MagicItemDetail } from './MagicItemBrowser';
 import { dataService } from '../services/DataService';
 import { AssetInsertionModal } from './AssetInsertionModal';
 import { DisclosureSelect } from './DisclosureSelect';
+import { CampaignPicker } from './CampaignPicker';
 import { WorldBuilder } from './WorldBuilder';
 import { parseMentionedAssets, stripMentionTags, ASSET_TYPE_FILTER_OPTIONS } from '../utils/assetUtils';
 import { isInteractiveTarget, useFocusRestore, useFocusTrap } from './uiHelpers';
@@ -19,10 +20,12 @@ import type { AssistantScreenId } from '../utils/assistantScreens';
 interface CampaignBuilderProps {
   isCampaignSettingsOpen: boolean;
   onCloseCampaignSettings: () => void;
+  onAddCampaign: () => void;
+  isNewCampaignOpen: boolean;
 }
 
-export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSettings }: CampaignBuilderProps) {
-  const { activeCampaign, updateCampaign, activeChapterId, setActiveChapterId } = useCampaigns();
+export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSettings, onAddCampaign, isNewCampaignOpen }: CampaignBuilderProps) {
+  const { activeCampaign, updateCampaign, deleteCampaign, activeChapterId, setActiveChapterId } = useCampaigns();
   const { worlds, activeWorld, updateWorld, createWorld, deleteWorld } = useWorlds();
 
   // World Association State
@@ -330,7 +333,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
           closeAssetViewer();
           e.preventDefault();
         }
-        else if (isCampaignSettingsOpen) {
+        else if (isCampaignSettingsOpen && !isNewCampaignOpen) {
           onCloseCampaignSettings();
           e.preventDefault();
         }
@@ -343,7 +346,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isCampaignSettingsOpen, showPlayerForm, showChapterForm, showChapterOptionsModal, showAssetForm, showAssetInsertionModal, viewingAsset, showWorldLinkModal, onCloseCampaignSettings, closePlayerForm, closeChapterForm, closeChapterOptionsModal, closeAssetForm, closeAssetViewer, closeWorldLinkModal]);
+  }, [isCampaignSettingsOpen, isNewCampaignOpen, showPlayerForm, showChapterForm, showChapterOptionsModal, showAssetForm, showAssetInsertionModal, viewingAsset, showWorldLinkModal, onCloseCampaignSettings, closePlayerForm, closeChapterForm, closeChapterOptionsModal, closeAssetForm, closeAssetViewer, closeWorldLinkModal]);
 
   const closeEncounterForm = () => {
     setIsCreatingEncounter(false);
@@ -698,7 +701,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
   }, []);
 
   if (!activeCampaign) {
-    return <p>Please select or create a campaign from the "Switch Campaign" menu in the header.</p>;
+    return <p>Please select or create a campaign from Campaign Settings in the Main Menu.</p>;
   }
 
   if (isCreatingEncounter || editingEncounter) {
@@ -720,6 +723,13 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
         ...activeCampaign,
         worldId: undefined
       });
+    }
+  };
+
+  const handleDeleteCampaign = async () => {
+    if (confirm(`Delete the campaign "${activeCampaign.name}"? This cannot be undone.`)) {
+      await deleteCampaign(activeCampaign.id);
+      onCloseCampaignSettings();
     }
   };
 
@@ -1303,6 +1313,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
               Campaign Settings
             </h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <CampaignPicker id="camp-switcher" onAddNew={onAddCampaign} />
               <div>
                 <label htmlFor="camp-name" style={{ display: 'block', fontWeight: 'bold' }}>Campaign Name</label>
                 <input 
@@ -1345,25 +1356,36 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
               {/* Player Management */}
               <section style={{ marginTop: '1rem' }}>
                 <h3 id="players-heading" style={{ margin: '0 0 0.5rem 0', fontSize: '1.2rem' }}>Manage Players</h3>
-                <ul style={{ listStyle: 'none', padding: 0, marginBottom: '1rem' }}>
-                  {activeCampaign.players.map(p => (
-                    <li key={p.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <strong>{p.name}</strong>
-                        <p style={{ margin: 0, fontSize: '0.9rem', color: '#666' }}>{p.description}</p>
-                      </div>
-                      <div style={{ display: 'flex', gap: '0.5rem' }}>
-                        <button type="button" onClick={() => handleEditPlayer(p)}>Edit</button>
-                        <button type="button" onClick={() => handleDeletePlayer(p.id)}>Delete</button>
-                      </div>
-                    </li>
-                  ))}
-                  {activeCampaign.players.length === 0 && <li>No players configured yet.</li>}
-                </ul>
+                {activeCampaign.players.length > 0 && (
+                  <ul style={{ listStyle: 'none', padding: 0, marginBottom: '1rem' }}>
+                    {activeCampaign.players.map(p => (
+                      <li key={p.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <strong>{p.name}</strong>
+                          <p style={{ margin: 0, fontSize: '0.9rem', color: '#666' }}>{p.description}</p>
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                          <button type="button" onClick={() => handleEditPlayer(p)}>Edit</button>
+                          <button type="button" onClick={() => handleDeletePlayer(p.id)}>Delete</button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
                 <button type="button" ref={addPlayerBtnRef} onClick={(e) => { remember('player', e.currentTarget); setShowPlayerForm(true); }}>+ Add Player</button>
               </section>
 
-              <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
+              <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid #ddd' }}>
+                <button
+                  type="button"
+                  onClick={handleDeleteCampaign}
+                  style={{ background: '#d32f2f', color: 'white', border: 'none', padding: '0.5rem 1rem', borderRadius: '4px', cursor: 'pointer' }}
+                >
+                  Delete Campaign
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', gap: '1rem' }}>
                 <button type="button" onClick={onCloseCampaignSettings} style={{ flex: 1 }}>Close</button>
               </div>
             </div>
