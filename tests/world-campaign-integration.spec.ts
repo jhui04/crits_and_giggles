@@ -99,6 +99,18 @@ test.describe('Campaign and World Integration E2E and A11y', () => {
     await page.getByRole('button', { name: 'Save' }).click();
     await expect(page.getByRole('dialog', { name: 'Edit Chapter' })).not.toBeVisible();
 
+    // Referenced world assets stay visible when only campaign assets are shown; unreferenced ones do not
+    await page.getByRole('button', { name: 'Chapter Options' }).click();
+    await page.getByRole('button', { name: 'Edit Chapter' }).click();
+    await page.locator('#chap-content').focus();
+    await page.keyboard.press('@');
+    const reopened = page.getByRole('dialog', { name: 'Insert Asset Link' });
+    await expect(reopened.getByLabel('Only show assets already in the campaign')).toBeChecked();
+    await expect(reopened.getByRole('button', { name: /Elminster/ })).toBeVisible();
+    await expect(reopened.getByRole('button', { name: /Shadowdale/ })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: 'Cancel' }).click();
+
     // Verify Elminster is added to the chapter content
     await expect(page.getByRole('button', { name: 'Open asset: Elminster' })).toBeVisible();
 
