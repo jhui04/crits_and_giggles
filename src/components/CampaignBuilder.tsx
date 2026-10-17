@@ -1011,10 +1011,9 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2rem' }}>
             <section style={{ flex: '1 1 300px' }}>
               <h3>Chapter Assets</h3>
+              {allChapterAssets.length > 0 && (
               <ul style={{ listStyle: 'none', padding: 0, marginBottom: '1rem' }}>
-                {allChapterAssets.length === 0 ? (
-                  <li>No assets assigned to this chapter.</li>
-                ) : (
+                {(
                   allChapterAssets.map(asset => (
                     <li key={`${asset.tagType}-${asset.id}`} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0' }}>
                       <div style={{ display: 'flex', alignItems: 'center' }}>
@@ -1029,11 +1028,13 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
                   ))
                 )}
               </ul>
+              )}
               <button type="button" ref={addAssetBtnRef} onClick={handleAddAssetClick}>+ Add Asset</button>
             </section>
 
             <section style={{ flex: '1 1 300px' }}>
               <h3>Chapter Encounters</h3>
+              {activeCampaign.encounters.some(e => e.chapterIds?.includes(selectedChapterId || '')) && (
               <ul style={{ listStyle: 'none', padding: 0, marginBottom: '1rem' }}>
                 {activeCampaign.encounters.filter(e => e.chapterIds?.includes(selectedChapterId || '')).map(e => (
                   <li key={e.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0', display: 'flex', gap: '1rem', alignItems: 'center' }}>
@@ -1042,8 +1043,8 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
                     <button type="button" onClick={() => handleDeleteEncounter(e.id)}>Delete</button>
                   </li>
                 ))}
-                {activeCampaign.encounters.filter(e => e.chapterIds?.includes(selectedChapterId || '')).length === 0 && <li>No encounters for this chapter.</li>}
               </ul>
+              )}
               <button type="button" onClick={() => setIsCreatingEncounter(true)}>+ Create Encounter</button>
             </section>
           </div>
@@ -1056,6 +1057,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
           {/* Asset Management */}
           <section style={{ flex: '1 1 300px' }}>
             <h3 id="assets-heading">Manage Assets</h3>
+            {activeCampaign.assets.length > 0 && (
             <ul style={{ listStyle: 'none', padding: 0, marginBottom: '1rem' }}>
               {getSortedAssets().map(a => {
                 const displayName = getAssetDisplayName(a);
@@ -1072,14 +1074,15 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
                   </li>
                 );
               })}
-              {activeCampaign.assets.length === 0 && <li>No assets created yet.</li>}
             </ul>
+            )}
             <button type="button" ref={addAssetBtnRef} onClick={handleAddAssetClick}>+ Add Asset</button>
           </section>
 
           {/* Encounter Management */}
           <section style={{ flex: '1 1 100%' }}>
             <h3 id="encounters-heading">Manage Encounters</h3>
+            {activeCampaign.encounters.length > 0 && (
             <ul style={{ listStyle: 'none', padding: 0, marginBottom: '1rem' }}>
               {activeCampaign.encounters.map(e => (
                 <li key={e.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0', display: 'flex', gap: '1rem', alignItems: 'center' }}>
@@ -1088,8 +1091,8 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
                   <button type="button" onClick={() => handleDeleteEncounter(e.id)}>Delete</button>
                 </li>
               ))}
-              {activeCampaign.encounters.length === 0 && <li>No encounters created yet.</li>}
             </ul>
+            )}
             <button type="button" ref={createEncounterBtnRef} onClick={() => setIsCreatingEncounter(true)}>+ Create Encounter</button>
           </section>
         </div>

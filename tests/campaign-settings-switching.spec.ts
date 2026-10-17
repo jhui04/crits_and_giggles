@@ -70,4 +70,17 @@ test.describe('Campaign Settings: switching, deleting, and empty lists', () => {
     await expect(page.locator('header')).not.toContainText('Switch Target Campaign');
     await expect(page.locator('#campaign-modal-title')).not.toBeVisible();
   });
+
+  test('empty chapter and campaign lists are not rendered as lists', async ({ page }) => {
+    const empty = { ...getSeedState('campaign-settings-switching-empty'), name: 'Empty Lists Campaign', players: [], assets: [], encounters: [] };
+    const res = await page.request.post('http://localhost:3005/api/campaigns', { data: empty });
+    expect(res.ok()).toBeTruthy();
+    await page.addInitScript(() => window.localStorage.setItem('crits_active_campaign', 'campaign-settings-switching-empty'));
+    await page.goto('/');
+    await expect(page.locator('header')).toContainText('Empty Lists Campaign');
+    const main = page.locator('main, .layout-create').first();
+    await expect(main.getByRole('button', { name: '+ Add Asset' })).toBeVisible();
+    await expect(main.getByRole('list')).toHaveCount(0);
+    await expect(main).not.toContainText(/No (assets|encounters)/);
+  });
 });

@@ -250,6 +250,9 @@ export function AssetInsertionModal({
             </div>
 
             <div style={{ flexGrow: 1, overflowY: 'auto', border: '1px solid #ccc', borderRadius: '4px', marginBottom: '1rem' }}>
+              {filteredAssets.length === 0 ? (
+                <p style={{ padding: '1rem', textAlign: 'center', color: '#666', margin: 0 }}>No assets found.</p>
+              ) : (
               <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
                 {filteredAssets.map(asset => (
                   <li key={asset.id} style={{ borderBottom: '1px solid #eee' }}>
@@ -272,10 +275,8 @@ export function AssetInsertionModal({
                     </button>
                   </li>
                 ))}
-                {filteredAssets.length === 0 && (
-                  <li style={{ padding: '1rem', textAlign: 'center', color: '#666' }}>No assets found.</li>
-                )}
               </ul>
+              )}
             </div>
 
             <div style={{ display: 'flex', gap: '1rem' }}>
