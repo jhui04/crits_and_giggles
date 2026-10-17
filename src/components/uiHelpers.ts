@@ -59,6 +59,19 @@ export function useFocusTrap(containerRef: RefObject<HTMLElement | null>, active
     if (!active) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key !== 'Tab' || !containerRef.current) return;
+      // If focus is inside a different dialog stacked on top of this one
+      // (nested, like OracleDialog inside Oracle, or a sibling overlay like
+      // AssetInsertionModal opened from a CampaignBuilder form), let that
+      // dialog's own trap own Tab; don't fight over it. Focus with no dialog
+      // ancestor at all (genuinely escaped) still falls through below.
+      const focusedEl = document.activeElement;
+      if (focusedEl instanceof HTMLElement) {
+        const ownDialog = containerRef.current.closest('[role="dialog"]') || containerRef.current;
+        const activeDialog = focusedEl.closest('[role="dialog"]');
+        if (activeDialog && activeDialog !== ownDialog) {
+          return;
+        }
+      }
       const focusable = Array.from(
         containerRef.current.querySelectorAll<HTMLElement>(
           'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), summary, [tabindex]:not([tabindex="-1"])'

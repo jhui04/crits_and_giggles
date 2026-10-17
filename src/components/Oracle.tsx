@@ -5,6 +5,7 @@ import { MagicItemBrowser } from './MagicItemBrowser';
 import { WorldAssetBrowser } from './WorldAssetBrowser';
 import { DisclosureSelect } from './DisclosureSelect';
 import type { DisclosureSelectOption } from './DisclosureSelect';
+import { useFocusTrap } from './uiHelpers';
 
 interface OracleProps {
   isOpen: boolean;
@@ -31,6 +32,9 @@ export function Oracle({ isOpen, onClose }: OracleProps) {
     if (isOpen) setAutoFocusSearch(true);
   }
   const modalHeadingRef = useRef<HTMLHeadingElement>(null);
+  const modalContentRef = useRef<HTMLDivElement>(null);
+
+  useFocusTrap(modalContentRef, isOpen);
 
   useEffect(() => {
     if (isOpen) {
@@ -67,7 +71,7 @@ export function Oracle({ isOpen, onClose }: OracleProps) {
         paddingTop: '5vh'
       }}
     >
-      <div className="oracle-content dark-theme" style={{
+      <div ref={modalContentRef} className="oracle-content dark-theme" style={{
         backgroundColor: '#1a1a1a', color: 'white', padding: '2rem', borderRadius: '8px',
         maxWidth: '1000px', width: '95%', maxHeight: '90vh', overflowY: 'auto',
         border: '2px solid #444', boxShadow: '0 0 20px rgba(0,0,0,0.5)'

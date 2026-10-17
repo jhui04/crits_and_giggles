@@ -233,6 +233,51 @@ describe('API robustness fixes', () => {
     expect(count('vec-del-b')).toBe(0);
   });
 
+  it('POST /api/worlds upserts an existing world instead of unlinking its campaigns', async () => {
+    const worldRes = await request(app).post('/api/worlds').send({
+      id: 'repost-world',
+      name: 'Original World',
+      description: 'Before',
+      assets: [{ id: 'rw-a1', type: 'Location', name: 'Old Place', description: '', tags: [], connections: [] }],
+    });
+    expect(worldRes.status).toBe(201);
+
+    const campaignRes = await request(app).post('/api/campaigns').send({
+      id: 'repost-world-campaign',
+      name: 'Linked Campaign',
+      description: 'd',
+      worldId: 'repost-world',
+    });
+    expect(campaignRes.status).toBe(201);
+    expect(campaignRes.body.worldId).toBe('repost-world');
+
+    // Re-POST the same world id, as happens when the default-world seed races
+    // two tabs or re-runs. This must upsert, not delete-then-insert, or the
+    // campaign's world_id gets cascaded to NULL via ON DELETE SET NULL.
+    const repostRes = await request(app).post('/api/worlds').send({
+      id: 'repost-world',
+      name: 'Renamed World',
+      description: 'After',
+      assets: [{ id: 'rw-a2', type: 'Location', name: 'New Place', description: '', tags: [], connections: [] }],
+    });
+    expect(repostRes.status).toBe(201);
+    expect(repostRes.body.name).toBe('Renamed World');
+    expect(repostRes.body.assets).toHaveLength(1);
+    expect(repostRes.body.assets[0].name).toBe('New Place');
+
+    const campaignCheck = await request(app).get('/api/campaigns/repost-world-campaign');
+    expect(campaignCheck.status).toBe(200);
+    expect(campaignCheck.body.worldId).toBe('repost-world');
+
+    const worldCheck = await request(app).get('/api/worlds/repost-world');
+    expect(worldCheck.status).toBe(200);
+    expect(worldCheck.body.name).toBe('Renamed World');
+    expect(worldCheck.body.assets.map(a => a.name)).toEqual(['New Place']);
+
+    await request(app).delete('/api/campaigns/repost-world-campaign');
+    await request(app).delete('/api/worlds/repost-world');
+  });
+
   it('metrics and search tolerate a non-numeric limit', async () => {
     const m = await request(app).get('/api/assistant/metrics?limit=abc');
     expect(m.status).toBe(200);

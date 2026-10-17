@@ -3,6 +3,7 @@ import type { EncounterUnit } from '../types';
 import { DiceService } from '../services/DiceService';
 import { diceLogService } from '../services/DiceLogService';
 import { getSaveModifier, getSkillModifier, DND_SKILLS_BY_ABILITY } from '../utils/dnd';
+import { useFocusTrap } from './uiHelpers';
 
 interface MonsterOperationsModalProps {
   unit: EncounterUnit;
@@ -22,6 +23,10 @@ export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, on
   const inputRef = useRef<HTMLInputElement>(null);
   const firstButtonRef = useRef<HTMLButtonElement>(null);
   const modalContentRef = useRef<HTMLDivElement>(null);
+
+  // This component is only ever mounted while its modal is open (the parent
+  // conditionally renders it), so the trap is active unconditionally.
+  useFocusTrap(modalContentRef, true);
 
   // Fallback for custom monsters or missing data
   const monster = unit.fullData || {

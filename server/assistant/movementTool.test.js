@@ -114,6 +114,32 @@ describe('R2: move_combatant Tool Backend & State Integration', () => {
     expect(adjacencies.enemies).toContain('Grog Strongjaw');
   });
 
+  it('calculateAdjacencies classifies an allied NPC (isPlayer: false, faction: "ally") correctly from every perspective', () => {
+    const goblinMover = { instanceId: 'goblin-1', name: 'Goblin', isPlayer: false, faction: 'enemy' };
+    const allyNpc = { instanceId: 'npc-1', name: 'Friendly Scout', isPlayer: false, faction: 'ally', position: { x: 1, y: 0 } };
+    const grogMover = { instanceId: 'grog', name: 'Grog Strongjaw', isPlayer: true, faction: 'ally' };
+
+    // An enemy mover (goblin) adjacent to an allied NPC must see the NPC
+    // as an enemy, not an ally, even though the NPC's isPlayer is false.
+    const fromEnemy = calculateAdjacencies({ x: 0, y: 0 }, goblinMover, [goblinMover, allyNpc]);
+    expect(fromEnemy.enemies).toContain('Friendly Scout');
+    expect(fromEnemy.allies).not.toContain('Friendly Scout');
+
+    // The allied NPC moving (isMoverEnemy must also exclude 'ally' faction)
+    // adjacent to a goblin must see the goblin as an enemy.
+    const npcMover = { ...allyNpc, instanceId: 'npc-1', position: undefined };
+    const goblinAdjacent = { instanceId: 'goblin-2', name: 'Goblin', isPlayer: false, faction: 'enemy', position: { x: 1, y: 0 } };
+    const fromNpc = calculateAdjacencies({ x: 0, y: 0 }, npcMover, [npcMover, goblinAdjacent]);
+    expect(fromNpc.enemies).toContain('Goblin');
+    expect(fromNpc.allies).not.toContain('Goblin');
+
+    // A player mover adjacent to the allied NPC must see the NPC as an ally.
+    const allyNpcAdjacent = { ...allyNpc, position: { x: 1, y: 0 } };
+    const fromPlayer = calculateAdjacencies({ x: 0, y: 0 }, grogMover, [grogMover, allyNpcAdjacent]);
+    expect(fromPlayer.allies).toContain('Friendly Scout');
+    expect(fromPlayer.enemies).not.toContain('Friendly Scout');
+  });
+
   it('stages confirmation proposal with rich origin/dest coordinates, regions, and adjacencies', async () => {
     const result = await executeTool(
       'move_combatant',

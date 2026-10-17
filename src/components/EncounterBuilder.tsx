@@ -6,7 +6,7 @@ import type { DisclosureSelectOption } from './DisclosureSelect';
 import { dataService } from '../services/DataService';
 import type { Monster, EncounterUnit, Encounter } from '../types';
 import { useCampaigns } from '../context/CampaignContext';
-import { isInteractiveTarget } from './uiHelpers';
+import { isInteractiveTarget, useFocusTrap } from './uiHelpers';
 import { useAssistantScreen } from '../context/AssistantScreenContext';
 
 const PHASE_OPTIONS: DisclosureSelectOption<string>[] = [1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: String(n) }));
@@ -38,6 +38,14 @@ export function EncounterBuilder({ initialEncounter, chapterId, onClose }: Encou
   const builderHeadingRef = useRef<HTMLHeadingElement>(null);
 
   const lastFocusedElement = useRef<HTMLElement | null>(null);
+
+  const selectMonsterModalRef = useRef<HTMLDivElement>(null);
+  const unitOptionsModalRef = useRef<HTMLDivElement>(null);
+  const unitStatsModalRef = useRef<HTMLDivElement>(null);
+
+  useFocusTrap(selectMonsterModalRef, isModalOpen);
+  useFocusTrap(unitOptionsModalRef, optionsInstanceId !== null);
+  useFocusTrap(unitStatsModalRef, statsInstanceId !== null);
 
   useEffect(() => {
     setTimeout(() => {
@@ -378,7 +386,7 @@ export function EncounterBuilder({ initialEncounter, chapterId, onClose }: Encou
           backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex',
           alignItems: 'center', justifyContent: 'center', zIndex: 1000
         }}>
-          <div className="modal-content" style={{
+          <div ref={selectMonsterModalRef} className="modal-content" style={{
             backgroundColor: 'white', padding: '2rem', borderRadius: '8px',
             maxWidth: '900px', width: '95%', maxHeight: '90vh', overflowY: 'auto'
           }}>
@@ -406,7 +414,7 @@ export function EncounterBuilder({ initialEncounter, chapterId, onClose }: Encou
             backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex',
             alignItems: 'center', justifyContent: 'center', zIndex: 1000
           }}>
-            <div className="modal-content" style={{
+            <div ref={unitOptionsModalRef} className="modal-content" style={{
               backgroundColor: 'white', color: 'black', padding: '2rem', borderRadius: '8px',
               maxWidth: '500px', width: '95%', maxHeight: '90vh', overflowY: 'auto'
             }}>
@@ -445,7 +453,7 @@ export function EncounterBuilder({ initialEncounter, chapterId, onClose }: Encou
             backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex',
             alignItems: 'center', justifyContent: 'center', zIndex: 1000
           }}>
-            <div className="modal-content" style={{
+            <div ref={unitStatsModalRef} className="modal-content" style={{
               backgroundColor: 'white', color: 'black', padding: '2rem', borderRadius: '8px',
               maxWidth: '800px', width: '95%', maxHeight: '90vh', overflowY: 'auto'
             }}>

@@ -185,7 +185,12 @@ export function Markdown({
           const match = href.match(/^asset:\/\/([^/]+)\/(.+)$/);
           if (match) {
             const tagType = match[1];
-            const entityId = decodeURIComponent(match[2]);
+            let entityId: string;
+            try {
+              entityId = decodeURIComponent(match[2]);
+            } catch {
+              entityId = match[2];
+            }
             const label = getPlainText(children);
             return (
               <button

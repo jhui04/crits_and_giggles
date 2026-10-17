@@ -11,7 +11,7 @@ import { DebugInfoModal } from './components/DebugInfoModal';
 import { useCampaigns } from './context/CampaignContext';
 import { useWorlds } from './context/WorldContext';
 import type { Campaign } from './types';
-import { isInteractiveTarget, useFocusRestore } from './components/uiHelpers';
+import { isInteractiveTarget, useFocusRestore, useFocusTrap } from './components/uiHelpers';
 import { useAssistantScreen } from './context/AssistantScreenContext';
 
 type AppMode = 'create' | 'run';
@@ -63,9 +63,13 @@ function App() {
   const switchCampHeadingRef = useRef<HTMLHeadingElement>(null);
   const mainMenuBtnRef = useRef<HTMLButtonElement>(null);
   const mainMenuHeadingRef = useRef<HTMLHeadingElement>(null);
+  const mainMenuModalRef = useRef<HTMLDivElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
   const { remember, restore } = useFocusRestore();
   const restoreToMenu = useCallback(() => mainMenuBtnRef.current?.focus(), []);
+
+  useFocusTrap(mainMenuModalRef, isMainMenuOpen);
+  useFocusTrap(modalRef, isCampaignModalOpen);
 
   const toggleMode = () => {
     setMode((prevMode) => (prevMode === 'create' ? 'run' : 'create'));
@@ -87,77 +91,77 @@ function App() {
     setTimeout(() => mainMenuBtnRef.current?.focus(), 0);
   }, []);
 
-  const openCampaignModal = () => {
+  const openCampaignModal = useCallback(() => {
     remember('campaign');
     setIsCampaignModalOpen(true);
-  };
+  }, [remember]);
 
-  const closeCampaignModal = () => {
+  const closeCampaignModal = useCallback(() => {
     setIsCampaignModalOpen(false);
     setIsCreatingNew(false);
     restore('campaign', restoreToMenu);
-  };
+  }, [restore, restoreToMenu]);
 
-  const openOracle = () => {
+  const openOracle = useCallback(() => {
     remember('oracle');
     setIsOracleOpen(true);
-  };
+  }, [remember]);
 
-  const closeOracle = () => {
+  const closeOracle = useCallback(() => {
     setIsOracleOpen(false);
     restore('oracle', restoreToMenu);
-  };
+  }, [restore, restoreToMenu]);
 
-  const openAssistant = (focusInput = false) => {
+  const openAssistant = useCallback((focusInput = false) => {
     remember('assistant');
     setIsAssistantFocusInput(focusInput);
     setIsAssistantOpen(true);
-  };
+  }, [remember]);
 
-  const closeAssistant = () => {
+  const closeAssistant = useCallback(() => {
     setIsAssistantOpen(false);
     restore('assistant', restoreToMenu);
-  };
+  }, [restore, restoreToMenu]);
 
-  const openShortcutsHelp = () => {
+  const openShortcutsHelp = useCallback(() => {
     remember('help');
     setIsShortcutsHelpOpen(true);
-  };
+  }, [remember]);
 
-  const closeShortcutsHelp = () => {
+  const closeShortcutsHelp = useCallback(() => {
     setIsShortcutsHelpOpen(false);
     restore('help', restoreToMenu);
-  };
+  }, [restore, restoreToMenu]);
 
-  const openDiceRoller = () => {
+  const openDiceRoller = useCallback(() => {
     remember('diceRoller');
     setIsDiceRollerOpen(true);
-  };
+  }, [remember]);
 
-  const closeDiceRoller = () => {
+  const closeDiceRoller = useCallback(() => {
     setIsDiceRollerOpen(false);
     restore('diceRoller', restoreToMenu);
-  };
+  }, [restore, restoreToMenu]);
 
-  const openDiceLog = () => {
+  const openDiceLog = useCallback(() => {
     remember('diceLog');
     setIsDiceLogOpen(true);
-  };
+  }, [remember]);
 
-  const closeDiceLog = () => {
+  const closeDiceLog = useCallback(() => {
     setIsDiceLogOpen(false);
     restore('diceLog', restoreToMenu);
-  };
+  }, [restore, restoreToMenu]);
 
-  const openDebugInfo = () => {
+  const openDebugInfo = useCallback(() => {
     remember('debugInfo');
     setIsDebugInfoOpen(true);
-  };
+  }, [remember]);
 
-  const closeDebugInfo = () => {
+  const closeDebugInfo = useCallback(() => {
     setIsDebugInfoOpen(false);
     restore('debugInfo', restoreToMenu);
-  };
+  }, [restore, restoreToMenu]);
 
   const handleCreate = () => {
     if (newCampName) {
@@ -264,7 +268,9 @@ function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isCampaignModalOpen, isOracleOpen, isAssistantOpen, isShortcutsHelpOpen, isDiceRollerOpen, isDiceLogOpen, isDebugInfoOpen, isMainMenuOpen, isCampaignSettingsOpen, mode]);
+  }, [isCampaignModalOpen, isOracleOpen, isAssistantOpen, isShortcutsHelpOpen, isDiceRollerOpen, isDiceLogOpen, isDebugInfoOpen, isMainMenuOpen, isCampaignSettingsOpen, mode,
+      openOracle, closeOracle, openAssistant, closeAssistant, openShortcutsHelp, closeShortcutsHelp, openDiceLog, closeDiceLog,
+      openDiceRoller, closeDiceRoller, openCampaignModal, closeCampaignModal, closeDebugInfo]);
 
   if (targetEncounterId) {
     return (
@@ -391,7 +397,7 @@ function App() {
           backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex',
           alignItems: 'center', justifyContent: 'center', zIndex: 1500
         }}>
-          <div className="modal-content" style={{
+          <div ref={mainMenuModalRef} className="modal-content" style={{
             backgroundColor: 'white', padding: '2rem', borderRadius: '8px',
             maxWidth: '400px', width: '90%', maxHeight: '80vh', overflowY: 'auto'
           }}>

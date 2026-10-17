@@ -138,7 +138,7 @@ export function calculateAdjacencies(pos, movingUnit, combatants) {
   }
 
   const isMoverPlayer = movingUnit.isPlayer || movingUnit.faction === 'ally';
-  const isMoverEnemy = movingUnit.faction === 'enemy' || (!movingUnit.isPlayer && movingUnit.faction !== 'neutral');
+  const isMoverEnemy = movingUnit.faction === 'enemy' || (!movingUnit.isPlayer && movingUnit.faction !== 'ally' && movingUnit.faction !== 'neutral');
 
   for (const c of combatants) {
     // Exclude moving combatant itself. Match by instanceId only when the
@@ -162,7 +162,7 @@ export function calculateAdjacencies(pos, movingUnit, combatants) {
     if (dist <= 5) {
       const name = c.name || 'Unknown';
       const isCPlayer = c.isPlayer || c.faction === 'ally';
-      const isCEnemy = c.faction === 'enemy' || (!c.isPlayer && c.faction !== 'neutral');
+      const isCEnemy = c.faction === 'enemy' || (!c.isPlayer && c.faction !== 'ally' && c.faction !== 'neutral');
       const isCNeutral = c.faction === 'neutral';
 
       if (isCNeutral) {

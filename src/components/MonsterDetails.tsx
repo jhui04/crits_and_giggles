@@ -6,7 +6,7 @@ import { QuickRoller } from './QuickRoller';
 import { wrapSpells } from '../utils/spellUtils';
 import { Markdown } from './Markdown';
 import { dataService } from '../services/DataService';
-import { isInteractiveTarget } from './uiHelpers';
+import { isInteractiveTarget, useFocusTrap } from './uiHelpers';
 
 interface MonsterDetailsProps {
   monster: Monster;
@@ -47,6 +47,9 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
   const [activeRoll, setActiveRoll] = useState<{ title: string, hit?: string, damage?: string, result?: string } | null>(null);
   const rollModalRef = useRef<HTMLHeadingElement>(null);
   const lastActiveButtonRef = useRef<HTMLElement | null>(null);
+  const rollDialogRef = useRef<HTMLDivElement>(null);
+
+  useFocusTrap(rollDialogRef, activeRoll !== null);
 
   useEffect(() => {
     if (activeRoll) {
@@ -427,7 +430,7 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
       </p>
 
       {activeRoll && (
-        <div role="dialog" aria-modal="true" aria-labelledby="roll-result-title" style={{
+        <div ref={rollDialogRef} role="dialog" aria-modal="true" aria-labelledby="roll-result-title" style={{
           position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
           backgroundColor: '#333', color: 'white', padding: '1.5rem', borderRadius: '8px',
           boxShadow: '0 4px 6px rgba(0,0,0,0.3)', zIndex: 1002, minWidth: '250px', textAlign: 'center'

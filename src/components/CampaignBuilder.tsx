@@ -12,7 +12,7 @@ import { AssetInsertionModal } from './AssetInsertionModal';
 import { DisclosureSelect } from './DisclosureSelect';
 import { WorldBuilder } from './WorldBuilder';
 import { parseMentionedAssets, stripMentionTags, ASSET_TYPE_FILTER_OPTIONS } from '../utils/assetUtils';
-import { isInteractiveTarget, useFocusRestore } from './uiHelpers';
+import { isInteractiveTarget, useFocusRestore, useFocusTrap } from './uiHelpers';
 import { useAssistantScreen } from '../context/AssistantScreenContext';
 import type { AssistantScreenId } from '../utils/assistantScreens';
 
@@ -105,6 +105,25 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
   const createEncounterBtnRef = useRef<HTMLButtonElement>(null);
   const assetViewerHeadingRef = useRef<HTMLHeadingElement>(null);
   const { remember, restore } = useFocusRestore();
+
+  // Modal container refs for Tab focus trapping.
+  const worldLinkModalRef = useRef<HTMLDivElement>(null);
+  const linkAssetModalRef = useRef<HTMLDivElement>(null);
+  const chapterOptionsModalRef = useRef<HTMLDivElement>(null);
+  const chapterModalRef = useRef<HTMLDivElement>(null);
+  const assetModalRef = useRef<HTMLDivElement>(null);
+  const campaignModalRef = useRef<HTMLDivElement>(null);
+  const playerModalRef = useRef<HTMLDivElement>(null);
+  const assetViewerModalRef = useRef<HTMLDivElement>(null);
+
+  useFocusTrap(worldLinkModalRef, showWorldLinkModal);
+  useFocusTrap(linkAssetModalRef, showLinkAssetModal);
+  useFocusTrap(chapterOptionsModalRef, showChapterOptionsModal);
+  useFocusTrap(chapterModalRef, showChapterForm);
+  useFocusTrap(assetModalRef, showAssetForm);
+  useFocusTrap(campaignModalRef, isCampaignSettingsOpen);
+  useFocusTrap(playerModalRef, showPlayerForm);
+  useFocusTrap(assetViewerModalRef, viewingAsset !== null);
 
   const closePlayerForm = useCallback(() => {
     setShowPlayerForm(false);
@@ -717,7 +736,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
           backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex',
           alignItems: 'center', justifyContent: 'center', zIndex: 2100
         }}>
-          <div className="modal-content" style={{
+          <div ref={worldLinkModalRef} className="modal-content" style={{
             backgroundColor: 'white', padding: '2rem', borderRadius: '8px',
             maxWidth: '500px', width: '90%', maxHeight: '80vh', overflowY: 'auto'
           }}>
@@ -808,7 +827,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
           backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex',
           alignItems: 'center', justifyContent: 'center', zIndex: 2100
         }}>
-          <div className="modal-content" style={{
+          <div ref={linkAssetModalRef} className="modal-content" style={{
             backgroundColor: 'white', padding: '2rem', borderRadius: '8px',
             maxWidth: '500px', width: '90%', maxHeight: '80vh', overflowY: 'auto'
           }}>
@@ -1084,8 +1103,8 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
           backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex',
           alignItems: 'center', justifyContent: 'center', zIndex: 2000
         }}>
-          <div className="modal-content" style={{
-            backgroundColor: 'white', padding: '2rem', borderRadius: '8px', 
+          <div ref={chapterOptionsModalRef} className="modal-content" style={{
+            backgroundColor: 'white', padding: '2rem', borderRadius: '8px',
             maxWidth: '400px', width: '90%', display: 'flex', flexDirection: 'column', gap: '1rem'
           }}>
             <h2 id="chapter-options-title" ref={chapterOptionsHeadingRef} tabIndex={-1} style={{ outline: 'none', marginTop: 0 }}>
@@ -1127,8 +1146,8 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
           alignItems: 'center', justifyContent: 'center', zIndex: 2000
         }}>
 
-          <div className="modal-content" style={{
-            backgroundColor: 'white', padding: '2rem', borderRadius: '8px', 
+          <div ref={chapterModalRef} className="modal-content" style={{
+            backgroundColor: 'white', padding: '2rem', borderRadius: '8px',
             maxWidth: '600px', width: '90%', maxHeight: '90vh', display: 'flex', flexDirection: 'column'
           }}>
             <h2 id="chapter-modal-title" ref={chapterHeadingRef} tabIndex={-1} style={{ outline: 'none', marginTop: 0 }}>
@@ -1188,8 +1207,8 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
           backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', 
           alignItems: 'center', justifyContent: 'center', zIndex: 2000
         }}>
-          <div className="modal-content" style={{
-            backgroundColor: 'white', padding: '2rem', borderRadius: '8px', 
+          <div ref={assetModalRef} className="modal-content" style={{
+            backgroundColor: 'white', padding: '2rem', borderRadius: '8px',
             maxWidth: '500px', width: '90%', maxHeight: '80vh', overflowY: 'auto'
           }}>
             <h2 id="asset-modal-title" ref={assetHeadingRef} tabIndex={-1} style={{ outline: 'none', marginTop: 0 }}>
@@ -1276,8 +1295,8 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
           backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', 
           alignItems: 'center', justifyContent: 'center', zIndex: 2000
         }}>
-          <div className="modal-content" style={{
-            backgroundColor: 'white', padding: '2rem', borderRadius: '8px', 
+          <div ref={campaignModalRef} className="modal-content" style={{
+            backgroundColor: 'white', padding: '2rem', borderRadius: '8px',
             maxWidth: '600px', width: '90%', maxHeight: '95vh', overflowY: 'auto'
           }}>
             <h2 id="campaign-modal-title" ref={campaignHeadingRef} tabIndex={-1} style={{ outline: 'none', marginTop: 0 }}>
@@ -1359,8 +1378,8 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
           backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', 
           alignItems: 'center', justifyContent: 'center', zIndex: 2000
         }}>
-          <div className="modal-content" style={{
-            backgroundColor: 'white', padding: '2rem', borderRadius: '8px', 
+          <div ref={playerModalRef} className="modal-content" style={{
+            backgroundColor: 'white', padding: '2rem', borderRadius: '8px',
             maxWidth: '500px', width: '90%'
           }}>
             <h2 id="player-modal-title" ref={playerHeadingRef} tabIndex={-1} style={{ outline: 'none', marginTop: 0 }}>
@@ -1403,8 +1422,8 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
           backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', 
           alignItems: 'center', justifyContent: 'center', zIndex: 2000
         }}>
-          <div className="modal-content" style={{
-            backgroundColor: 'white', padding: '2rem', borderRadius: '8px', 
+          <div ref={assetViewerModalRef} className="modal-content" style={{
+            backgroundColor: 'white', padding: '2rem', borderRadius: '8px',
             maxWidth: '500px', width: '90%', maxHeight: '80vh', overflowY: 'auto'
           }}>
             {(() => {

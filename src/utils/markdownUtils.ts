@@ -176,11 +176,14 @@ export function customUrlTransform(url: string): string {
  * Helper to recursively extract plain text content from ReactNode trees for accessible labels.
  */
 export function getPlainText(node: ReactNode): string {
-  if (!node) return '';
+  if (node === null || node === undefined || typeof node === 'boolean') return '';
   if (typeof node === 'string' || typeof node === 'number') return String(node);
   if (Array.isArray(node)) return node.map(getPlainText).join('');
-  if (React.isValidElement(node) && (node.props as { children?: ReactNode }).children) {
-    return getPlainText((node.props as { children?: ReactNode }).children);
+  if (React.isValidElement(node)) {
+    const children = (node.props as { children?: ReactNode }).children;
+    if (children !== null && children !== undefined) {
+      return getPlainText(children);
+    }
   }
   return '';
 }

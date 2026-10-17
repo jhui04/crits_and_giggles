@@ -127,6 +127,28 @@ describe('Markdown Component & AST Processing', () => {
     });
   });
 
+  describe('Malformed asset:// links do not crash rendering', () => {
+    it('renders a button instead of throwing when the id segment is an invalid percent-encoding', () => {
+      const content = '[bad](asset://Monster/100%)';
+      expect(() =>
+        renderToStaticMarkup(<Markdown content={content} onAssetClick={noop} />)
+      ).not.toThrow();
+      const html = renderToStaticMarkup(<Markdown content={content} onAssetClick={noop} />);
+      expect(html).toContain('<button type="button" class="asset-link-btn"');
+      expect(html).toContain('>bad</button>');
+    });
+
+    it('renders a button instead of throwing when the id segment is a truncated multi-byte percent-encoding', () => {
+      const content = '[bad](asset://Monster/%E0%A4%A)';
+      expect(() =>
+        renderToStaticMarkup(<Markdown content={content} onAssetClick={noop} />)
+      ).not.toThrow();
+      const html = renderToStaticMarkup(<Markdown content={content} onAssetClick={noop} />);
+      expect(html).toContain('<button type="button" class="asset-link-btn"');
+      expect(html).toContain('>bad</button>');
+    });
+  });
+
   describe('Gap 3: Screen Reader Links Accessibility', () => {
     it('renders encounter links without redundant aria-label, using children and sr-only span', () => {
       const content = 'Prepare for @Encounter[enc-1]{Goblin Ambush}!';

@@ -273,7 +273,7 @@ export function findPathAroundWalls(
   walls?: MapWallsData,
   mapSize?: MapSize
 ): Position[] | null {
-  if (!walls || ((!walls.edges || walls.edges.length === 0) && (!walls.obstacleCells || Object.keys(walls.obstacleCells).length === 0))) {
+  if (!walls || ((!walls.edges || walls.edges.length === 0) && (!walls.segments || walls.segments.length === 0) && (!walls.obstacleCells || Object.keys(walls.obstacleCells).length === 0))) {
     return null;
   }
 
@@ -372,6 +372,14 @@ export function findPathAroundWalls(
           }
         }
         if (diagonalWallBlocked) continue;
+
+        // Compiled free wall segments (MapWallsData.segments) can run diagonally
+        // themselves, so a diagonal step can cross one directly even when both
+        // orthogonal legs (block1/block2 above) are clear. isStepBlockedByWall's
+        // segment check (1b) tests the centre-to-centre line against `segments`
+        // and already respects one-way walls, so reuse it for the diagonal itself.
+        const diagonalSegmentBlock = isStepBlockedByWall(curr, nextPos, walls);
+        if (diagonalSegmentBlock.blocked) continue;
       }
 
       parentMap.set(nKey, curr);

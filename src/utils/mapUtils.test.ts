@@ -21,7 +21,15 @@ import {
   resolveRegionName,
   calculateAdjacencies,
 } from '../../server/assistant/gridUtils.js';
-import type { EncounterUnit, MapRegion, MapSize, Position } from '../types';
+import type { EncounterUnit, MapRegion, MapSize, Position, MapWallsData } from '../types';
+import type { WallSegment } from '../shared/spatial/types.ts';
+
+function seg(id: string, ax: number, ay: number, bx: number, by: number, extra: Partial<WallSegment> = {}): WallSegment {
+  return {
+    id, a: { x: ax, y: ay }, b: { x: bx, y: by }, kind: 'wall', blocksMovement: true, blocksSight: 'full',
+    cover: 'total', provenance: { source: 'ddb-meta', confidence: 0.9 }, ...extra,
+  };
+}
 
 describe('mapUtils', () => {
   describe('calculateDistance', () => {
@@ -326,6 +334,48 @@ describe('mapUtils', () => {
       expect(moveRes.movedFeet).toBe(10);
       // It should not end up at (22, 3) (which is blocked by the fence)
       expect(moveRes.newPos).not.toEqual({ x: 22, y: 3 });
+    });
+
+    it('routes around a compiled wall segment (no edges) blocking the straight line', () => {
+      // Vertical segment wall at x=3, only spanning rows y=0..4 (leaves a gap below y=4).
+      const walls: MapWallsData = { edges: [], segments: [seg('wall', 3, 0, 3, 4)] };
+
+      const path = findPathAroundWalls({ x: 1, y: 2 }, { x: 5, y: 2 }, walls, mapSize);
+      expect(path).not.toBeNull();
+      expect(path![path!.length - 1]).toEqual({ x: 5, y: 2 });
+
+      // Straight line distance is 4 cells; a detour around the segment must be longer.
+      expect(path!.length).toBeGreaterThan(4);
+
+      // Must never step directly from (2,2) to (3,2) - the segment blocks that row.
+      const fullPath = [{ x: 1, y: 2 }, ...path!];
+      const crossedDirectly = fullPath.some((p, i) => {
+        if (i === 0) return false;
+        const prev = fullPath[i - 1];
+        return prev.x === 2 && prev.y === 2 && p.x === 3 && p.y === 2;
+      });
+      expect(crossedDirectly).toBe(false);
+    });
+
+    it('calculateMoveTowards never passes through or ends on the far side of a segment wall that fully separates two areas', () => {
+      // Segment spans the full map height at x=3, with no edges at all - only `segments`.
+      const walls: MapWallsData = { edges: [], segments: [seg('wall', 3, 0, 3, 10)] };
+
+      const res = calculateMoveTowards({ x: 1, y: 2 }, { x: 5, y: 2 }, 100, undefined, walls, mapSize);
+      // The wall fully separates x<=2 from x>=3; the mover can never cross it.
+      expect(res.newPos.x).toBeLessThan(3);
+    });
+
+    it('blocks a diagonal step when a diagonal wall segment crosses it directly (both orthogonal legs clear)', () => {
+      // This diagonal segment crosses the centre-to-centre line from (0,0) to (1,1)
+      // at (1,1) without crossing either orthogonal leg - (0,0)->(1,0) or (0,0)->(0,1).
+      const walls: MapWallsData = { edges: [], segments: [seg('diag', 1.3, 0.7, 0.7, 1.3)] };
+
+      const path = findPathAroundWalls({ x: 0, y: 0 }, { x: 1, y: 1 }, walls, mapSize);
+      expect(path).not.toBeNull();
+      // The direct diagonal step must be blocked even though both legs are individually clear.
+      expect(path![0]).not.toEqual({ x: 1, y: 1 });
+      expect(path![path!.length - 1]).toEqual({ x: 1, y: 1 });
     });
   });
 

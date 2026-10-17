@@ -7,7 +7,7 @@ import { MonsterDetails } from './MonsterDetails';
 import { SpellDetail } from './SpellBrowser';
 import { MagicItemDetail } from './MagicItemBrowser';
 import { dataService } from '../services/DataService';
-import { isInteractiveTarget } from './uiHelpers';
+import { isInteractiveTarget, useFocusTrap } from './uiHelpers';
 import { DisclosureSelect } from './DisclosureSelect';
 import { stripMentionTags } from '../utils/assetUtils';
 import { useAssistantScreen } from '../context/AssistantScreenContext';
@@ -22,6 +22,9 @@ export function CampaignRunner() {
 
   const modalHeadingRef = useRef<HTMLHeadingElement>(null);
   const lastFocusedElement = useRef<HTMLElement | null>(null);
+  const assetModalRef = useRef<HTMLDivElement>(null);
+
+  useFocusTrap(assetModalRef, isModalOpen && selectedAsset !== null);
 
   const closeModal = useCallback(() => {
     setIsModalOpen(false);
@@ -230,7 +233,7 @@ export function CampaignRunner() {
           backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', 
           alignItems: 'center', justifyContent: 'center', zIndex: 1000
         }}>
-          <div className="asset-modal-content" style={{
+          <div ref={assetModalRef} className="asset-modal-content" style={{
             backgroundColor: 'white', padding: '2rem', borderRadius: '8px', 
             maxWidth: '500px', width: '90%', maxHeight: '80vh', overflowY: 'auto'
           }}>

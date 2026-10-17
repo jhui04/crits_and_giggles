@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import type { Monster } from '../types';
 import { getSkillModifier, getSaveModifier, DND_SKILLS, DND_SAVES, formatD20Roll } from '../utils/dnd';
 import { diceLogService } from '../services/DiceLogService';
-import { isInteractiveTarget } from './uiHelpers';
+import { isInteractiveTarget, useFocusTrap } from './uiHelpers';
 
 interface QuickRollerProps {
   monster: Monster;
@@ -15,7 +15,10 @@ export function QuickRoller({ monster, onRoll, triggerId }: QuickRollerProps) {
   const [mode, setMode] = useState<'check' | 'save'>('check');
   const openButtonRef = useRef<HTMLButtonElement>(null);
   const modalHeadingRef = useRef<HTMLHeadingElement>(null);
+  const modalContentRef = useRef<HTMLDivElement>(null);
   const wasOpenRef = useRef(false);
+
+  useFocusTrap(modalContentRef, isOpen);
 
   const buttonId = triggerId || `quick-roller-${monster.id}`;
 
@@ -128,10 +131,11 @@ export function QuickRoller({ monster, onRoll, triggerId }: QuickRollerProps) {
       </button>
 
       {isOpen && (
-        <div 
-          role="dialog" 
-          aria-modal="true" 
-          aria-labelledby="quick-roller-title" 
+        <div
+          ref={modalContentRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="quick-roller-title"
           onKeyDown={handleKeyDown}
           style={{
             position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',

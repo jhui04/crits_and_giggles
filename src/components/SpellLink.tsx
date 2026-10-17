@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import type { Spell } from '../types';
 import { SpellDetail } from './SpellBrowser';
 import { dataService } from '../services/DataService';
+import { useFocusTrap } from './uiHelpers';
 
 interface SpellLinkProps {
   spellName: string;
@@ -16,6 +17,9 @@ export function SpellLink({ spellName }: SpellLinkProps) {
   
   const triggerRef = useRef<HTMLButtonElement>(null);
   const modalHeadingRef = useRef<HTMLHeadingElement>(null);
+  const modalContentRef = useRef<HTMLDivElement>(null);
+
+  useFocusTrap(modalContentRef, isModalOpen);
 
   useEffect(() => {
     if (!spellCache) {
@@ -89,8 +93,8 @@ export function SpellLink({ spellName }: SpellLinkProps) {
           }
         }}
         >
-          <div className="modal-content" style={{
-            backgroundColor: 'white', padding: '2rem', borderRadius: '8px', 
+          <div ref={modalContentRef} className="modal-content" style={{
+            backgroundColor: 'white', padding: '2rem', borderRadius: '8px',
             maxWidth: '600px', width: '90%', maxHeight: '90vh', overflowY: 'auto',
             color: '#333'
           }}>

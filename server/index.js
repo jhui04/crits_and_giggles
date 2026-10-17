@@ -213,9 +213,18 @@ app.post('/api/worlds', (req, res) => {
   const { id } = req.body;
   
   const insertWorld = db.transaction((data) => {
-    db.prepare('DELETE FROM worlds WHERE id = ?').run(data.id);
-    db.prepare('INSERT INTO worlds (id, name, description) VALUES (?, ?, ?)').run(data.id, data.name, data.description);
-    
+    // Upsert rather than delete-then-insert: deleting the world row would cascade
+    // `ON DELETE SET NULL` onto campaigns.world_id for every campaign linked to this
+    // world (see server/db.js), silently unlinking them when a world is re-POSTed
+    // (default-world seeding races, tests, etc.).
+    db.prepare(`
+      INSERT INTO worlds (id, name, description) VALUES (?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = excluded.description
+    `).run(data.id, data.name, data.description);
+
+    db.prepare('DELETE FROM world_assets WHERE world_id = ?').run(data.id);
+    db.prepare('DELETE FROM world_asset_connections WHERE world_id = ?').run(data.id);
+
     if (data.assets) {
       const insertAsset = db.prepare('INSERT INTO world_assets (id, world_id, type, name, description, tags) VALUES (?, ?, ?, ?, ?, ?)');
       const insertConnection = db.prepare('INSERT INTO world_asset_connections (id, source_id, target_id, world_id, relationship, description, inverse_relationship) VALUES (?, ?, ?, ?, ?, ?, ?)');

@@ -4,7 +4,6 @@ import { diceLogService } from '../services/DiceLogService';
 import { MonsterDetails } from './MonsterDetails';
 import { MonsterOperationsModal } from './MonsterOperationsModal';
 import { CombatMap } from './CombatMap';
-import { DiceLogModal } from './DiceLogModal';
 import { autoDeployUnits } from '../utils/mapUtils';
 import type { Encounter, EncounterUnit, EncounterRunningState, Campaign, Position, MapSize } from '../types';
 import { useCampaigns } from '../context/CampaignContext';
@@ -86,13 +85,37 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   const [activeOperationsUnit, setActiveOperationsUnit] = useState<EncounterUnit | null>(null);
   const [hpMods, setHpMods] = useState<Record<string, string>>({});
   const [activePhases, setActivePhases] = useState<number[]>([1]);
-  const [isDiceLogOpen, setIsDiceLogOpen] = useState(false);
 
-  // Tracks the running_state.updatedAt this component itself last wrote, so
-  // the "pick up external server-side updates" effect below can tell its own
-  // writes apart from a mutation that happened elsewhere (e.g. an approved
-  // Assistant Oracle HITL proposal) and only reload in the latter case.
-  const lastSyncedUpdatedAtRef = useRef<string | null>(null);
+  // Tracks every running_state.updatedAt this component itself has written
+  // (not just the most recent one), so the "pick up external server-side
+  // updates" effect below can tell its own writes apart from a mutation that
+  // happened elsewhere (e.g. an approved Assistant Oracle HITL proposal) and
+  // only reload in the latter case.
+  //
+  // A single "last written" value isn't enough: updateCampaign (see
+  // CampaignProvider) serializes PUTs but applies each one's *own* server
+  // response to context state as it resolves. With two syncEncounterState
+  // calls in flight (e.g. Alt+N pressed twice quickly), the ref gets
+  // overwritten with write B's updatedAt before write A's response lands;
+  // when A's echo then reaches the "fresh !== last-written" check below, it
+  // looks external and triggers a spurious loadEncounter (clearing in-progress
+  // HP edits, re-running autoDeploy, and announcing a bogus "Encounter
+  // resumed" to the screen reader) even though it's just our own save. A Set
+  // of every updatedAt we've written recognizes A's echo as our own no matter
+  // which write's response lands last. Bounded/pruned so it can't grow
+  // unboundedly over a long session.
+  const syncedUpdatedAtsRef = useRef<Set<string>>(new Set());
+  const MAX_TRACKED_SYNCED_UPDATED_ATS = 50;
+
+  const recordSyncedUpdatedAt = useCallback((updatedAt: string | null) => {
+    if (!updatedAt) return;
+    const set = syncedUpdatedAtsRef.current;
+    set.add(updatedAt);
+    if (set.size > MAX_TRACKED_SYNCED_UPDATED_ATS) {
+      const oldest = set.values().next().value;
+      if (oldest !== undefined) set.delete(oldest);
+    }
+  }, []);
 
   const syncEncounterState = useCallback((
     updatedCombatants: EncounterUnit[],
@@ -119,7 +142,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
       combatLog: activeEncounter.runningState?.combatLog || [],
       updatedAt: new Date().toISOString()
     };
-    lastSyncedUpdatedAtRef.current = runningState.updatedAt ?? null;
+    recordSyncedUpdatedAt(runningState.updatedAt ?? null);
 
     // Immediate synchronous localStorage update for instant page refresh recovery
     try {
@@ -179,7 +202,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
 
     updateCampaign(updatedCampaign);
     setActiveEncounter(updatedEncounter);
-  }, [activeCampaign, activeEncounter, updateCampaign, isCombatStarted, turnIndex, round, activePhases]);
+  }, [activeCampaign, activeEncounter, updateCampaign, isCombatStarted, turnIndex, round, activePhases, recordSyncedUpdatedAt]);
 
   const handleClose = () => {
     window.close();
@@ -194,6 +217,13 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   const rollModalRef = useRef<HTMLHeadingElement>(null);
   const rollDialogRef = useRef<HTMLDivElement>(null);
   const detailsModalRef = useRef<HTMLDivElement>(null);
+
+  // Root element of this component's own DOM subtree. Used by the global keydown
+  // handler below to tell "a dialog opened by this component" (inside this subtree)
+  // apart from "a dialog opened by App.tsx or a sibling overlay" (outside it), since
+  // App, AssistantOracleModal, and EncounterRunner each register their own window
+  // keydown listener and registration order is not guaranteed.
+  const rootRef = useRef<HTMLDivElement>(null);
 
   const unitRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const detailHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -500,14 +530,39 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   }, []);
 
   // Global Keyboard Listeners
+  //
+  // App.tsx and AssistantOracleModal.tsx each register their own `window`
+  // keydown listener alongside this one. `e.stopPropagation()` in one window
+  // listener does not stop the others, and registration order shifts
+  // whenever an effect's deps change, so ordering can never be relied on to
+  // keep these listeners from racing/colliding (e.g. Alt+A opening both the
+  // Assistant Oracle and this component's old Operations shortcut at once,
+  // or Alt+N advancing the turn while the Assistant denies a HITL proposal
+  // with the same keystroke). Instead: bail out deterministically whenever
+  // (a) some other listener already consumed this keystroke
+  // (`e.defaultPrevented`), or (b) an App-level overlay (Assistant Oracle,
+  // the Oracle, Shortcuts Help, the dice roller/log) is open on top of this
+  // component. (b) is detected structurally rather than via extra state:
+  // every such overlay renders an `aria-modal="true"` dialog, and none of
+  // them live inside this component's own DOM subtree (`rootRef`), while
+  // this component's own dialogs (details/roll/operations) do.
   useEffect(() => {
+    const isForeignOverlayOpen = () => {
+      const root = rootRef.current;
+      if (!root) return false;
+      const dialogs = document.querySelectorAll('[aria-modal="true"]');
+      for (const node of Array.from(dialogs)) {
+        if (!root.contains(node)) return true;
+      }
+      return false;
+    };
+
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || isForeignOverlayOpen()) return;
+
       // Escape
-      if (e.key === 'Escape' && !e.defaultPrevented) {
-        if (isDiceLogOpen) {
-          e.preventDefault();
-          setIsDiceLogOpen(false);
-        } else if (activeRoll) {
+      if (e.key === 'Escape') {
+        if (activeRoll) {
           e.preventDefault();
           closeRollModal();
         } else if (activeOperationsUnit) {
@@ -518,12 +573,6 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
           closeDetails();
         }
       }
-      
-      // Alt + D for Dice Log
-      if (e.altKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'd') {
-        e.preventDefault();
-        setIsDiceLogOpen(prev => !prev);
-      }
 
       // Alt + N for Next Turn
       if (e.altKey && e.key.toLowerCase() === 'n') {
@@ -531,14 +580,13 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
         nextTurn();
       }
 
-      // Alt + A for Actions Menu (current combatant)
-      if (e.altKey && e.key.toLowerCase() === 'a') {
-        e.preventDefault();
-        const current = visibleCombatants[turnIndex];
-        if (current && !current.isPlayer) {
-          openOperations(null, current);
-        }
-      }
+      // Note: Alt+A and Alt+D are intentionally NOT handled here. Alt+A is the
+      // documented global Assistant Oracle shortcut (App.tsx); a per-combatant
+      // Operations shortcut used to collide with it, but map cells already have
+      // a plain 'a' for operations (CombatMap.tsx), so it was removed rather than
+      // rebound. Alt+D is the documented global Dice Log shortcut (App.tsx); the
+      // "Dice Log (Alt+D)" button below triggers that same global shortcut
+      // instead of maintaining a second, competing dice log instance here.
 
       // Prevent default behavior for Enter/Space on non-interactive focused elements (like the heading)
       // to avoid potential page scroll/teleport issues. Never block summary/links/buttons.
@@ -548,7 +596,15 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [nextTurn, selectedUnit, activeRoll, activeOperationsUnit, activeEncounter, turnIndex, visibleCombatants, isDiceLogOpen, closeDetails, closeRollModal, closeOperations, openOperations]);
+  }, [nextTurn, selectedUnit, activeRoll, activeOperationsUnit, closeDetails, closeRollModal, closeOperations]);
+
+  // Triggers the same global Alt+D shortcut App.tsx's own window keydown listener
+  // handles, instead of maintaining a second local dice log here. Dispatching a
+  // synthetic event (rather than duplicating App's open/close state) guarantees
+  // there is only ever one Dice Log dialog in the DOM at a time.
+  const openGlobalDiceLog = useCallback(() => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', altKey: true, bubbles: true, cancelable: true }));
+  }, []);
 
   // Focus management for details modal and operations modal
   useEffect(() => {
@@ -640,10 +696,11 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   // approved Assistant Oracle HITL proposal, which refetches the campaign
   // from the server rather than dispatching client-side events). When the
   // active encounter's running_state in the shared campaign context carries
-  // a newer `updatedAt` than the one this component itself last wrote, the
-  // change came from elsewhere, so reload the encounter's local view from
-  // that authoritative server state. This is the only mechanism for
-  // absorbing external updates; the server is always the source of truth.
+  // an `updatedAt` this component never itself produced (see
+  // syncedUpdatedAtsRef above), the change came from elsewhere, so reload
+  // the encounter's local view from that authoritative server state. This is
+  // the only mechanism for absorbing external updates; the server is always
+  // the source of truth.
   useEffect(() => {
     if (!activeEncounter) return;
     const freshEncounter = activeCampaign?.encounters.find(e => e.id === activeEncounter.id);
@@ -652,13 +709,13 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     if (
       freshEncounter &&
       freshUpdatedAt &&
-      freshUpdatedAt !== lastSyncedUpdatedAtRef.current &&
+      !syncedUpdatedAtsRef.current.has(freshUpdatedAt) &&
       freshUpdatedAt !== localUpdatedAt
     ) {
-      lastSyncedUpdatedAtRef.current = freshUpdatedAt;
+      recordSyncedUpdatedAt(freshUpdatedAt);
       loadEncounter(freshEncounter, false);
     }
-  }, [activeCampaign, activeEncounter, loadEncounter]);
+  }, [activeCampaign, activeEncounter, loadEncounter, recordSyncedUpdatedAt]);
 
   const applyHpMod = (instanceId: string, isDamage: boolean, amount?: number) => {
     const val = amount !== undefined ? amount : parseInt(hpMods[instanceId] || '0', 10);
@@ -728,7 +785,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   if (!activeEncounter) {
     const campaignEncounters = activeCampaign?.encounters || [];
     return (
-      <section >
+      <section ref={rootRef}>
         <h2 ref={runnerHeadingRef} tabIndex={-1} style={{ outline: 'none' }}>Load Encounter</h2>
         {!activeCampaign ? <p>Please select a campaign in Create Mode.</p> :
          campaignEncounters.length === 0 ? <p>No saved encounters found. Go to Create Mode to build one.</p> : (
@@ -745,7 +802,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   }
 
   return (
-    <div className="encounter-runner" >
+    <div className="encounter-runner" ref={rootRef}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
         <div>
           <h2 ref={runnerHeadingRef} tabIndex={-1} style={{ outline: 'none', margin: 0 }}>Running: {activeEncounter.name}</h2>
@@ -754,9 +811,9 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
           )}
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          <button 
-            type="button" 
-            onClick={() => setIsDiceLogOpen(true)}
+          <button
+            type="button"
+            onClick={openGlobalDiceLog}
             aria-label="View DM Dice Roll Log (Alt+D)"
             style={{ fontWeight: 'bold' }}
           >
@@ -894,7 +951,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
           dmMapUrl={activeEncounter.dmMapUrl}
           playerMapUrl={activeEncounter.playerMapUrl}
           mapName={activeEncounter.name}
-          isExternalModalOpen={Boolean(activeOperationsUnit || selectedUnit || activeRoll || isDiceLogOpen)}
+          isExternalModalOpen={Boolean(activeOperationsUnit || selectedUnit || activeRoll)}
         />
       )}
 
@@ -967,8 +1024,6 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
           </button>
         </div>
       )}
-
-      <DiceLogModal isOpen={isDiceLogOpen} onClose={() => setIsDiceLogOpen(false)} />
     </div>
   );
 }
