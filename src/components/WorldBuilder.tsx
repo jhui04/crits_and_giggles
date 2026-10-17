@@ -1026,31 +1026,39 @@ export function WorldBuilder() {
               Options for {optionsConn.label}
             </h2>
             <form onSubmit={handleSaveConnectionOptions}>
-              <label htmlFor="connection-options-rel" style={{ fontSize: '0.85rem' }}>{`Relationship, read from ${optionsConn.sourceName}:`}</label>
-              <input
-                id="connection-options-rel"
-                type="text"
-                list="relationship-suggestions"
-                required
-                value={optionsRel}
-                onChange={e => {
-                  setOptionsRel(e.target.value);
-                  if (!optionsInvTouched) setOptionsInv(suggestInverse(e.target.value));
-                }}
-                style={{ width: '100%', padding: '0.4rem', fontSize: '0.9rem', marginBottom: '0.75rem' }}
-              />
-              <datalist id="relationship-suggestions">
-                {RELATIONSHIP_SUGGESTIONS.map(v => <option key={v} value={v} />)}
-              </datalist>
-              <label htmlFor="connection-options-inv" style={{ fontSize: '0.85rem' }}>{`Reverse relationship, read from ${optionsConn.targetName}:`}</label>
-              <input
-                id="connection-options-inv"
-                type="text"
-                placeholder="e.g. is hated by"
-                value={optionsInv}
-                onChange={e => { setOptionsInv(e.target.value); setOptionsInvTouched(true); }}
-                style={{ width: '100%', padding: '0.4rem', fontSize: '0.9rem', marginBottom: '0.75rem' }}
-              />
+              <div role="group" aria-label="Relationship" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+                <strong>{optionsConn.sourceName}</strong>
+                <input
+                  id="connection-options-rel"
+                  type="text"
+                  list="relationship-suggestions"
+                  required
+                  aria-label={`Relationship: ${optionsConn.sourceName} to ${optionsConn.targetName}`}
+                  value={optionsRel}
+                  onChange={e => {
+                    setOptionsRel(e.target.value);
+                    if (!optionsInvTouched) setOptionsInv(suggestInverse(e.target.value));
+                  }}
+                  style={{ flex: '1 1 8rem', padding: '0.4rem', fontSize: '0.9rem' }}
+                />
+                <datalist id="relationship-suggestions">
+                  {RELATIONSHIP_SUGGESTIONS.map(v => <option key={v} value={v} />)}
+                </datalist>
+                <strong>{optionsConn.targetName}</strong>
+              </div>
+              <div role="group" aria-label="Reverse relationship" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+                <strong>{optionsConn.targetName}</strong>
+                <input
+                  id="connection-options-inv"
+                  type="text"
+                  placeholder="e.g. is hated by"
+                  aria-label={`Reverse relationship: ${optionsConn.targetName} to ${optionsConn.sourceName}`}
+                  value={optionsInv}
+                  onChange={e => { setOptionsInv(e.target.value); setOptionsInvTouched(true); }}
+                  style={{ flex: '1 1 8rem', padding: '0.4rem', fontSize: '0.9rem' }}
+                />
+                <strong>{optionsConn.sourceName}</strong>
+              </div>
               <label htmlFor="connection-options-desc" style={{ fontSize: '0.85rem' }}>Connection Description:</label>
               <textarea
                 id="connection-options-desc"

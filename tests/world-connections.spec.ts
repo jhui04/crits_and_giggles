@@ -101,10 +101,10 @@ test.describe('World Asset Connections E2E and A11y', () => {
     await checkA11y(page, 'Connection Options Modal');
 
     // The reverse label was derived automatically; customize both directions
-    await expect(optionsDialog.getByLabel(/^Relationship, read from Elminster/)).toHaveValue('is located in');
-    await expect(optionsDialog.getByLabel(/^Reverse relationship, read from Waterdeep/)).toHaveValue('contains');
-    await optionsDialog.getByLabel(/^Relationship, read from Elminster/).fill('hates');
-    await optionsDialog.getByLabel(/^Reverse relationship, read from Waterdeep/).fill('is hated by');
+    await expect(optionsDialog.getByLabel(/^Relationship: Elminster to Waterdeep/)).toHaveValue('is located in');
+    await expect(optionsDialog.getByLabel(/^Reverse relationship: Waterdeep to Elminster/)).toHaveValue('contains');
+    await optionsDialog.getByLabel(/^Relationship: Elminster to Waterdeep/).fill('hates');
+    await optionsDialog.getByLabel(/^Reverse relationship: Waterdeep to Elminster/).fill('is hated by');
 
     // Add a description, then reopen to confirm it was saved
     await optionsDialog.getByLabel('Connection Description:').fill('Has lived there for decades');
