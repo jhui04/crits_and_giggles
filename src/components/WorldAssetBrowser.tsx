@@ -8,6 +8,7 @@ import {
 } from './OracleBrowserParts';
 import { asOptions, toggleIn, useInitialSearchFocus } from '../utils/oracleBrowser';
 import { describeIncoming } from '../utils/relationships';
+import { Markdown } from './Markdown';
 
 interface WorldAssetBrowserProps {
   autoFocus?: boolean;
@@ -103,7 +104,9 @@ function WorldAssetDetail({ asset, world }: { asset: WorldAsset; world: World })
   return (
     <>
       <p><strong>Type:</strong> {asset.type}</p>
-      <p style={{ whiteSpace: 'pre-wrap' }}>{asset.description || 'No description provided.'}</p>
+      {asset.description?.trim()
+        ? <Markdown content={asset.description} baseHeadingLevel={4} />
+        : <p>No description provided.</p>}
       {asset.tags.length > 0 && <p><strong>Tags:</strong> {asset.tags.join(', ')}</p>}
       <h4 style={{ marginBottom: '0.5rem' }}>Connections</h4>
       {connections.length === 0 ? (

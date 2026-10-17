@@ -213,3 +213,101 @@ test.describe('Global Asset Rendering', () => {
     await expect(page.getByRole('button', { name: 'Adamantine Armor (Item)' })).toBeVisible();
   });
 });
+
+test.describe('All Assets viewer for world and global assets', () => {
+  const viewerSeedId = 'all-assets-viewer-test';
+  const viewerWorldId = 'all-assets-viewer-world';
+  const apiBase = 'http://localhost:3005/api';
+
+  test.beforeEach(async ({ page, request }) => {
+    await request.delete(`${apiBase}/danger/reset`);
+    const worldRes = await request.post(`${apiBase}/worlds`, {
+      data: {
+        id: viewerWorldId,
+        name: 'Viewer World',
+        description: 'World for viewer tests',
+        assets: [{
+          id: 'world-npc',
+          type: 'NPC',
+          name: 'Elminster',
+          description: '## Appearance\n\nA **tall** sage.\n\n- Long beard\n- Pointed hat',
+          tags: [],
+          connections: []
+        }]
+      }
+    });
+    if (!worldRes.ok()) throw new Error(`Failed to seed world: ${worldRes.status}`);
+    const res = await request.post(`${apiBase}/campaigns`, {
+      data: {
+        id: viewerSeedId,
+        name: 'All Assets Viewer Campaign',
+        description: 'Viewer focus test',
+        worldId: viewerWorldId,
+        players: [],
+        chapters: [{
+          id: 'av-chap-1',
+          title: 'Chapter 1',
+          content: 'Meet @World[world-npc]{Elminster} and @Monster[2821142]{Aartuk Starhorror}.',
+          order: 0
+        }],
+        assets: [],
+        encounters: []
+      }
+    });
+    if (!res.ok()) throw new Error(`Failed to seed campaign: ${res.status}`);
+
+    await page.addInitScript((id: string) => {
+      window.localStorage.clear();
+      window.localStorage.setItem('crits_active_campaign', id);
+    }, viewerSeedId);
+    await page.goto('/');
+    await page.waitForSelector('header');
+    await expect(page.getByRole('heading', { name: 'Create Mode' })).toBeVisible();
+    await page.getByRole('button', { name: 'All Assets' }).click();
+  });
+
+  test('world asset opens a dialog with focus on its heading and restores focus on close', async ({ page }) => {
+    const row = page.getByRole('button', { name: 'Elminster (NPC)' });
+    await row.click();
+
+    const dialog = page.getByRole('dialog');
+    const heading = dialog.getByRole('heading', { name: 'Elminster (NPC)', level: 2 });
+    await expect(heading).toBeFocused();
+    await expect(dialog.getByText('Asset details not found.')).toHaveCount(0);
+
+    await checkA11y(page, 'All Assets world asset viewer');
+
+    await dialog.getByRole('button', { name: /^Close/ }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(row).toBeFocused();
+
+    await row.click();
+    await expect(heading).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(row).toBeFocused();
+  });
+
+  test('world asset description is rendered as markdown', async ({ page }) => {
+    await page.getByRole('button', { name: 'Elminster (NPC)' }).click();
+    const dialog = page.getByRole('dialog');
+
+    await expect(dialog.getByRole('heading', { name: 'Appearance', level: 4 })).toBeVisible();
+    await expect(dialog.locator('strong', { hasText: 'tall' })).toBeVisible();
+    await expect(dialog.getByRole('listitem')).toHaveText(['Long beard', 'Pointed hat']);
+    await expect(dialog).not.toContainText('##');
+    await expect(dialog).not.toContainText('**');
+  });
+
+  test('global monster opens a dialog with focus on its heading', async ({ page }) => {
+    const row = page.getByRole('button', { name: 'Aartuk Starhorror (NPC)' });
+    await row.click();
+
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByRole('heading', { name: /Monster Details: Aartuk Starhorror/, level: 2 })).toBeFocused();
+
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(row).toBeFocused();
+  });
+});

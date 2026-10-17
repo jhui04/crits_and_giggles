@@ -984,7 +984,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
                   <li key={a.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0' }}>
                     <div style={{ display: 'flex', alignItems: 'center' }}>
                       <button type="button"
-                        onClick={() => handleAssetLinkClick(a.id, 'Campaign')}
+                        onClick={() => handleAssetLinkClick(a.id, a.tagType || 'Campaign')}
                         style={{ width: '100%', textAlign: 'left', fontWeight: 'bold', background: 'none', border: 'none', padding: '0.5rem', cursor: 'pointer' }}
                       >
                         {displayName} ({a.type})
@@ -1451,7 +1451,7 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
                       {asset.description && (
                         <div style={{ marginTop: '1rem', padding: '1rem', backgroundColor: '#f0f7ff', borderRadius: '4px', borderLeft: '4px solid #0066cc' }}>
                           <h3 style={{ marginTop: 0, fontSize: '1rem' }}>Description</h3>
-                          <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{asset.description}</p>
+                          <Markdown content={asset.description} baseHeadingLevel={4} />
                         </div>
                       )}
                     </>

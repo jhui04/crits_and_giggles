@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useWorlds } from '../context/WorldContext';
 import type { WorldAsset, WorldAssetConnection, WorldAssetType, World } from '../types';
 import { DisclosureSelect } from './DisclosureSelect';
+import { Markdown } from './Markdown';
 import { ASSET_TYPES, ASSET_TYPE_FILTER_OPTIONS } from '../utils/assetUtils';
 import { RELATIONSHIP_SUGGESTIONS, suggestInverse, inverseLabel, describeIncoming } from '../utils/relationships';
 
@@ -886,9 +887,10 @@ export function WorldBuilder() {
               </span>
             </p>
 
-            <p style={{ whiteSpace: 'pre-wrap', marginBottom: '0.5rem' }}>
-              <strong>Description:</strong> {selectedWorldAsset.description || 'No description.'}
-            </p>
+            <h3 style={{ fontSize: '1rem', margin: '1rem 0 0.25rem' }}>Description</h3>
+            {selectedWorldAsset.description?.trim()
+              ? <Markdown content={selectedWorldAsset.description} baseHeadingLevel={4} />
+              : <p>No description.</p>}
 
             {selectedWorldAsset.tags.length > 0 && (
               <p style={{ margin: '0.5rem 0' }}>
