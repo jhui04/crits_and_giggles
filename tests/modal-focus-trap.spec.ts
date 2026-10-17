@@ -1,4 +1,5 @@
 import { test, expect, Page, BrowserContext, Locator } from '@playwright/test';
+import { chooseDisclosureAction } from './utils/disclosure-select-helper';
 import { getSeedState } from './seed-data';
 import fs from 'fs';
 import path from 'path';
@@ -65,7 +66,7 @@ test.describe('Modal Tab focus trapping', () => {
   test('New Campaign modal traps Tab', async ({ page }) => {
     await page.getByRole('button', { name: 'Open Main Menu' }).click();
     await page.getByRole('button', { name: 'Campaign Settings' }).click();
-    await page.getByLabel('Campaign', { exact: true }).selectOption({ label: 'Add new campaign...' });
+    await chooseDisclosureAction(page, page.locator('#camp-switcher'), 'Add new campaign...');
     const dialog = page.locator('[role="dialog"][aria-labelledby="switch-camp-title"]');
     await expect(dialog).toBeVisible();
     await expect(page.locator('#switch-camp-title')).toBeFocused();

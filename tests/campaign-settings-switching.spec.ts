@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { checkA11y } from './utils/axe-helper';
 import { getSeedState } from './seed-data';
+import { chooseDisclosureAction, chooseDisclosureOption } from './utils/disclosure-select-helper';
 
 const SUITE_ID = 'campaign-settings-switching-suite';
 const OTHER_ID = 'campaign-settings-switching-other';
@@ -46,20 +47,27 @@ test.describe('Campaign Settings: switching, deleting, and empty lists', () => {
     await checkA11y(page, 'Campaign Settings without players');
   });
 
-  test('combo box switches campaign and offers add new', async ({ page }) => {
+  test('campaign select switches campaign and only opens New Campaign when chosen', async ({ page }) => {
     await page.getByRole('button', { name: 'Open Main Menu' }).click();
     await page.getByRole('button', { name: 'Campaign Settings' }).click();
-    const picker = page.getByLabel('Campaign', { exact: true });
-    await picker.selectOption({ label: 'Switch Target Campaign' });
+    const picker = page.locator('#camp-switcher');
+    await expect(picker).toHaveAccessibleName(/^Campaign: /);
+    await chooseDisclosureOption(page, picker, suiteSeed.name);
+    await chooseDisclosureOption(page, picker, 'Switch Target Campaign');
     await expect(page.locator('header')).toContainText('Campaign: Switch Target Campaign');
-    await picker.selectOption({ label: suiteSeed.name });
+    await chooseDisclosureOption(page, picker, suiteSeed.name);
     await expect(page.locator('header')).toContainText(`Campaign: ${suiteSeed.name}`);
+
+    await chooseDisclosureAction(page, picker, 'Add new campaign...', async () => {
+      await expect(page.getByRole('heading', { name: 'New Campaign' })).toHaveCount(0);
+    });
+    await expect(page.getByRole('heading', { name: 'New Campaign' })).toBeVisible();
   });
 
   test('Delete Campaign asks for confirmation and removes the campaign', async ({ page }) => {
     await page.getByRole('button', { name: 'Open Main Menu' }).click();
     await page.getByRole('button', { name: 'Campaign Settings' }).click();
-    await page.getByLabel('Campaign', { exact: true }).selectOption({ label: 'Switch Target Campaign' });
+    await chooseDisclosureOption(page, page.locator('#camp-switcher'), 'Switch Target Campaign');
 
     page.once('dialog', d => d.dismiss());
     await page.getByRole('button', { name: 'Delete Campaign' }).click();

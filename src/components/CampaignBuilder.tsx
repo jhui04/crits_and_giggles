@@ -731,6 +731,8 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
   const linkedWorld = worlds.find(w => w.id === activeCampaign.worldId);
   const linkedWorldName = linkedWorld?.name;
 
+  const sortedAssets = getSortedAssets();
+
   return (
     <div >
 
@@ -957,9 +959,9 @@ export function CampaignBuilder({ isCampaignSettingsOpen, onCloseCampaignSetting
           {/* Asset Management */}
           <section style={{ flex: '1 1 300px' }}>
             <h3 id="assets-heading">Manage Assets</h3>
-            {activeCampaign.assets.length > 0 && (
+            {sortedAssets.length > 0 && (
             <ul style={{ listStyle: 'none', padding: 0, marginBottom: '1rem' }}>
-              {getSortedAssets().map(a => {
+              {sortedAssets.map(a => {
                 const displayName = getAssetDisplayName(a);
                 return (
                   <li key={a.id} style={{ borderBottom: '1px solid #eee', padding: '0.5rem 0' }}>

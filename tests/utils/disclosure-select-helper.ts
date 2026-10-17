@@ -34,3 +34,23 @@ export async function chooseDisclosureOption(page: Page, button: Locator, option
   await expect(button).toBeFocused();
   await expect(button).toContainText(optionName);
 }
+
+/**
+ * Like chooseDisclosureOption, but for an option that triggers an action (such
+ * as opening a dialog) instead of changing the displayed value. Arrowing onto
+ * the option must do nothing; only Enter chooses it.
+ */
+export async function chooseDisclosureAction(page: Page, button: Locator, optionName: string, onArrived?: () => Promise<void>) {
+  await button.focus();
+  await page.keyboard.press('Enter');
+  await expect(button).toHaveAttribute('aria-expanded', 'true');
+  const list = page.locator(`[id="${await button.getAttribute('aria-controls')}"]`);
+  const target = list.getByRole('button', { name: optionName, exact: true });
+  const count = await list.getByRole('button').count();
+  for (let i = 0; i < count && !(await target.evaluate((el) => el === document.activeElement)); i++) {
+    await page.keyboard.press('ArrowDown');
+  }
+  await expect(target).toBeFocused();
+  if (onArrived) await onArrived();
+  await page.keyboard.press('Enter');
+}

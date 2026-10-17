@@ -3,7 +3,7 @@ import { checkA11y } from './utils/axe-helper';
 import { getSeedState } from './seed-data';
 import fs from 'fs';
 import path from 'path';
-import { chooseDisclosureOption } from './utils/disclosure-select-helper';
+import { chooseDisclosureAction, chooseDisclosureOption } from './utils/disclosure-select-helper';
 
 const monstersData = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'public/data/monsters.json'), 'utf-8'));
 const mockMonster = monstersData[0];
@@ -62,8 +62,8 @@ test.describe('Global / App Level Accessibility', () => {
     const mainMenuTrigger = page.getByRole('button', { name: 'Open Main Menu' });
     await mainMenuTrigger.click();
     await page.getByRole('button', { name: 'Campaign Settings' }).click();
-    const picker = page.getByLabel('Campaign', { exact: true });
-    await picker.selectOption({ label: 'Add new campaign...' });
+    const picker = page.locator('#camp-switcher');
+    await chooseDisclosureAction(page, picker, 'Add new campaign...');
     await verifyModalOpen(page, 'New Campaign');
     await checkA11y(page, 'New Campaign');
     // Escape closes only the New Campaign dialog, leaving Campaign Settings open

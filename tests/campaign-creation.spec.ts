@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { checkA11y } from './utils/axe-helper';
-import { chooseDisclosureOption } from './utils/disclosure-select-helper';
+import { chooseDisclosureAction, chooseDisclosureOption } from './utils/disclosure-select-helper';
 
 test.describe('Campaign Creation Flow', () => {
   test.beforeEach(async ({ page }) => {
@@ -21,7 +21,7 @@ test.describe('Campaign Creation Flow', () => {
     await checkA11y(page, 'Main Menu Modal');
     // 2. Campaign Settings has a Campaign combo box whose last option is "Add new campaign..."
     await page.getByRole('button', { name: 'Campaign Settings' }).click();
-    await page.getByLabel('Campaign', { exact: true }).selectOption({ label: 'Add new campaign...' });
+    await chooseDisclosureAction(page, page.locator('#camp-switcher'), 'Add new campaign...');
 
     // Verify New Campaign view is open
     const newCampHeading = page.getByRole('heading', { name: 'New Campaign' });
@@ -54,7 +54,7 @@ test.describe('Campaign Creation Flow', () => {
     // 1. Navigate to New Campaign modal
     await page.getByRole('button', { name: 'Open Main Menu' }).click();
     await page.getByRole('button', { name: 'Campaign Settings' }).click();
-    await page.getByLabel('Campaign', { exact: true }).selectOption({ label: 'Add new campaign...' });
+    await chooseDisclosureAction(page, page.locator('#camp-switcher'), 'Add new campaign...');
 
     // 2. Fill in Details and Select a Template
     const campaignName = 'Tide of Retribution Test';
@@ -92,7 +92,7 @@ test.describe('Campaign Creation Flow', () => {
     if (!headerText.includes('Tide of Retribution')) {
       await page.getByRole('button', { name: 'Open Main Menu' }).click();
       await page.getByRole('button', { name: 'Campaign Settings' }).click();
-      await page.getByLabel('Campaign', { exact: true }).selectOption({ label: 'Tide of Retribution Test' });
+      await chooseDisclosureOption(page, page.locator('#camp-switcher'), 'Tide of Retribution Test');
       await page.keyboard.press('Escape');
     }
 

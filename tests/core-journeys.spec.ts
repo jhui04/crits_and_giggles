@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { chooseDisclosureAction } from './utils/disclosure-select-helper';
 
 test.describe('Core User Journeys', () => {
 
@@ -21,7 +22,7 @@ test.describe('Core User Journeys', () => {
     // Choose "Add new campaign..." in the Campaign Settings combo box
     await page.getByRole('button', { name: 'Open Main Menu' }).click();
     await page.getByRole('button', { name: 'Campaign Settings' }).click();
-    await page.getByLabel('Campaign', { exact: true }).selectOption({ label: 'Add new campaign...' });
+    await chooseDisclosureAction(page, page.locator('#camp-switcher'), 'Add new campaign...');
     await expect(page.getByRole('dialog', { name: 'New Campaign' })).toBeVisible();
     
     // Fill out the form
@@ -56,7 +57,7 @@ test.describe('Core User Journeys', () => {
     // 1. Setup: Create a new blank campaign
     await page.getByRole('button', { name: 'Open Main Menu' }).click();
     await page.getByRole('button', { name: 'Campaign Settings' }).click();
-    await page.getByLabel('Campaign', { exact: true }).selectOption({ label: 'Add new campaign...' });
+    await chooseDisclosureAction(page, page.locator('#camp-switcher'), 'Add new campaign...');
     await page.fill('#new-camp-name', 'Encounter Test Campaign');
     await page.click('button:has-text("Create & Select")');
 
