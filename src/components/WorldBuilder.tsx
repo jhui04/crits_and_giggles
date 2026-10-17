@@ -37,6 +37,12 @@ export function WorldBuilder() {
   const [connRelationship, setConnRelationship] = useState('');
   const [connTargetId, setConnTargetId] = useState('');
   const [showRelationModal, setShowRelationModal] = useState(false);
+  const [optionsConn, setOptionsConn] = useState<{ sourceId: string; connId: string; label: string } | null>(null);
+  const [optionsDesc, setOptionsDesc] = useState('');
+  const optionsTriggerRef = useRef<HTMLElement | null>(null);
+  const optionsModalContentRef = useRef<HTMLDivElement>(null);
+  const optionsHeadingRef = useRef<HTMLHeadingElement>(null);
+  const connectionsHeadingRef = useRef<HTMLHeadingElement>(null);
   const addRelationBtnRef = useRef<HTMLButtonElement>(null);
   const relationModalContentRef = useRef<HTMLDivElement>(null);
   const relationHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -130,11 +136,42 @@ export function WorldBuilder() {
       }
     };
 
-    if (selectedWorldAssetId && !showRelationModal) {
+    if (selectedWorldAssetId && !showRelationModal && !optionsConn) {
       window.addEventListener('keydown', handleFocusTrap);
     }
     return () => window.removeEventListener('keydown', handleFocusTrap);
-  }, [selectedWorldAssetId, showRelationModal]);
+  }, [selectedWorldAssetId, showRelationModal, optionsConn]);
+
+  // Focus management and focus trap for the Connection Options modal
+  useEffect(() => {
+    if (!optionsConn) return;
+    optionsHeadingRef.current?.focus();
+
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setOptionsConn(null);
+        setTimeout(() => optionsTriggerRef.current?.focus(), 50);
+        return;
+      }
+      if (e.key !== 'Tab' || !optionsModalContentRef.current) return;
+      const focusable = optionsModalContentRef.current.querySelectorAll<HTMLElement>(
+        'h2[tabindex], button:not([disabled]), textarea'
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        last.focus();
+        e.preventDefault();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        first.focus();
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [optionsConn]);
 
   // Focus management and focus trap for the Add Connection modal
   useEffect(() => {
@@ -386,6 +423,7 @@ export function WorldBuilder() {
 
   const closeWorldAssetDetails = () => {
     setShowRelationModal(false);
+    setOptionsConn(null);
     setSelectedWorldAssetId(null);
     setDeleteConfirmId(null);
     setTimeout(() => {
@@ -461,6 +499,42 @@ export function WorldBuilder() {
   const closeRelationModal = () => {
     setShowRelationModal(false);
     setTimeout(() => addRelationBtnRef.current?.focus(), 50);
+  };
+
+  const openConnectionOptions = (
+    e: React.MouseEvent<HTMLButtonElement>,
+    sourceId: string,
+    conn: WorldAssetConnection,
+    label: string
+  ) => {
+    optionsTriggerRef.current = e.currentTarget;
+    setOptionsDesc(conn.description || '');
+    setOptionsConn({ sourceId, connId: conn.id, label });
+  };
+
+  const closeConnectionOptions = () => {
+    setOptionsConn(null);
+    setTimeout(() => optionsTriggerRef.current?.focus(), 50);
+  };
+
+  const handleSaveConnectionOptions = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!optionsConn) return;
+    const updatedAssets = activeWorld.assets.map(as =>
+      as.id === optionsConn.sourceId
+        ? { ...as, connections: as.connections.map(c => c.id === optionsConn.connId ? { ...c, description: optionsDesc.trim() } : c) }
+        : as
+    );
+    await updateWorld({ ...activeWorld, assets: updatedAssets });
+    setAnnouncement(`Saved description for ${optionsConn.label}.`);
+    closeConnectionOptions();
+  };
+
+  const handleRemoveFromOptions = async () => {
+    if (!optionsConn) return;
+    await handleRemoveConnection(optionsConn.sourceId, optionsConn.connId, optionsConn.label);
+    setOptionsConn(null);
+    setTimeout(() => connectionsHeadingRef.current?.focus(), 50);
   };
 
   const handleRemoveConnection = async (sourceId: string, connId: string, targetName: string) => {
@@ -823,7 +897,7 @@ export function WorldBuilder() {
 
             {/* Connections Section */}
             <div style={{ marginTop: '1.5rem', backgroundColor: '#fcfcfc', padding: '0.75rem', borderRadius: '4px', border: '1px solid #eaeaea' }}>
-              <h3 id="modal-connections-heading" style={{ margin: '0 0 0.5rem 0', fontSize: '1.1rem' }}>Connections</h3>
+              <h3 id="modal-connections-heading" ref={connectionsHeadingRef} tabIndex={-1} style={{ outline: 'none', margin: '0 0 0.5rem 0', fontSize: '1.1rem' }}>Connections</h3>
               
               {selectedWorldAsset.connections.length === 0 && getIncomingConnections(selectedWorldAsset.id).length === 0 ? (
                 <p style={{ fontSize: '0.9rem', color: '#666' }}>No connections yet.</p>
@@ -835,15 +909,16 @@ export function WorldBuilder() {
                     return (
                       <li key={conn.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
                         <span>
-                          "{conn.relationship}" → <strong>{target ? `${target.name} (${target.type})` : 'Unknown Asset'}</strong>
+                          {conn.relationship} <strong>{target ? `${target.name} (${target.type})` : 'Unknown Asset'}</strong>
+                          {conn.description && <span style={{ display: 'block', fontSize: '0.9rem', color: '#444' }}>{conn.description}</span>}
                         </span>
-                        <button 
-                          type="button" 
-                          onClick={() => handleRemoveConnection(selectedWorldAsset.id, conn.id, target?.name || 'Unknown')}
+                        <button
+                          type="button"
+                          onClick={(e) => openConnectionOptions(e, selectedWorldAsset.id, conn, `${conn.relationship} ${target?.name || 'Unknown'}`)}
                           style={{ padding: '0.2rem 0.5rem', fontSize: '0.8rem', background: '#f5f5f5' }}
-                          aria-label={`Remove connection: ${conn.relationship} to ${target?.name || 'Unknown'}`}
+                          aria-label={`Options for ${conn.relationship} ${target?.name || 'Unknown'}`}
                         >
-                          Remove
+                          Options
                         </button>
                       </li>
                     );
@@ -853,15 +928,16 @@ export function WorldBuilder() {
                   {getIncomingConnections(selectedWorldAsset.id).map(({ sourceAsset, connection }) => (
                     <li key={`in-${connection.id}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
                       <span>
-                        <strong>{sourceAsset.name} ({sourceAsset.type})</strong> "{connection.relationship}" → this
+                        <strong>{sourceAsset.name} ({sourceAsset.type})</strong> {connection.relationship} this asset
+                        {connection.description && <span style={{ display: 'block', fontSize: '0.9rem', color: '#444' }}>{connection.description}</span>}
                       </span>
-                      <button 
-                        type="button" 
-                        onClick={() => handleRemoveConnection(sourceAsset.id, connection.id, selectedWorldAsset.name)}
+                      <button
+                        type="button"
+                        onClick={(e) => openConnectionOptions(e, sourceAsset.id, connection, `${sourceAsset.name} ${connection.relationship} ${selectedWorldAsset.name}`)}
                         style={{ padding: '0.2rem 0.5rem', fontSize: '0.8rem', background: '#f5f5f5' }}
-                        aria-label={`Remove connection: ${sourceAsset.name} ${connection.relationship} to this`}
+                        aria-label={`Options for ${sourceAsset.name} ${connection.relationship} this asset`}
                       >
-                        Remove
+                        Options
                       </button>
                     </li>
                   ))}
@@ -904,6 +980,50 @@ export function WorldBuilder() {
                 {deleteConfirmId === selectedWorldAsset.id ? 'Confirm Delete' : 'Delete Asset'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Connection Options Modal */}
+      {selectedWorldAsset && optionsConn && (
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="connection-options-title"
+          style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex',
+            alignItems: 'center', justifyContent: 'center', zIndex: 2100
+          }}
+        >
+          <div
+            className="modal-content"
+            ref={optionsModalContentRef}
+            style={{
+              backgroundColor: 'white', padding: '1.5rem', borderRadius: '8px',
+              maxWidth: '500px', width: '90%', maxHeight: '80vh', overflowY: 'auto',
+              boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
+            }}
+          >
+            <h2 id="connection-options-title" ref={optionsHeadingRef} tabIndex={-1} style={{ outline: 'none', margin: '0 0 1rem 0', fontSize: '1.25rem' }}>
+              Options for {optionsConn.label}
+            </h2>
+            <form onSubmit={handleSaveConnectionOptions}>
+              <label htmlFor="connection-options-desc" style={{ fontSize: '0.85rem' }}>Connection Description:</label>
+              <textarea
+                id="connection-options-desc"
+                value={optionsDesc}
+                onChange={e => setOptionsDesc(e.target.value)}
+                rows={4}
+                style={{ width: '100%', padding: '0.4rem', fontSize: '0.9rem', marginBottom: '0.75rem' }}
+              />
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <button type="submit" style={{ padding: '0.4rem 0.8rem', fontWeight: 'bold' }}>Save</button>
+                <button type="button" onClick={closeConnectionOptions} style={{ padding: '0.4rem 0.8rem' }}>Cancel</button>
+                <button type="button" onClick={handleRemoveFromOptions} style={{ padding: '0.4rem 0.8rem', marginLeft: 'auto' }}>Delete Connection</button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -335,13 +335,13 @@ export function CampaignRunner() {
                             const target = activeWorld?.assets.find(t => t.id === conn.targetId);
                             return (
                               <li key={conn.id}>
-                                "{conn.relationship}" → <strong>{target ? `${target.name} (${target.type})` : 'Unknown Asset'}</strong>
+                                {conn.relationship} <strong>{target ? `${target.name} (${target.type})` : 'Unknown Asset'}</strong>{conn.description ? `. ${conn.description}` : ''}
                               </li>
                             );
                           })}
                           {incomingConns.map(({ sourceAsset, relationship }, idx) => (
                             <li key={idx}>
-                              <strong>{sourceAsset.name} ({sourceAsset.type})</strong> "{relationship}" → this
+                              <strong>{sourceAsset.name} ({sourceAsset.type})</strong> {relationship} this asset
                             </li>
                           ))}
                         </ul>

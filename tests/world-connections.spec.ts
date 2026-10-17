@@ -81,7 +81,7 @@ test.describe('World Asset Connections E2E and A11y', () => {
     await expect(addRelationBtn).toBeFocused();
 
     // Verify connection is displayed on Elminster
-    await expect(connSection.locator('li', { hasText: '"is located in" → Waterdeep (Location)' })).toBeVisible();
+    await expect(connSection.locator('li', { hasText: 'is located in Waterdeep (Location)' })).toBeVisible();
 
     // Close Elminster details modal
     await page.getByRole('button', { name: 'Close (Esc)' }).click();
@@ -91,13 +91,34 @@ test.describe('World Asset Connections E2E and A11y', () => {
     
     const waterdeepConnSection = page.getByRole('dialog').locator('div').filter({ has: page.getByRole('heading', { name: 'Connections' }) }).first();
     await expect(waterdeepConnSection).toBeVisible();
-    await expect(waterdeepConnSection.locator('li', { hasText: 'Elminster (NPC) "is located in" → this' })).toBeVisible();
+    await expect(waterdeepConnSection.locator('li', { hasText: 'Elminster (NPC) is located in this asset' })).toBeVisible();
 
     // 4. Remove connection from Waterdeep side
-    await waterdeepConnSection.getByRole('button', { name: 'Remove connection: Elminster is located in to this' }).click();
+    const optionsBtn = waterdeepConnSection.getByRole('button', { name: 'Options for Elminster is located in this asset' });
+    await optionsBtn.click();
+    const optionsDialog = page.getByRole('dialog', { name: /Options for Elminster is located in Waterdeep/ });
+    await expect(optionsDialog.getByRole('heading', { name: /Options for/ })).toBeFocused();
+    await checkA11y(page, 'Connection Options Modal');
+
+    // Add a description, then reopen to confirm it was saved
+    await optionsDialog.getByLabel('Connection Description:').fill('Has lived there for decades');
+    await optionsDialog.getByRole('button', { name: 'Save' }).click();
+    await expect(optionsDialog).toBeHidden();
+    await expect(optionsBtn).toBeFocused();
+    await expect(waterdeepConnSection.locator('li', { hasText: 'Has lived there for decades' })).toBeVisible();
+
+    // Escape closes only the options modal and restores focus
+    await optionsBtn.click();
+    await page.keyboard.press('Escape');
+    await expect(optionsDialog).toBeHidden();
+    await expect(optionsBtn).toBeFocused();
+    await expect(waterdeepConnSection).toBeVisible();
+
+    await optionsBtn.click();
+    await optionsDialog.getByRole('button', { name: 'Delete Connection' }).click();
     
     // Connection should disappear from Waterdeep
-    await expect(waterdeepConnSection.locator('li', { hasText: 'Elminster (NPC) "is located in" → this' })).not.toBeVisible();
+    await expect(waterdeepConnSection.locator('li', { hasText: 'Elminster (NPC) is located in this asset' })).not.toBeVisible();
 
     // Close Waterdeep details modal
     await page.getByRole('button', { name: 'Close (Esc)' }).click();
@@ -105,6 +126,6 @@ test.describe('World Asset Connections E2E and A11y', () => {
     // Verify connection disappeared from Elminster side as well
     await page.getByRole('button', { name: 'Elminster', exact: false }).click();
     const finalElminsterConnSection = page.getByRole('dialog').locator('div').filter({ has: page.getByRole('heading', { name: 'Connections' }) }).first();
-    await expect(finalElminsterConnSection.locator('li', { hasText: '"is located in" → Waterdeep (Location)' })).not.toBeVisible();
+    await expect(finalElminsterConnSection.locator('li', { hasText: 'is located in Waterdeep (Location)' })).not.toBeVisible();
   });
 });

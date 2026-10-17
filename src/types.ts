@@ -202,6 +202,7 @@ export interface WorldAssetConnection {
   id: string;
   targetId: string;       // The other WorldAsset's ID
   relationship: string;   // e.g. "is capital of", "rules", "is member of"
+  description?: string;   // Optional detail, e.g. "has lived here for twenty years"
 }
 
 export interface WorldAsset {

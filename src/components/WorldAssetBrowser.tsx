@@ -91,12 +91,12 @@ export function WorldAssetBrowser({ autoFocus = false }: WorldAssetBrowserProps)
 function WorldAssetDetail({ asset, world }: { asset: WorldAsset; world: World }) {
   const outgoing = asset.connections.map(conn => {
     const target = world.assets.find(t => t.id === conn.targetId);
-    return { key: conn.id, text: `"${conn.relationship}" → ${target ? `${target.name} (${target.type})` : 'Unknown Asset'}` };
+    return { key: conn.id, text: `${conn.relationship} ${target ? `${target.name} (${target.type})` : 'Unknown Asset'}${conn.description ? `. ${conn.description}` : ''}` };
   });
   const incoming = world.assets.flatMap(source =>
     source.connections
       .filter(conn => conn.targetId === asset.id)
-      .map(conn => ({ key: `${source.id}-${conn.id}`, text: `${source.name} (${source.type}) "${conn.relationship}" → this` })));
+      .map(conn => ({ key: `${source.id}-${conn.id}`, text: `${source.name} (${source.type}) ${conn.relationship} this asset` })));
   const connections = [...outgoing, ...incoming];
 
   return (

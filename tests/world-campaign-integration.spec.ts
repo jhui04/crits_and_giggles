@@ -123,7 +123,7 @@ test.describe('Campaign and World Integration E2E and A11y', () => {
     await expect(worldContextSection).toBeVisible();
     await expect(worldContextSection).toContainText('Type: NPC');
     await expect(worldContextSection).toContainText('Tags: wizard, legendary');
-    await expect(worldContextSection).toContainText('"lives in" → Shadowdale (Location)');
+    await expect(worldContextSection).toContainText('lives in Shadowdale (Location)');
 
     // Run axe scan on asset modal in Run Mode with World Context
     await checkA11y(page, 'Asset Modal in Run Mode with World Context');
