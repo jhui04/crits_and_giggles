@@ -103,6 +103,7 @@ test.describe('Modal Tab focus trapping', () => {
 
     // Open a combatant's details, which hosts the QuickRoller "Skill Check" trigger.
     await encounterPage.getByRole('button', { name: new RegExp(mockMonster.name) }).first().click();
+    await encounterPage.getByRole('button', { name: 'View Details' }).click();
     await expect(encounterPage.locator('h2, h3').filter({ hasText: mockMonster.name }).first()).toBeVisible();
 
     await encounterPage.getByRole('button', { name: 'Skill Check' }).click();

@@ -124,7 +124,7 @@ test.describe('Encounter Phases System', () => {
     await expect(page.getByRole('heading', { name: 'Initiative Track' })).toBeVisible();
 
     // Bugbear Boss should not be in the combat track yet
-    await expect(page.getByRole('button', { name: /Options for Bugbear Boss/ })).not.toBeVisible();
+    await expect(page.getByRole('button', { name: /Bugbear Boss \(HP:/ })).not.toBeVisible();
 
     // Toggle Phase 2 ON mid-combat
     const phase2Btn = page.getByRole('switch', { name: /Phase 2/ });
@@ -132,7 +132,7 @@ test.describe('Encounter Phases System', () => {
     await expect(phase2Btn).toHaveAttribute('aria-checked', 'true');
 
     // Bugbear Boss should now be in the initiative track
-    await expect(page.getByRole('button', { name: /Options for Bugbear Boss/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Bugbear Boss \(HP:/ })).toBeVisible();
 
     // Run Axe check during active combat with multiple phases
     await checkA11y(page, 'Encounter Phases Active Combat');

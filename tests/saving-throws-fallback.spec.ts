@@ -35,7 +35,7 @@ test('Monster Saving Throws Fallback in Operations Modal', async ({ page, reques
   await encounterPage.getByRole('button', { name: 'Start Combat' }).click();
 
   // 4. Open monster operations
-  const optionsBtn = encounterPage.getByRole('button', { name: /Options/i }).first();
+  const optionsBtn = encounterPage.getByRole('button', { name: /Save Test Monster \(HP:/ });
   await expect(optionsBtn).toBeVisible();
   await optionsBtn.click();
   

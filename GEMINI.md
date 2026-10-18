@@ -28,7 +28,7 @@ The app alternates between two primary layouts (`src/App.tsx`):
   - *Campaign Builder / Encounter Builder*: Manage chapters, campaign-scoped assets, players, and encounters (`CampaignBuilder.tsx`, `EncounterBuilder.tsx`).
 - **Run Mode (Active Session):**
   - *Story Tab (Campaign Runner)*: Text-based organizer for session beats, room descriptions, and active note-taking (`CampaignRunner.tsx`).
-  - *Combat Tab (Encounter Runner)*: Initiative tracker, live HP tracking with typed damage (resistance/vulnerability/immunity), bloodied/down announcements and undo, timed conditions that expire at turn end, automatic concentration saves, grid-based tactical map with cover/adjacency calculation, and turn tracking with "current turn" focus for screen readers (`EncounterRunner.tsx`, `CombatMap.tsx`).
+  - *Combat Tab (Encounter Runner)*: Initiative tracker, live HP tracking with typed damage (resistance/vulnerability/immunity), bloodied/down announcements and undo, timed conditions that expire at turn end (each initiative row is one button that opens the combatant's Options dialog, which holds damage/heal, actions, conditions, and details), automatic concentration saves, grid-based tactical map with cover/adjacency calculation, and turn tracking with "current turn" focus for screen readers (`EncounterRunner.tsx`, `CombatMap.tsx`).
 
 ### 2. Two Lookup Tools — Don't Conflate Them
 - **The Oracle (`Alt+O`, `src/components/Oracle.tsx`)**: A static, deterministic quick-lookup hub. It searches local JSON (spells, monsters, magic items) directly in the browser — no network call, no LLM.

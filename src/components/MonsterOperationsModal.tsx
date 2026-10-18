@@ -5,6 +5,8 @@ import { diceLogService } from '../services/DiceLogService';
 import { getSaveModifier, getSkillModifier, DND_SKILLS_BY_ABILITY } from '../utils/dnd';
 import { useFocusTrap } from './uiHelpers';
 import { DisclosureSelect } from './DisclosureSelect';
+import { ConditionsPanel } from './ConditionsPanel';
+import type { ActiveCondition } from '../utils/conditions';
 import { DAMAGE_TYPE_OPTIONS, UNTYPED_DAMAGE } from '../utils/damageTypes';
 
 interface MonsterOperationsModalProps {
@@ -14,11 +16,17 @@ interface MonsterOperationsModalProps {
   onRoll: (title: string, hit: string, damage?: string) => void;
   onAnnounce: (msg: string) => void;
   onOpenRadar?: (unit: EncounterUnit) => void;
+  /** Whether `unit` is the combatant whose turn is active (see ConditionsPanel). */
+  isCurrentActor?: boolean;
+  /** Persists a new condition list; the parent closes this dialog afterwards. */
+  onSaveConditions: (instanceId: string, conditions: ActiveCondition[], announcement: string) => void;
+  /** Closes this dialog and opens the unit's Details dialog. */
+  onOpenDetails: (unit: EncounterUnit) => void;
 }
 
-type ViewMode = 'MAIN' | 'DAMAGE' | 'HEAL' | 'ACTIONS' | 'SKILLS' | 'SAVES';
+type ViewMode = 'MAIN' | 'DAMAGE' | 'HEAL' | 'ACTIONS' | 'SKILLS' | 'SAVES' | 'CONDITIONS';
 
-export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, onAnnounce, onOpenRadar }: MonsterOperationsModalProps) {
+export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, onAnnounce, onOpenRadar, isCurrentActor = false, onSaveConditions, onOpenDetails }: MonsterOperationsModalProps) {
   const [view, setView] = useState<ViewMode>('MAIN');
   const [hpAmount, setHpAmount] = useState<string>('');
   // Remembered for the session while this modal instance is reused across
@@ -71,7 +79,12 @@ export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, on
     // Focus first interactive element when view changes
     if (view === 'DAMAGE' || view === 'HEAL') {
       inputRef.current?.focus();
-    } else if (view !== 'MAIN') {
+    } else if (view === 'MAIN') {
+      // Returning from a sub-view: its controls just unmounted, so put focus
+      // back on the heading instead of dropping it to document.body.
+      headingRef.current?.focus();
+    } else if (view !== 'CONDITIONS') {
+      // CONDITIONS focuses its own heading on mount.
       firstButtonRef.current?.focus();
     }
   }, [view]);
@@ -150,12 +163,18 @@ export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, on
 
   const renderMain = () => (
     <div style={{ display: 'grid', gap: '0.75rem' }}>
-      <button type="button" onClick={() => setView('DAMAGE')}>Damage</button>
-      <button type="button" onClick={() => setView('HEAL')}>Heal</button>
-      <button type="button" onClick={() => setView('ACTIONS')}>Actions</button>
-      <button type="button" onClick={() => setView('SKILLS')}>Skill Checks</button>
-      <button type="button" onClick={() => setView('SAVES')}>Saving Throws</button>
-      {onOpenRadar && (
+      {!unit.isPlayer && (
+        <>
+          <button type="button" onClick={() => setView('DAMAGE')}>Damage</button>
+          <button type="button" onClick={() => setView('HEAL')}>Heal</button>
+          <button type="button" onClick={() => setView('ACTIONS')}>Actions</button>
+          <button type="button" onClick={() => setView('SKILLS')}>Skill Checks</button>
+          <button type="button" onClick={() => setView('SAVES')}>Saving Throws</button>
+        </>
+      )}
+      <button type="button" onClick={() => setView('CONDITIONS')}>Conditions</button>
+      <button type="button" onClick={() => onOpenDetails(unit)}>View Details</button>
+      {!unit.isPlayer && onOpenRadar && (
         <button
           type="button"
           onClick={() => {
@@ -319,7 +338,7 @@ export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, on
         ref={modalContentRef}
         role="document"
         tabIndex={-1}
-        style={{ backgroundColor: 'white', padding: '1.5rem', borderRadius: '8px', maxWidth: '400px', width: '90%', outline: 'none' }}
+        style={{ backgroundColor: 'white', padding: '1.5rem', borderRadius: '8px', maxWidth: '420px', width: '90%', maxHeight: '90vh', overflowY: 'auto', outline: 'none' }}
       >
         <h3 id="ops-modal-title" ref={headingRef} tabIndex={-1} style={{ outline: 'none', marginTop: 0 }}>
           {unit.name} Actions
@@ -331,6 +350,14 @@ export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, on
         {view === 'ACTIONS' && renderActions()}
         {view === 'SKILLS' && renderSkills()}
         {view === 'SAVES' && renderSaves()}
+        {view === 'CONDITIONS' && (
+          <ConditionsPanel
+            unit={unit}
+            isCurrentActor={isCurrentActor}
+            onCancel={() => setView('MAIN')}
+            onSave={onSaveConditions}
+          />
+        )}
 
         <button 
           type="button" 

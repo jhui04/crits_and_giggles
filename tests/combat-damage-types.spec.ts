@@ -110,7 +110,8 @@ test.describe('Combat damage types, resistance, bloodied/down announcements, and
   });
 
   const liveRegion = (page: import('@playwright/test').Page) => page.locator('[aria-live="assertive"]');
-  const optionsButton = (page: import('@playwright/test').Page) => page.getByRole('button', { name: 'Options for Dragon Turtle' });
+  // The whole initiative row is the button that opens the combatant's Options dialog.
+  const optionsButton = (page: import('@playwright/test').Page) => page.getByRole('button', { name: /Dragon Turtle \(HP:/ });
   // The initiative-track row button for Dragon Turtle, whose name includes its live HP ("Dragon Turtle (HP: 15/20)").
   const unitRowButton = (page: import('@playwright/test').Page) => page.getByRole('button', { name: /Dragon Turtle \(HP:/ });
 
@@ -131,7 +132,7 @@ test.describe('Combat damage types, resistance, bloodied/down announcements, and
 
     await page.getByRole('button', { name: 'Apply' }).click();
 
-    // Modal closes; focus returns to the Options button that opened it.
+    // Modal closes; focus returns to the initiative row that opened it.
     await expect(page.getByRole('dialog', { name: 'Dragon Turtle Actions' })).not.toBeVisible();
     await expect(optionsButton(page)).toBeFocused();
 

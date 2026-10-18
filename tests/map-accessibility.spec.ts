@@ -339,7 +339,7 @@ test.describe('Combat Map Accessibility Suite', () => {
     const encounterPage = await setupEncounterPage(page, context);
 
     // Open Options for a monster from initiative track
-    const monsterOptionsBtn = encounterPage.getByRole('button', { name: /Options for/ }).first();
+    const monsterOptionsBtn = encounterPage.locator('ul[role="list"] li button').filter({ hasText: /\(HP:/ }).first();
     await monsterOptionsBtn.click();
 
     // Verify Monster Operations Modal opens

@@ -3,7 +3,6 @@ import { DiceService } from '../services/DiceService';
 import { diceLogService } from '../services/DiceLogService';
 import { MonsterDetails } from './MonsterDetails';
 import { MonsterOperationsModal } from './MonsterOperationsModal';
-import { ConditionsModal } from './ConditionsModal';
 import { CombatMap } from './CombatMap';
 import { autoDeployUnits } from '../utils/mapUtils';
 import { tickConditionsAtEndOfTurn, formatConditions, normalizeConditions, removeCondition } from '../utils/conditions';
@@ -106,8 +105,6 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   const [announcement, setAnnouncement] = useAnnouncer();
   const [selectedUnitBase, setSelectedUnit] = useState<EncounterUnit | null>(null);
   const [activeOperationsUnit, setActiveOperationsUnit] = useState<EncounterUnit | null>(null);
-  const [activeConditionsUnit, setActiveConditionsUnit] = useState<EncounterUnit | null>(null);
-  const lastFocusedConditionsButtonRef = useRef<HTMLButtonElement | null>(null);
   const [hpMods, setHpMods] = useState<Record<string, string>>({});
   const [activePhases, setActivePhases] = useState<number[]>([1]);
   // Undo stack for manual DM HP changes (see applyHpMod / undoLastHpChange
@@ -627,21 +624,12 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     setActiveOperationsUnit(null);
   }, []);
 
-  const openConditions = useCallback((e: React.MouseEvent<HTMLButtonElement>, unit: EncounterUnit) => {
-    lastFocusedConditionsButtonRef.current = e.currentTarget;
-    setActiveConditionsUnit(unit);
-  }, []);
-
-  const closeConditions = useCallback(() => {
-    setActiveConditionsUnit(null);
-  }, []);
-
   const saveConditions = useCallback((instanceId: string, conditions: ActiveCondition[], announcement: string) => {
     const next = combatants.map(u => u.instanceId === instanceId ? { ...u, conditions } : u);
     setCombatants(next);
     syncEncounterState(next, isCombatStarted, turnIndex, round, activePhases);
     setAnnouncement(announcement);
-    setActiveConditionsUnit(null);
+    setActiveOperationsUnit(null);
   }, [combatants, isCombatStarted, turnIndex, round, activePhases, syncEncounterState, setAnnouncement]);
 
   const closeRollModal = useCallback(() => {
@@ -691,10 +679,10 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     // overlay (isForeignOverlayOpen above), these live inside rootRef, so
     // isForeignOverlayOpen alone doesn't catch them. Alt+N and Alt+U must do
     // nothing while any of these is open (pressing Next Turn or Undo from
-    // inside e.g. the Conditions dialog should not silently act on the
+    // inside e.g. the Options dialog should not silently act on the
     // encounter underneath it).
     const isOwnDialogOpen = () =>
-      Boolean(activeRoll || activeOperationsUnit || activeConditionsUnit || selectedUnit);
+      Boolean(activeRoll || activeOperationsUnit || selectedUnit);
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.defaultPrevented || isForeignOverlayOpen()) return;
@@ -707,9 +695,6 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
         } else if (activeOperationsUnit) {
           e.preventDefault();
           closeOperations();
-        } else if (activeConditionsUnit) {
-          e.preventDefault();
-          closeConditions();
         } else if (selectedUnit) {
           e.preventDefault();
           closeDetails();
@@ -717,7 +702,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
       }
 
       // Alt + N for Next Turn. Suppressed while any of this runner's own
-      // dialogs (Conditions, Operations, Details, Roll) is open, so it can't silently advance the turn underneath them.
+      // dialogs (Options, Details, Roll) is open, so it can't silently advance the turn underneath them.
       if (e.altKey && e.key.toLowerCase() === 'n' && !isOwnDialogOpen()) {
         e.preventDefault();
         nextTurn();
@@ -748,7 +733,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [nextTurn, selectedUnit, activeRoll, activeOperationsUnit, activeConditionsUnit, closeDetails, closeRollModal, closeOperations, closeConditions, hpUndoStack, undoLastHpChange]);
+  }, [nextTurn, selectedUnit, activeRoll, activeOperationsUnit, closeDetails, closeRollModal, closeOperations, hpUndoStack, undoLastHpChange]);
 
   // Triggers the same global Alt+D shortcut App.tsx's own window keydown listener
   // handles, instead of maintaining a second local dice log here. Dispatching a
@@ -762,7 +747,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   useEffect(() => {
     if (selectedUnit) {
       detailHeadingRef.current?.focus();
-    } else if (activeOperationsUnit || activeConditionsUnit) {
+    } else if (activeOperationsUnit) {
       // These modals handle their own internal focus on mount.
     } else if (activeRoll) {
       // Roll modal focus is handled by its own effect.
@@ -786,12 +771,9 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
       } else if (lastFocusedOperationsButtonRef.current) {
         lastFocusedOperationsButtonRef.current.focus();
         lastFocusedOperationsButtonRef.current = null;
-      } else if (lastFocusedConditionsButtonRef.current) {
-        lastFocusedConditionsButtonRef.current.focus();
-        lastFocusedConditionsButtonRef.current = null;
       }
     }
-  }, [selectedUnit, activeOperationsUnit, activeRoll, activeConditionsUnit]);
+  }, [selectedUnit, activeOperationsUnit, activeRoll]);
 
   const updateInitiative = (instanceId: string, val: string) => {
     const num = val === '' ? undefined : (parseInt(val, 10) || 0);
@@ -1133,7 +1115,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
       ) : (
         <section>
           <h3>Initiative Track</h3>
-          <p>Use <strong>Tab</strong> to navigate. <strong>Enter</strong> for details. <strong>Alt + N</strong> for next turn.</p>
+          <p>Use <strong>Tab</strong> to navigate. <strong>Enter</strong> on a combatant for options (damage, healing, actions, conditions, details). <strong>Alt + N</strong> for next turn.</p>
           <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
             <button type="button" ref={nextTurnButtonRef} onClick={nextTurn}>Next Turn (Alt+N)</button>
             {hpUndoStack.length > 0 && (
@@ -1151,37 +1133,17 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
           <ul style={{ listStyle: 'none', padding: 0 }} role="list">
             {visibleCombatants.map((u, i) => (
               <li key={u.instanceId} style={{ marginBottom: '1rem', border: i === turnIndex ? '3px solid #000' : '1px solid #eee', padding: '0.5rem', backgroundColor: i === turnIndex ? '#f0f8ff' : 'white' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                  <button
-                    type="button"
-                    ref={(el) => { unitRefs.current[u.instanceId] = el; }}
-                    onClick={() => openUnitDetails(u)}
-                    style={{ flexGrow: 1, textAlign: 'left', background: 'transparent', border: 'none', padding: '0.5rem', fontSize: '1.1rem', fontWeight: 'bold' }}
-                    aria-current={i === turnIndex ? 'step' : undefined}
-                  >
-                    <span className="sr-only">{i === turnIndex ? "Current Turn" : ""}</span>
-                    {u.initiative} - {u.name} {u.isPlayer ? '(Player)' : `(${formatTrackerHp(u.currentHp, u.maxHp)})`}
-                    {formatConditions(u.conditions) ? `, ${formatConditions(u.conditions)}` : ''}
-                  </button>
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', padding: '0 0.5rem' }}>
-                  {!u.isPlayer && (
-                    <button
-                      type="button"
-                      onClick={(e) => openOperations(e, u)}
-                      style={{ padding: '0.25rem 0.5rem', fontSize: '0.9em' }}
-                    >
-                      Options <span className="sr-only">for {u.name}</span>
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={(e) => openConditions(e, u)}
-                    style={{ padding: '0.25rem 0.5rem', fontSize: '0.9em' }}
-                  >
-                    Conditions <span className="sr-only">for {u.name}</span>
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  ref={(el) => { unitRefs.current[u.instanceId] = el; }}
+                  onClick={(e) => openOperations(e, u)}
+                  style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', padding: '0.5rem', fontSize: '1.1rem', fontWeight: 'bold' }}
+                  aria-current={i === turnIndex ? 'step' : undefined}
+                >
+                  <span className="sr-only">{i === turnIndex ? "Current Turn" : ""}</span>
+                  {u.initiative} - {u.name} {u.isPlayer ? '(Player)' : `(${formatTrackerHp(u.currentHp, u.maxHp)})`}
+                  {formatConditions(u.conditions) ? `, ${formatConditions(u.conditions)}` : ''}
+                </button>
               </li>
             ))}
           </ul>
@@ -1201,7 +1163,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
           dmMapUrl={activeEncounter.dmMapUrl}
           playerMapUrl={activeEncounter.playerMapUrl}
           mapName={activeEncounter.name}
-          isExternalModalOpen={Boolean(activeOperationsUnit || selectedUnit || activeRoll || activeConditionsUnit)}
+          isExternalModalOpen={Boolean(activeOperationsUnit || selectedUnit || activeRoll)}
         />
       )}
 
@@ -1213,17 +1175,14 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
           onRoll={(title, hit, damage) => handleInlineRoll(null, activeOperationsUnit.name, title, hit, damage)}
           onAnnounce={setAnnouncement}
           onOpenRadar={(unit) => setRadarRequestedUnit(unit)}
-        />
-      )}
-
-      {activeConditionsUnit && (
-        <ConditionsModal
-          unit={activeConditionsUnit}
-          isCurrentActor={
-            isCombatStarted && visibleCombatants[turnIndex]?.instanceId === activeConditionsUnit.instanceId
-          }
-          onClose={closeConditions}
-          onSave={saveConditions}
+          isCurrentActor={isCombatStarted && visibleCombatants[turnIndex]?.instanceId === activeOperationsUnit.instanceId}
+          onSaveConditions={saveConditions}
+          onOpenDetails={(unit) => {
+            // Swap Options for Details; closing Details restores focus to the
+            // originating row via lastFocusedUnitId (or the map cell).
+            setActiveOperationsUnit(null);
+            openUnitDetails(unit, lastFocusedMapCellRef.current);
+          }}
         />
       )}
 

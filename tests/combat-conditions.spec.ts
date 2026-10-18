@@ -40,13 +40,25 @@ test.describe('Combat Conditions Tracker', () => {
 
     // Player (initiative 18) goes first, ahead of the monster (initiative 15).
     const playerItem = page.locator('li', { hasText: playerUnit.name });
-    const conditionsTrigger = playerItem.getByRole('button', { name: /^Conditions/ });
-    await conditionsTrigger.click();
+    // The whole initiative row is the single button that opens Options; conditions live inside it.
+    const rowTrigger = playerItem.getByRole('button');
+    await expect(playerItem.getByRole('button')).toHaveCount(1);
+    await rowTrigger.click();
+
+    const optionsHeading = page.getByRole('heading', { name: `${playerUnit.name} Actions` });
+    await expect(optionsHeading).toBeFocused();
+    await checkA11y(page, 'Options Dialog (Player)');
+    await page.getByRole('button', { name: 'Conditions', exact: true }).click();
 
     const heading = page.getByRole('heading', { name: `Conditions for ${playerUnit.name}` });
     await expect(heading).toBeVisible();
     await expect(heading).toBeFocused();
-    await checkA11y(page, 'Conditions Modal');
+    await checkA11y(page, 'Conditions view in Options');
+
+    // Back returns to the Options menu with focus on its heading, then reopen Conditions.
+    await page.getByRole('button', { name: 'Back' }).click();
+    await expect(optionsHeading).toBeFocused();
+    await page.getByRole('button', { name: 'Conditions', exact: true }).click();
 
     // Apply Prone first with the shared duration field left blank, so it's indefinite.
     await page.getByRole('checkbox', { name: 'Prone' }).check();
@@ -54,8 +66,9 @@ test.describe('Combat Conditions Tracker', () => {
     await page.getByRole('button', { name: 'Save' }).click();
     await saveResp1;
 
-    // Focus restored to the trigger that opened the modal.
-    await expect(conditionsTrigger).toBeFocused();
+    // Dialog closes and focus is restored to the row that opened it.
+    await expect(optionsHeading).not.toBeVisible();
+    await expect(rowTrigger).toBeFocused();
 
     const liveRegion = page.locator('div[aria-live="assertive"]');
     await expect(liveRegion).toContainText(`${playerUnit.name} is now Prone.`);
@@ -64,14 +77,15 @@ test.describe('Combat Conditions Tracker', () => {
     // Reopen and add Poisoned for 1 round. Prone (already applied, pre-existing) keeps
     // its own indefinite duration; the shared duration field only affects the newly
     // checked Poisoned.
-    await conditionsTrigger.click();
+    await rowTrigger.click();
+    await page.getByRole('button', { name: 'Conditions', exact: true }).click();
     await expect(page.getByRole('heading', { name: `Conditions for ${playerUnit.name}` })).toBeFocused();
     await page.getByRole('checkbox', { name: 'Poisoned' }).check();
     await page.getByLabel(/Duration in rounds/).fill('1');
     const saveResp2 = page.waitForResponse(resp => resp.url().includes('/api/campaigns') && resp.status() === 200);
     await page.getByRole('button', { name: 'Save' }).click();
     await saveResp2;
-    await expect(conditionsTrigger).toBeFocused();
+    await expect(rowTrigger).toBeFocused();
 
     // Announcement reflects both conditions with Poisoned's own 1-round duration and Prone
     // indefinite. Prone was applied first (in the earlier save) so it's listed first.
@@ -120,5 +134,32 @@ test.describe('Combat Conditions Tracker', () => {
     const reloadedPlayerItem = page.locator('li', { hasText: playerUnit.name });
     await expect(reloadedPlayerItem).toContainText('Prone');
     await expect(reloadedPlayerItem).not.toContainText('Poisoned');
+  });
+
+  test('initiative row is one button that opens Options; View Details swaps dialogs and restores focus to the row', async ({ page }) => {
+    await page.goto(`/?encounter=${encounterId}`);
+    await page.waitForLoadState('networkidle');
+    await page.getByRole('button', { name: 'Start Combat' }).click();
+    await expect(page.getByText('Initiative Track')).toBeVisible();
+
+    const monsterItem = page.locator('li', { hasText: monsterUnit.name });
+    // No nested or sibling controls: the row's only interactive element is the row button.
+    await expect(monsterItem.getByRole('button')).toHaveCount(1);
+    const rowButton = monsterItem.getByRole('button');
+    await rowButton.click();
+
+    const optionsHeading = page.getByRole('heading', { name: `${monsterUnit.name} Actions` });
+    await expect(optionsHeading).toBeFocused();
+    await expect(page.getByRole('button', { name: 'Conditions', exact: true })).toBeVisible();
+    await checkA11y(page, 'Options Dialog (Monster)');
+
+    await page.getByRole('button', { name: 'View Details' }).click();
+    const details = page.getByRole('heading', { name: `${monsterUnit.name} Details` });
+    await expect(details).toBeFocused();
+    await expect(optionsHeading).not.toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await expect(details).not.toBeVisible();
+    await expect(rowButton).toBeFocused();
   });
 });

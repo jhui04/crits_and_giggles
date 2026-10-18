@@ -219,16 +219,17 @@ test.describe('EncounterRunner global shortcut collisions', () => {
     await expect(currentTurnButton(page)).toContainText('Goblin Sneak');
   });
 
-  test('Alt+N while the Conditions dialog is open does not advance the turn', async ({ page }) => {
+  test('Alt+N while the Options dialog (Conditions view) is open does not advance the turn', async ({ page }) => {
     await setupApp(page);
     await expect(currentTurnButton(page)).toContainText('Grog');
 
-    // Conditions is one of EncounterRunner's own in-tree dialogs, so the
+    // Options is one of EncounterRunner's own in-tree dialogs, so the
     // old isForeignOverlayOpen() check alone didn't catch it: it lives
     // inside rootRef, unlike the Assistant Oracle/Oracle/Shortcuts
     // Help/Dice Log overlays.
     const grogItem = page.locator('li', { hasText: 'Grog' });
-    await grogItem.getByRole('button', { name: /^Conditions/ }).click();
+    await grogItem.getByRole('button').click();
+    await page.getByRole('button', { name: 'Conditions', exact: true }).click();
     const heading = page.getByRole('heading', { name: 'Conditions for Grog' });
     await expect(heading).toBeFocused();
 

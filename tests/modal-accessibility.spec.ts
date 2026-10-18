@@ -306,6 +306,9 @@ test.describe('Run Mode Accessibility', () => {
     await checkA11y(page, 'Story Tab');
   });
 
+  // The whole initiative row is one button that opens the combatant's Options dialog.
+  const monsterRow = (p: Page) => p.getByRole('button', { name: new RegExp(mockMonster.name) }).first();
+
   const setupEncounterPage = async (page: Page, context: BrowserContext) => {
     const [encounterPage] = await Promise.all([
       context.waitForEvent('page'),
@@ -333,7 +336,7 @@ test.describe('Run Mode Accessibility', () => {
   test('Monster Operations Modal (Main)', async ({ page, context }) => {
     const encounterPage = await setupEncounterPage(page, context);
     await encounterPage.getByRole('button', { name: 'Start Combat' }).click();
-    const trigger = encounterPage.getByRole('button', { name: 'Options' }).first();
+    const trigger = monsterRow(encounterPage);
     await trigger.click();
     await verifyModalOpen(encounterPage, /Actions$/); 
     await checkA11y(encounterPage, 'Monster Operations Main');
@@ -344,7 +347,7 @@ test.describe('Run Mode Accessibility', () => {
   test('Monster Operations Modal (Damage/Heal)', async ({ page, context }) => {
     const encounterPage = await setupEncounterPage(page, context);
     await encounterPage.getByRole('button', { name: 'Start Combat' }).click();
-    const trigger = encounterPage.getByRole('button', { name: 'Options' }).first();
+    const trigger = monsterRow(encounterPage);
     await trigger.click();
     await encounterPage.getByRole('button', { name: 'Damage' }).click();
     await expect(encounterPage.getByLabel('Damage Amount:')).toBeFocused();
@@ -356,7 +359,7 @@ test.describe('Run Mode Accessibility', () => {
   test('Monster Operations Modal (Actions/Skills/Saves)', async ({ page, context }) => {
     const encounterPage = await setupEncounterPage(page, context);
     await encounterPage.getByRole('button', { name: 'Start Combat' }).click();
-    const trigger = encounterPage.getByRole('button', { name: 'Options' }).first();
+    const trigger = monsterRow(encounterPage);
     await trigger.click();
     await encounterPage.getByRole('button', { name: 'Actions' }).click();
     await expect(encounterPage.locator('[role="dialog"] button').first()).toBeFocused();
@@ -368,7 +371,7 @@ test.describe('Run Mode Accessibility', () => {
   test('Combat Roll Result Modal', async ({ page, context }) => {
     const encounterPage = await setupEncounterPage(page, context);
     await encounterPage.getByRole('button', { name: 'Start Combat' }).click();
-    const optionsTrigger = encounterPage.getByRole('button', { name: 'Options' }).first();
+    const optionsTrigger = monsterRow(encounterPage);
     await optionsTrigger.click();
     await encounterPage.getByRole('button', { name: 'Actions' }).click();
     const actionTrigger = encounterPage.locator('[role="dialog"] button').first();
@@ -385,7 +388,9 @@ test.describe('Run Mode Accessibility', () => {
     await encounterPage.getByRole('button', { name: 'Start Combat' }).click();
     const trigger = encounterPage.getByRole('button', { name: /Player 1 \(Player\)/ });
     await trigger.click();
-    await verifyModalOpen(encounterPage, 'Player 1');
+    await verifyModalOpen(encounterPage, 'Player 1 Actions');
+    await encounterPage.getByRole('button', { name: 'View Details' }).click();
+    await verifyModalOpen(encounterPage, 'Player 1 Details');
     await checkA11y(encounterPage, 'Player Details');
     await verifyModalClosed(encounterPage, trigger);
     await encounterPage.close();
@@ -394,9 +399,10 @@ test.describe('Run Mode Accessibility', () => {
   test('Combatant Details Modal (Monster)', async ({ page, context }) => {
     const encounterPage = await setupEncounterPage(page, context);
     await encounterPage.getByRole('button', { name: 'Start Combat' }).click();
-    const trigger = encounterPage.getByRole('button', { name: new RegExp(mockMonster.name) }).first();
+    const trigger = monsterRow(encounterPage);
     await trigger.click();
-    await verifyModalOpen(encounterPage, mockMonster.name);
+    await encounterPage.getByRole('button', { name: 'View Details' }).click();
+    await verifyModalOpen(encounterPage, `${mockMonster.name} Details`);
     await checkA11y(encounterPage, 'Monster Details Modal');
     await verifyModalClosed(encounterPage, trigger);
     await encounterPage.close();

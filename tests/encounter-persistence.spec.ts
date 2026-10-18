@@ -172,7 +172,7 @@ test.describe('Encounter State Persistence Between Browser Sessions', () => {
     const maxHp = match![2];
 
     // Open Options for the monster
-    const optionsButton = page.getByRole('button', { name: 'Options' }).first();
+    const optionsButton = monsterBtn;
     await optionsButton.click();
 
     // Choose Damage

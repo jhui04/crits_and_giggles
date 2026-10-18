@@ -2,9 +2,8 @@ import { useRef, useState, useEffect } from 'react';
 import type { EncounterUnit } from '../types';
 import { SRD_CONDITIONS, normalizeConditions, addCondition, removeCondition, formatConditions } from '../utils/conditions';
 import type { ActiveCondition } from '../utils/conditions';
-import { useFocusTrap } from './uiHelpers';
 
-interface ConditionsModalProps {
+interface ConditionsPanelProps {
   unit: EncounterUnit;
   /**
    * Whether `unit` is the combatant whose turn is currently active. A timed
@@ -15,12 +14,13 @@ interface ConditionsModalProps {
    * src/utils/conditions.ts.
    */
   isCurrentActor: boolean;
-  onClose: () => void;
+  /** Returns to the Options main menu without changing anything. */
+  onCancel: () => void;
   onSave: (instanceId: string, conditions: ActiveCondition[], announcement: string) => void;
 }
 
 /**
- * Lets the DM set which SRD conditions (plus custom ones) currently apply to
+ * One view of the combatant's Options dialog (MonsterOperationsModal): lets the DM set which SRD conditions (plus custom ones) currently apply to
  * a combatant, and for how many rounds. Design choice: rather than a
  * duration input per checkbox (31 tab stops for 15 conditions), there is ONE
  * shared "Duration in rounds" field that is applied to whichever conditions
@@ -35,7 +35,7 @@ interface ConditionsModalProps {
  * duration field blank, then reopen and add Poisoned with "1"), rather than
  * one save silently giving both the same duration.
  */
-export function ConditionsModal({ unit, isCurrentActor, onClose, onSave }: ConditionsModalProps) {
+export function ConditionsPanel({ unit, isCurrentActor, onCancel, onSave }: ConditionsPanelProps) {
   const existing = normalizeConditions(unit.conditions);
   const [checked, setChecked] = useState<Set<string>>(new Set(existing.map(c => c.name)));
   // One shared "Duration in rounds" value, applied to every condition checked on save that
@@ -45,8 +45,6 @@ export function ConditionsModal({ unit, isCurrentActor, onClose, onSave }: Condi
   const [customName, setCustomName] = useState('');
 
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const modalContentRef = useRef<HTMLDivElement>(null);
-  useFocusTrap(modalContentRef, true);
 
   useEffect(() => {
     headingRef.current?.focus();
@@ -103,24 +101,10 @@ export function ConditionsModal({ unit, isCurrentActor, onClose, onSave }: Condi
   };
 
   return (
-    <div
-      className="conditions-modal-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="conditions-modal-title"
-      style={{
-        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-        backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex',
-        alignItems: 'center', justifyContent: 'center', zIndex: 1150
-      }}
-    >
-      <div
-        ref={modalContentRef}
-        style={{ backgroundColor: 'white', padding: '1.5rem', borderRadius: '8px', maxWidth: '420px', width: '90%', maxHeight: '90vh', overflowY: 'auto' }}
-      >
-        <h3 id="conditions-modal-title" ref={headingRef} tabIndex={-1} style={{ outline: 'none', marginTop: 0 }}>
+    <div>
+        <h4 id="conditions-panel-title" ref={headingRef} tabIndex={-1} style={{ outline: 'none', marginTop: 0 }}>
           Conditions for {unit.name}
-        </h3>
+        </h4>
 
         <form onSubmit={handleSave}>
           <fieldset style={{ border: '1px solid #ccc', borderRadius: '4px', padding: '0.75rem', marginBottom: '1rem' }}>
@@ -169,10 +153,9 @@ export function ConditionsModal({ unit, isCurrentActor, onClose, onSave }: Condi
 
           <div style={{ display: 'flex', gap: '0.5rem' }}>
             <button type="submit" style={{ flex: 1 }}>Save</button>
-            <button type="button" onClick={onClose} style={{ flex: 1 }}>Cancel (Esc)</button>
+            <button type="button" onClick={onCancel} style={{ flex: 1 }}>Back</button>
           </div>
         </form>
-      </div>
     </div>
   );
 }

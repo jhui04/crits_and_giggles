@@ -1,7 +1,7 @@
 /**
  * Pure logic for the combat conditions tracker. Kept framework-free so it can
  * be unit tested directly and reused from both the React UI
- * (ConditionsModal, EncounterRunner) and the server-side assistant tool
+ * (ConditionsPanel, EncounterRunner) and the server-side assistant tool
  * controller (which only ever reads conditions, never mutates them).
  */
 

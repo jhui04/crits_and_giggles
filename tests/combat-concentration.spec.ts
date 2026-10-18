@@ -110,7 +110,7 @@ const setupApp = async (page: Page, fixedRandom?: number) => {
 };
 
 const liveRegion = (page: Page) => page.locator('[aria-live="assertive"]');
-const optionsButton = (page: Page) => page.getByRole('button', { name: 'Options for Goblin Shaman' });
+const optionsButton = (page: Page) => page.getByRole('button', { name: /Goblin Shaman \(HP:/ });
 const unitRowButton = (page: Page) => page.getByRole('button', { name: /Goblin Shaman \(HP:/ });
 
 const applyDamage = async (page: Page, amount: string) => {
