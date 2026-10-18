@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
   "scripts": {
     "dev": "npm run build && concurrently \"npm run server\" \"vite\"",
     "server": "nodemon --watch server server/index.js",
