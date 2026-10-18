@@ -3,6 +3,7 @@ import { DiceService } from '../services/DiceService';
 import { diceLogService } from '../services/DiceLogService';
 import { MonsterDetails } from './MonsterDetails';
 import { MonsterOperationsModal } from './MonsterOperationsModal';
+import type { RollDetails } from './MonsterOperationsModal';
 import { CombatMap } from './CombatMap';
 import { autoDeployUnits } from '../utils/mapUtils';
 import { tickConditionsAtEndOfTurn, formatConditions, normalizeConditions, removeCondition } from '../utils/conditions';
@@ -241,7 +242,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     }, 100);
   };
   
-  const [activeRoll, setActiveRoll] = useState<{ title: string, hit?: string, damage?: string, unitName?: string } | null>(null);
+  const [activeRoll, setActiveRoll] = useState<{ title: string, hit?: string, damage?: string, unitName?: string, details?: RollDetails } | null>(null);
   const [radarRequestedUnit, setRadarRequestedUnit] = useState<EncounterUnit | null>(null);
   const rollModalRef = useRef<HTMLHeadingElement>(null);
   const rollDialogRef = useRef<HTMLDivElement>(null);
@@ -977,7 +978,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     }
   };
 
-  const handleInlineRoll = (e: React.MouseEvent<HTMLElement> | null, unitName: string, title: string, hit: string, damage?: string) => {
+  const handleInlineRoll = (e: React.MouseEvent<HTMLElement> | null, unitName: string, title: string, hit: string, damage?: string, details?: RollDetails) => {
     if (e) {
       lastActiveRollButtonRef.current = e.currentTarget as HTMLElement;
     } else {
@@ -993,7 +994,8 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
       title,
       hit,
       damage,
-      unitName
+      unitName,
+      details
     });
   };
 
@@ -1175,7 +1177,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
           unit={activeOperationsUnit}
           onClose={closeOperations}
           onApplyHpMod={applyHpMod}
-          onRoll={(title, hit, damage) => handleInlineRoll(null, activeOperationsUnit.name, title, hit, damage)}
+          onRoll={(title, hit, damage, details) => handleInlineRoll(null, activeOperationsUnit.name, title, hit, damage, details)}
           onAnnounce={setAnnouncement}
           onOpenRadar={(unit) => setRadarRequestedUnit(unit)}
           isCurrentActor={isCombatStarted && visibleCombatants[turnIndex]?.instanceId === activeOperationsUnit.instanceId}
@@ -1232,9 +1234,26 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
             {activeRoll.unitName} - {activeRoll.title}
           </h4>
           
-          <p style={{ fontSize: '1.2rem', marginBottom: '1rem' }}>
-            <strong>Result:</strong> {activeRoll.hit}
-          </p>
+          {activeRoll.details ? (
+            <>
+              <p style={{ fontSize: '1.2rem', marginBottom: '1rem' }}>{activeRoll.details.summary}</p>
+              {activeRoll.details.attacks.length > 0 && (
+                <ul aria-label="Attacks" style={{ listStyle: 'none', margin: '0 0 1rem', padding: 0, textAlign: 'left', display: 'grid', gap: '0.5rem' }}>
+                  {activeRoll.details.attacks.map((a, i) => <li key={i}>{a.name}: {a.text}</li>)}
+                </ul>
+              )}
+              <p style={{ margin: '0 0 1rem', fontSize: '0.9rem' }}>{activeRoll.details.rawText}</p>
+              {activeRoll.details.notes.length > 0 && (
+                <ul aria-label="Notes" style={{ margin: '0 0 1rem', paddingLeft: '1.25rem', textAlign: 'left', fontSize: '0.9rem' }}>
+                  {activeRoll.details.notes.map(n => <li key={n}>{n}</li>)}
+                </ul>
+              )}
+            </>
+          ) : (
+            <p style={{ fontSize: '1.2rem', marginBottom: '1rem' }}>
+              <strong>Result:</strong> {activeRoll.hit}
+            </p>
+          )}
 
           {activeRoll.damage && (
             <p style={{ fontSize: '1.2rem', marginBottom: '1rem' }}>

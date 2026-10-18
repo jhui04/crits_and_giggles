@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseMultiattack, isMultiattackAction, optionLabel } from './multiattack';
+import { parseMultiattack, isMultiattackAction, optionLabel, multiattackSummary } from './multiattack';
 import type { MultiattackActionLike } from './multiattack';
 
 const atk = (name: string, extra: Partial<MultiattackActionLike> = {}): MultiattackActionLike => ({
@@ -110,5 +110,24 @@ describe('parseMultiattack', () => {
   it('builds labels from segments', () => {
     const p = parseMultiattack('The dragon makes two claw attacks.', dragon);
     expect(optionLabel(p.options[0].segments)).toBe('Claw x2');
+  });
+});
+
+describe('multiattackSummary', () => {
+  const opt = (label: string) => ({ label, segments: [] });
+  it('reads one option as a spoken list', () => {
+    expect(multiattackSummary([opt('Bite x1, Claw x2')])).toBe('Bite x1 and Claw x2');
+  });
+  it('joins a few options with "or"', () => {
+    expect(multiattackSummary([opt('Claw x2'), opt('Bite x1, Claw x2')])).toBe('Claw x2, or Bite x1 and Claw x2');
+  });
+  it('truncates many options to "N more options"', () => {
+    const many = Array.from({ length: 8 }, (_, i) => opt(`Attack${i} x2, Other${i} x1`));
+    const text = multiattackSummary(many);
+    expect(text).toMatch(/, or \d+ more options$/);
+    expect(text.length).toBeLessThan(160);
+  });
+  it('is empty without options', () => {
+    expect(multiattackSummary([])).toBe('');
   });
 });

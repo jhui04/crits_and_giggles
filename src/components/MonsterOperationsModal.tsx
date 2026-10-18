@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import type { EncounterUnit } from '../types';
 import { DiceService } from '../services/DiceService';
 import { diceLogService } from '../services/DiceLogService';
@@ -8,14 +8,32 @@ import { DisclosureSelect } from './DisclosureSelect';
 import { ConditionsPanel } from './ConditionsPanel';
 import type { ActiveCondition } from '../utils/conditions';
 import { DAMAGE_TYPE_OPTIONS, UNTYPED_DAMAGE } from '../utils/damageTypes';
-import { MultiattackPanel } from './MultiattackPanel';
-import { isMultiattackAction } from '../utils/multiattack';
+import { isMultiattackAction, multiattackSummary, optionName, parseMultiattack } from '../utils/multiattack';
+import type { MultiattackOption, MultiattackParse, MultiattackSegment } from '../utils/multiattack';
+
+/** Per-attack breakdown shown in the roll result dialog (a Multiattack roll). */
+export interface RollDetails {
+  /** One concise line, e.g. "2 attacks rolled" (plus anything not rolled). */
+  summary: string;
+  /** One entry per rolled attack, e.g. { name: 'Claw', text: '17 to hit, 8 slashing damage' }. */
+  attacks: { name: string; text: string }[];
+  /** The Multiattack text as printed in the stat block. */
+  rawText: string;
+  /** Parser notes (replacement rules and other modifiers that are not rolled). */
+  notes: string[];
+}
+
+type ActionLike = { name: string; content: string; attack_bonus?: number; damage?: { dice: string; type: string }[] };
+
+function baseName(name: string): string {
+  return name.replace(/\([^)]*\)/g, ' ').replace(/[.:]+\s*$/, '').replace(/\s+/g, ' ').trim();
+}
 
 interface MonsterOperationsModalProps {
   unit: EncounterUnit;
   onClose: () => void;
   onApplyHpMod: (instanceId: string, isDamage: boolean, amount: number, damageType?: string) => void;
-  onRoll: (title: string, hit: string, damage?: string) => void;
+  onRoll: (title: string, hit: string, damage?: string, details?: RollDetails) => void;
   onAnnounce: (msg: string) => void;
   onOpenRadar?: (unit: EncounterUnit) => void;
   /** Whether `unit` is the combatant whose turn is active (see ConditionsPanel). */
@@ -26,7 +44,7 @@ interface MonsterOperationsModalProps {
   onOpenDetails: (unit: EncounterUnit) => void;
 }
 
-type ViewMode = 'MAIN' | 'DAMAGE' | 'HEAL' | 'ACTIONS' | 'SKILLS' | 'SAVES' | 'CONDITIONS';
+type ViewMode = 'MAIN' | 'DAMAGE' | 'HEAL' | 'ACTIONS' | 'SKILLS' | 'SAVES' | 'CONDITIONS' | 'MULTIATTACK';
 
 export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, onAnnounce, onOpenRadar, isCurrentActor = false, onSaveConditions, onOpenDetails }: MonsterOperationsModalProps) {
   const [view, setView] = useState<ViewMode>('MAIN');
@@ -40,6 +58,10 @@ export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, on
   const inputRef = useRef<HTMLInputElement>(null);
   const firstButtonRef = useRef<HTMLButtonElement>(null);
   const modalContentRef = useRef<HTMLDivElement>(null);
+  const multiHeadingRef = useRef<HTMLHeadingElement>(null);
+  // Which Multiattack's options are showing, and which button to refocus when they close.
+  const [multiIndex, setMultiIndex] = useState(0);
+  const prevViewRef = useRef<ViewMode>('MAIN');
 
   // This component is only ever mounted while its modal is open (the parent
   // conditionally renders it), so the trap is active unconditionally.
@@ -72,6 +94,11 @@ export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, on
     reactions: []
   };
 
+  const multiattacks = useMemo(
+    () => monster.actions.filter(isMultiattackAction).map(a => ({ action: a, parse: parseMultiattack(a.content, monster.actions, monster.traits) })),
+    [monster.actions, monster.traits]
+  );
+
   useEffect(() => {
     // Focus heading on open
     headingRef.current?.focus();
@@ -86,12 +113,18 @@ export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, on
       // back on the heading instead of dropping it to document.body.
       headingRef.current?.focus();
     } else if (view === 'ACTIONS') {
-      // The first control may be a Multiattack picker or roll button, not a plain action button.
-      modalContentRef.current?.querySelector<HTMLElement>('#ops-actions button')?.focus();
+      // Returning from a Multiattack's options: focus its button again; otherwise the first action.
+      const target = prevViewRef.current === 'MULTIATTACK' ? document.getElementById(`ops-multiattack-${multiIndex}`) : null;
+      (target ?? modalContentRef.current?.querySelector<HTMLElement>('#ops-actions button'))?.focus();
+    } else if (view === 'MULTIATTACK') {
+      multiHeadingRef.current?.focus();
     } else if (view !== 'CONDITIONS') {
       // CONDITIONS focuses its own heading on mount.
       firstButtonRef.current?.focus();
     }
+    prevViewRef.current = view;
+    // multiIndex only changes together with view.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view]);
 
   const handleApplyHp = (isDamage: boolean) => {
@@ -166,6 +199,45 @@ export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, on
     onRoll(actionName, hitVisual || 'Rolled', damageResultString);
   };
 
+  /** Rolls every attack of one Multiattack option and reports them as a list. */
+  const rollMultiattack = (multi: { action: ActionLike; parse: MultiattackParse }, option: MultiattackOption) => {
+    const all: ActionLike[] = [...monster.actions, ...(monster.traits ?? [])];
+    const attacks: RollDetails['attacks'] = [];
+    const skipped: string[] = [];
+    for (const seg of option.segments as MultiattackSegment[]) {
+      const action = seg.kind === 'attack' && seg.actionName ? all.find(a => baseName(a.name) === seg.actionName) : undefined;
+      if (!action) { skipped.push(seg.actionName ?? seg.phrase); continue; }
+      let times = seg.count;
+      if (seg.countDice) {
+        const r = DiceService.roll(seg.countDice);
+        times = Math.max(1, r.total);
+        diceLogService.logRoll({
+          source: unit.name,
+          purpose: `${multi.action.name} (number of ${seg.actionName} attacks)`,
+          formula: seg.countDice,
+          rolls: r.rolls,
+          modifier: r.modifier,
+          total: r.total,
+        });
+      }
+      for (let n = 0; n < times; n++) {
+        const r = performAttack(action.name, action.attack_bonus, action.damage);
+        attacks.push({ name: action.name, text: r.announceParts.length > 0 ? r.announceParts.join(', ') : 'rolled' });
+      }
+    }
+    const rolled = attacks.length === 1 ? '1 attack rolled' : `${attacks.length} attacks rolled`;
+    const summary = skipped.length > 0 ? `${rolled}. Not rolled: ${skipped.join(' and ')}` : rolled;
+    const title = `${multi.action.name} (${optionName(option)})`;
+    // The live-region announcement stays one comma-free sentence.
+    const spoken = attacks.map(a => `${a.name}: ${a.text.replace(/, /g, ' and ')}`).join('; ');
+    onRoll(title, spoken || summary, undefined, { summary, attacks, rawText: multi.action.content, notes: multi.parse.notes });
+  };
+
+  const openMultiattack = (i: number) => {
+    setMultiIndex(i);
+    setView('MULTIATTACK');
+  };
+
   const rollSimple = (title: string, mod: number) => {
     const { announceStr, visualStr } = getD20Details(mod, title);
     onAnnounce(`${unit.name} rolled ${title}: ${announceStr}`);
@@ -229,31 +301,26 @@ export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, on
   );
 
   const renderActions = () => {
-    // Multiattack actions get a MultiattackPanel; it falls back to the raw
-    // text when the breakdown cannot be parsed.
-    let multiIndex = 0;
+    // Each Multiattack is one button: it rolls straight away when the text has a
+    // single option, and otherwise opens a list of its options.
     return (
       <div id="ops-actions" style={{ display: 'grid', gap: '0.5rem' }}>
         {monster.actions.length === 0 && <p>No specific actions defined.</p>}
         {monster.actions.map((a, i) => {
           if (isMultiattackAction(a)) {
+            const idx = multiattacks.findIndex(m => m.action === a);
+            const multi = multiattacks[idx];
+            const summary = multiattackSummary(multi.parse.options);
+            const direct = multi.parse.status === 'parsed' && multi.parse.options.length === 1;
             return (
-              <MultiattackPanel
+              <button
                 key={a.name}
-                index={multiIndex++}
-                multiattack={a}
-                actions={monster.actions}
-                traits={monster.traits}
-                unitName={unit.name}
-                rollAttack={(name, bonus, damage) => {
-                  const r = performAttack(name, bonus, damage);
-                  return { line: `${name}: ${r.announceParts.length > 0 ? r.announceParts.join(' and ') : 'rolled'}` };
-                }}
-                onRolled={(title, summary) => {
-                  onAnnounce(`${unit.name} uses ${title}: ${summary}`);
-                  onRoll(title, summary);
-                }}
-              />
+                id={`ops-multiattack-${idx}`}
+                type="button"
+                onClick={() => (direct ? rollMultiattack(multi, multi.parse.options[0]) : openMultiattack(idx))}
+              >
+                {summary ? `${a.name}: ${summary}` : a.name}
+              </button>
             );
           }
           return (
@@ -268,6 +335,35 @@ export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, on
           );
         })}
         <button type="button" onClick={() => setView('MAIN')} style={{ marginTop: '0.5rem' }}>Back</button>
+      </div>
+    );
+  };
+
+  const renderMultiattack = () => {
+    const multi = multiattacks[multiIndex];
+    if (!multi) return null;
+    const { options, notes } = multi.parse;
+    return (
+      <div style={{ display: 'grid', gap: '0.5rem' }}>
+        <h4 ref={multiHeadingRef} tabIndex={-1} style={{ outline: 'none', margin: 0 }}>{multi.action.name} Options</h4>
+        <p style={{ margin: 0 }}>{multi.action.content}</p>
+        {options.length > 0 ? (
+          <ul aria-label={`${multi.action.name} options`} style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: '0.5rem' }}>
+            {options.map(o => (
+              <li key={optionName(o)}>
+                <button type="button" style={{ width: '100%' }} onClick={() => rollMultiattack(multi, o)}>{optionName(o)}</button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p style={{ margin: 0 }}>This Multiattack could not be broken into separate attacks; roll the individual attacks instead.</p>
+        )}
+        {notes.length > 0 && (
+          <ul aria-label={`${multi.action.name} notes`} style={{ margin: 0, paddingLeft: '1.25rem' }}>
+            {notes.map(n => <li key={n}>{n}</li>)}
+          </ul>
+        )}
+        <button type="button" onClick={() => setView('ACTIONS')} style={{ marginTop: '0.5rem' }}>Back</button>
       </div>
     );
   };
@@ -386,6 +482,7 @@ export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, on
         {view === 'DAMAGE' && renderHpInput(true)}
         {view === 'HEAL' && renderHpInput(false)}
         {view === 'ACTIONS' && renderActions()}
+        {view === 'MULTIATTACK' && renderMultiattack()}
         {view === 'SKILLS' && renderSkills()}
         {view === 'SAVES' && renderSaves()}
         {view === 'CONDITIONS' && (

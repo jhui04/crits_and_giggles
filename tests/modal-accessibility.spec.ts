@@ -377,8 +377,16 @@ test.describe('Run Mode Accessibility', () => {
     const actionTrigger = encounterPage.locator('[role="dialog"] button').first();
     const actionName = await actionTrigger.innerText();
     await actionTrigger.click();
-    // A Multiattack's first control is its "Roll ..." button; its result is titled "Multiattack (...)".
-    await verifyModalOpen(encounterPage, actionName.startsWith('Roll ') ? /Multiattack/ : new RegExp(actionName));
+    if (actionName.startsWith('Multiattack')) {
+      // A Multiattack with several options first lists them (focus on the options heading); choosing one rolls it.
+      const optionsHeading = encounterPage.getByRole('heading', { name: /Multiattack Options/ });
+      if (await optionsHeading.isVisible()) {
+        await expect(optionsHeading).toBeFocused();
+        await encounterPage.getByRole('list', { name: /Multiattack options/ }).getByRole('button').first().click();
+      }
+    }
+    // A Multiattack's result is titled "Multiattack (...)".
+    await verifyModalOpen(encounterPage, actionName.startsWith('Multiattack') ? /Multiattack/ : new RegExp(actionName));
     await checkA11y(encounterPage, 'Roll Result Modal');
     await verifyModalClosed(encounterPage, optionsTrigger);
     await encounterPage.close();

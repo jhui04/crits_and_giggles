@@ -517,6 +517,39 @@ export function optionLabel(segments: MultiattackSegment[]): string {
   return segments.map(segmentLabel).join(', ');
 }
 
+/** Spoken name of an option, with its condition/form first: "bear form: Claw x2". */
+export function optionName(o: MultiattackOption): string {
+  return o.condition ? `${o.condition}: ${o.label}` : o.label;
+}
+
+/** "A, B, C" -> "A, B and C" (the option label separates its segments with commas). */
+function spokenList(label: string): string {
+  const parts = label.split(', ');
+  return parts.length < 2 ? label : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+}
+
+const SUMMARY_MAX_LENGTH = 110;
+
+/**
+ * Compact text for the Multiattack button's accessible name, e.g.
+ * "Claw x2, or Bite x1 and Claw x2". Lists options while they fit, then
+ * ", or N more options". Empty when there is nothing parsed to list.
+ */
+export function multiattackSummary(options: MultiattackOption[]): string {
+  const names = options.map(o => spokenList(optionName(o)));
+  let text = '';
+  let shown = 0;
+  for (const n of names) {
+    const next = shown === 0 ? n : `${text}, or ${n}`;
+    if (shown > 0 && next.length > SUMMARY_MAX_LENGTH) break;
+    text = next;
+    shown++;
+  }
+  const more = names.length - shown;
+  if (more > 0) text += `, or ${more} more option${more === 1 ? '' : 's'}`;
+  return text;
+}
+
 function mergeSegments(segs: MultiattackSegment[]): MultiattackSegment[] {
   // Merge adjacent same-action attacks ("Claw x1, Claw x1" -> "Claw x2").
   const out: MultiattackSegment[] = [];

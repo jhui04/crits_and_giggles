@@ -1,11 +1,10 @@
 import { test, expect, type Page } from '@playwright/test';
 import { checkA11y } from './utils/axe-helper';
-import { chooseDisclosureOption } from './utils/disclosure-select-helper';
 
-// Multiattack in Run Mode: the Actions view of a combatant's Options dialog
-// parses the monster's Multiattack text into options, rolls every constituent
-// attack through the existing dice machinery, logs each roll and announces one
-// concise summary.
+// Multiattack in Run Mode: the Actions view of a combatant's Options dialog has
+// one Multiattack button naming the parsed options. One option rolls directly;
+// several open an options list. Every constituent attack goes through the
+// existing dice machinery, is dice-logged, and the result lists one item per attack.
 //
 // Bandit Captain (id 16799): "three melee attacks: two with its scimitar and
 // one with its dagger. Or ... two ranged attacks with its daggers." (2 options)
@@ -65,39 +64,57 @@ test.describe('Multiattack actions', () => {
     await expect(page.getByRole('heading', { name: 'Running: Multiattack Encounter' })).toBeVisible();
   });
 
-  test('a single-option Multiattack has one Roll button and no picker', async ({ page }) => {
+  test('a single-option Multiattack is one button that rolls directly and lists each attack', async ({ page }) => {
     await openActions(page, 'Dragon Turtle');
-    const group = page.getByRole('group', { name: 'Multiattack' });
-    await expect(group).toContainText('three attacks');
-    await expect(group.getByRole('button', { name: /^Multiattack Option/ })).toHaveCount(0);
-
-    const roll = group.getByRole('button', { name: 'Roll Bite x1, Claw x2' });
-    await expect(roll).toBeFocused();
+    // One button in the actions list; no raw text, picker or Roll button.
+    const multiButton = page.getByRole('button', { name: 'Multiattack: Bite x1 and Claw x2' });
+    await expect(multiButton).toBeFocused();
+    await expect(page.getByRole('button', { name: /^Roll / })).toHaveCount(0);
+    await expect(page.getByText('three attacks')).toHaveCount(0);
     await checkA11y(page, 'Multiattack single option');
 
-    await roll.click();
+    await multiButton.click();
     const result = page.getByRole('dialog', { name: /Dragon Turtle - Multiattack/ });
     await expect(result).toBeVisible();
     await expect(page.locator('[aria-live="assertive"]')).toContainText(/Dragon Turtle rolled Multiattack \(Bite x1, Claw x2\): Bite: .*; Claw: .*; Claw: /);
+    // The result: a summary line and one list item per attack.
+    await expect(result).toContainText('3 attacks rolled');
+    const items = result.getByRole('list', { name: 'Attacks' }).getByRole('listitem');
+    await expect(items).toHaveCount(3);
+    await expect(items.nth(0)).toHaveText(/^Bite: .* to hit, .* damage$/);
+    await expect(items.nth(1)).toHaveText(/^Claw: .* to hit, .* damage$/);
+    await checkA11y(page, 'Multiattack result');
     // Closing the result closes the Options dialog too (existing behaviour); focus returns to the row.
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog', { name: 'Dragon Turtle Actions' })).not.toBeVisible();
     await expect(rowButton(page, 'Dragon Turtle')).toBeFocused();
   });
 
-  test('a multi-option Multiattack picks an option, rolls every attack, logs the dice, and restores focus', async ({ page }) => {
+  test('a multi-option Multiattack opens its options, rolls the chosen one, logs the dice, and restores focus', async ({ page }) => {
     await openActions(page, 'Bandit Captain');
-    const picker = page.getByRole('button', { name: /^Multiattack Option:/ });
-    await expect(picker).toBeVisible();
-    await expect(picker).toContainText('Scimitar x2, Dagger x1');
-    await checkA11y(page, 'Multiattack option picker');
+    const multiButton = page.getByRole('button', { name: 'Multiattack: Scimitar x2 and Dagger x1, or Dagger x2' });
+    await expect(multiButton).toBeFocused();
+    await multiButton.click();
 
-    await chooseDisclosureOption(page, picker, 'Dagger x2');
-    const roll = page.getByRole('button', { name: 'Roll Dagger x2' });
-    await roll.click();
+    // Options view: heading focused, raw text reachable, one button per option, no Roll button.
+    const heading = page.getByRole('heading', { name: 'Multiattack Options' });
+    await expect(heading).toBeFocused();
+    await expect(page.getByText(/three melee attacks/)).toBeVisible();
+    await checkA11y(page, 'Multiattack options');
 
-    const live = page.locator('[aria-live="assertive"]');
-    await expect(live).toContainText(/Bandit Captain rolled Multiattack \(Dagger x2\): Dagger: .* to hit.*; Dagger: .* to hit/);
+    // Back restores focus to the Multiattack button.
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await expect(multiButton).toBeFocused();
+    await multiButton.click();
+
+    const options = page.getByRole('list', { name: 'Multiattack options' });
+    await expect(options.getByRole('button')).toHaveCount(2);
+    await options.getByRole('button', { name: 'Dagger x2' }).click();
+
+    const result = page.getByRole('dialog', { name: /Bandit Captain - Multiattack \(Dagger x2\)/ });
+    await expect(result).toBeVisible();
+    await expect(page.locator('[aria-live="assertive"]')).toContainText(/Bandit Captain rolled Multiattack \(Dagger x2\): Dagger: .* to hit.*; Dagger: .* to hit/);
+    await expect(result.getByRole('list', { name: 'Attacks' }).getByRole('listitem')).toHaveCount(2);
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog', { name: 'Bandit Captain Actions' })).not.toBeVisible();
     await expect(rowButton(page, 'Bandit Captain')).toBeFocused();
