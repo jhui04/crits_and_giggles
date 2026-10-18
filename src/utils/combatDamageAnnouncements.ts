@@ -6,10 +6,14 @@
  * touching component state.
  */
 
-/** A combatant is "bloodied" at or below half max HP, but only while still up (> 0 HP). */
-export function isBloodied(hp: number, maxHp: number): boolean {
-  return hp > 0 && maxHp > 0 && hp <= maxHp / 2;
-}
+import { isBloodied } from '../shared/combatHp';
+
+/**
+ * A combatant is "bloodied" at or below half max HP, but only while still up
+ * (> 0 HP). Re-exported from src/shared/combatHp.ts, the single source of
+ * truth for this check.
+ */
+export { isBloodied };
 
 export interface HpStatusTransition {
   /** Just crossed from above half max HP to at-or-below half max HP (and is still > 0). */
@@ -29,7 +33,7 @@ export function getHpStatusTransition(prevHp: number, nextHp: number, maxHp: num
 export function formatTrackerHp(currentHp: number | undefined, maxHp: number | undefined): string {
   let text = `HP: ${currentHp}/${maxHp}`;
   if (currentHp !== undefined && currentHp <= 0) text += ', down';
-  else if (currentHp !== undefined && maxHp !== undefined && isBloodied(currentHp, maxHp)) text += ', bloodied';
+  else if (isBloodied(currentHp, maxHp)) text += ', bloodied';
   return text;
 }
 

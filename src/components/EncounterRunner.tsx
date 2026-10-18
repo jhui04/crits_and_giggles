@@ -652,6 +652,15 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
       return false;
     };
 
+    // Any of this component's OWN in-tree dialogs -- as opposed to a foreign
+    // overlay (isForeignOverlayOpen above), these live inside rootRef, so
+    // isForeignOverlayOpen alone doesn't catch them. Alt+N and Alt+U must do
+    // nothing while any of these is open (pressing Next Turn or Undo from
+    // inside e.g. the Conditions dialog should not silently act on the
+    // encounter underneath it).
+    const isOwnDialogOpen = () =>
+      Boolean(activeRoll || activeOperationsUnit || activeConditionsUnit || selectedUnit);
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.defaultPrevented || isForeignOverlayOpen()) return;
 
@@ -672,16 +681,18 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
         }
       }
 
-      // Alt + N for Next Turn
-      if (e.altKey && e.key.toLowerCase() === 'n') {
+      // Alt + N for Next Turn. Suppressed while any of this runner's own
+      // dialogs (Conditions, Operations, Details, Roll) is open, so it can't silently advance the turn underneath them.
+      if (e.altKey && e.key.toLowerCase() === 'n' && !isOwnDialogOpen()) {
         e.preventDefault();
         nextTurn();
       }
 
       // Alt + U to undo the last manual HP change. No-op (and no
       // preventDefault, so it doesn't swallow the keystroke) when there is
-      // nothing to undo, matching the button being absent in that state.
-      if (e.altKey && e.key.toLowerCase() === 'u' && hpUndoStack.length > 0) {
+      // nothing to undo, matching the button being absent in that state, or
+      // while any of this runner's own dialogs is open.
+      if (e.altKey && e.key.toLowerCase() === 'u' && hpUndoStack.length > 0 && !isOwnDialogOpen()) {
         e.preventDefault();
         undoLastHpChange();
       }
@@ -1125,6 +1136,9 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
       {activeConditionsUnit && (
         <ConditionsModal
           unit={activeConditionsUnit}
+          isCurrentActor={
+            isCombatStarted && visibleCombatants[turnIndex]?.instanceId === activeConditionsUnit.instanceId
+          }
           onClose={closeConditions}
           onSave={saveConditions}
         />

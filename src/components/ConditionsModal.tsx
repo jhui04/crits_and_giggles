@@ -6,6 +6,15 @@ import { useFocusTrap } from './uiHelpers';
 
 interface ConditionsModalProps {
   unit: EncounterUnit;
+  /**
+   * Whether `unit` is the combatant whose turn is currently active. A timed
+   * condition newly applied this save is flagged `skipNextTick` when true,
+   * so "N rounds" means N full rounds starting from this creature's *next*
+   * turn rather than ticking down the instant Next Turn is pressed for the
+   * turn still in progress. See the ActiveCondition doc comment in
+   * src/utils/conditions.ts.
+   */
+  isCurrentActor: boolean;
   onClose: () => void;
   onSave: (instanceId: string, conditions: ActiveCondition[], announcement: string) => void;
 }
@@ -26,7 +35,7 @@ interface ConditionsModalProps {
  * duration field blank, then reopen and add Poisoned with "1"), rather than
  * one save silently giving both the same duration.
  */
-export function ConditionsModal({ unit, onClose, onSave }: ConditionsModalProps) {
+export function ConditionsModal({ unit, isCurrentActor, onClose, onSave }: ConditionsModalProps) {
   const existing = normalizeConditions(unit.conditions);
   const [checked, setChecked] = useState<Set<string>>(new Set(existing.map(c => c.name)));
   // One shared "Duration in rounds" value, applied to every condition checked on save that
@@ -76,8 +85,11 @@ export function ConditionsModal({ unit, onClose, onSave }: ConditionsModalProps)
       // A condition that was already applied before this modal opened keeps its own
       // duration untouched. The shared duration field only applies to conditions
       // being newly checked in this save.
+      const isNewlyTimed = !existingByName.has(key) && validSharedRounds !== undefined;
       const rounds = existingByName.has(key) ? existingByName.get(key) : validSharedRounds;
-      next = addCondition(next, name, rounds);
+      // Only a condition newly given a duration THIS save needs the skip flag; a
+      // pre-existing duration was already correctly timed when it was first applied.
+      next = addCondition(next, name, rounds, isNewlyTimed && isCurrentActor);
     }
     for (const name of allNames) {
       if (!checked.has(name)) next = removeCondition(next, name);
@@ -129,7 +141,7 @@ export function ConditionsModal({ unit, onClose, onSave }: ConditionsModalProps)
 
           <div style={{ marginBottom: '1rem' }}>
             <label htmlFor="conditions-shared-duration">
-              Duration in rounds (applied to any checked condition above without its own duration; leave blank for indefinite):
+              Duration in rounds (ends at the end of the creature's turn; applied to any checked condition above without its own duration; leave blank for indefinite):
             </label>
             <input
               id="conditions-shared-duration"

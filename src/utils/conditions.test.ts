@@ -57,6 +57,12 @@ describe('addCondition', () => {
     expect(addCondition(undefined, 'Poisoned', 2)).toEqual([{ name: 'Poisoned', roundsRemaining: 2 }]);
   });
 
+  it('sets skipNextTick when passed true', () => {
+    expect(addCondition(undefined, 'Poisoned', 2, true)).toEqual([
+      { name: 'Poisoned', roundsRemaining: 2, skipNextTick: true },
+    ]);
+  });
+
   it('replaces an existing condition of the same name (case-insensitive), using the new call\'s casing', () => {
     const start = [{ name: 'Poisoned', roundsRemaining: 2 }, { name: 'Prone' }];
     expect(addCondition(start, 'poisoned', 5)).toEqual([{ name: 'Prone' }, { name: 'poisoned', roundsRemaining: 5 }]);
@@ -122,6 +128,45 @@ describe('tickConditionsAtEndOfTurn', () => {
     const unit = { name: 'Goblin 2', conditions: [{ name: 'Poisoned', roundsRemaining: 1 }] };
     const { unit: next } = tickConditionsAtEndOfTurn(unit);
     expect(next.name).toBe('Goblin 2');
+  });
+
+  // Duration semantics: a condition applied to the combatant whose turn is
+  // currently active is flagged skipNextTick so it gets the full N rounds
+  // starting from that combatant's NEXT turn, instead of losing a round to
+  // the turn already in progress the instant Next Turn is pressed.
+  describe('skipNextTick (duration applied to the currently-acting combatant)', () => {
+    it('consumes the flag instead of decrementing on the first tick', () => {
+      const unit = { conditions: [{ name: 'Poisoned', roundsRemaining: 1, skipNextTick: true }] };
+      const { unit: next, expired } = tickConditionsAtEndOfTurn(unit);
+      expect(expired).toEqual([]);
+      expect(next.conditions).toEqual([{ name: 'Poisoned', roundsRemaining: 1 }]);
+    });
+
+    it('decrements normally on the tick after the flag is consumed', () => {
+      const firstTick = tickConditionsAtEndOfTurn({
+        conditions: [{ name: 'Poisoned', roundsRemaining: 1, skipNextTick: true }],
+      });
+      expect(firstTick.expired).toEqual([]);
+
+      const secondTick = tickConditionsAtEndOfTurn(firstTick.unit);
+      expect(secondTick.expired).toEqual(['Poisoned']);
+      expect(secondTick.unit.conditions).toEqual([]);
+    });
+
+    it('gives a true full round count end to end: 1 round applied mid-turn survives that turn-end and expires on the next', () => {
+      // Simulates: DM applies "1 round" to the combatant currently acting,
+      // then presses Next Turn repeatedly for a full round.
+      let unit = { conditions: addCondition(undefined, 'Poisoned', 1, true) };
+
+      // End of the turn it was applied on: flag consumed, round not spent.
+      let tick = tickConditionsAtEndOfTurn(unit);
+      expect(tick.expired).toEqual([]);
+      unit = tick.unit;
+
+      // End of the combatant's NEXT turn: the full 1 round has now elapsed.
+      tick = tickConditionsAtEndOfTurn(unit);
+      expect(tick.expired).toEqual(['Poisoned']);
+    });
   });
 });
 

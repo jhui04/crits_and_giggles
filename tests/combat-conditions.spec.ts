@@ -81,19 +81,37 @@ test.describe('Combat Conditions Tracker', () => {
     await expect(playerItem).toContainText('Poisoned (1 round)');
     await expect(playerItem).toContainText('Prone');
 
-    // Advance turn: outgoing player's Poisoned (1 round) ends; Prone (indefinite) remains.
+    // Advance turn: Poisoned was applied to the player while their OWN turn was
+    // active, so per the duration rule (a duration of N means N full turn-ends
+    // of that creature AFTER it was applied, not counting the turn in progress)
+    // this first end-of-turn tick must NOT expire it yet -- it only consumes the
+    // "applied mid-turn" skip, not the round count.
     const turn1Save = page.waitForResponse(resp => resp.url().includes('/api/campaigns') && resp.status() === 200);
     await page.getByRole('button', { name: 'Next Turn (Alt+N)' }).click();
     await turn1Save;
-    await expect(liveRegion).toContainText(`${playerUnit.name}'s Poisoned has ended.`);
+    await expect(liveRegion).not.toContainText('has ended');
     await expect(liveRegion).toContainText(`Current turn: ${monsterUnit.name}.`);
+    await expect(playerItem).toContainText('Poisoned (1 round)');
 
-    // Advance again: wraps to round 2, current turn is back to the player, still Prone.
+    // Advance again: wraps to round 2, current turn is back to the player. Poisoned
+    // is still present at its full 1 round (the skip was consumed last tick, not the
+    // round), alongside Prone -- it was the monster's turn that just ended, and the
+    // monster doesn't own the condition.
     const turn2Save = page.waitForResponse(resp => resp.url().includes('/api/campaigns') && resp.status() === 200);
     await page.getByRole('button', { name: 'Next Turn (Alt+N)' }).click();
     await turn2Save;
-    await expect(liveRegion).toContainText(`Current turn: ${playerUnit.name}, Prone.`);
+    await expect(liveRegion).toContainText(`Current turn: ${playerUnit.name}, Prone, Poisoned (1 round).`);
     await expect(page.getByLabel('Round 2')).toBeVisible();
+    await expect(playerItem).toContainText('Poisoned (1 round)');
+
+    // Advance a third time: this is now the end of the player's own turn again
+    // (their first full turn-end since the skipped one), so the 1 round actually
+    // elapses and Poisoned expires; Prone (indefinite) is untouched.
+    const turn3Save = page.waitForResponse(resp => resp.url().includes('/api/campaigns') && resp.status() === 200);
+    await page.getByRole('button', { name: 'Next Turn (Alt+N)' }).click();
+    await turn3Save;
+    await expect(liveRegion).toContainText(`${playerUnit.name}'s Poisoned has ended.`);
+    await expect(liveRegion).toContainText(`Current turn: ${monsterUnit.name}.`);
 
     // Reload and confirm the surviving condition persisted server-side.
     await page.reload();

@@ -29,10 +29,22 @@ export const SRD_CONDITIONS: readonly string[] = [
  * An applied condition. `roundsRemaining` undefined/omitted means the
  * condition lasts indefinitely (until manually removed) rather than
  * expiring at a tracked end-of-turn tick.
+ *
+ * `skipNextTick`: a duration of N rounds is meant to read as "lasts through
+ * the end of this creature's Nth turn-end AFTER it was applied, not counting
+ * any turn already in progress." Applying a timed condition to the
+ * combatant whose turn is currently active would otherwise tick it down the
+ * moment the DM presses Next Turn, so it only gets N-1 effective rounds. Set
+ * `skipNextTick: true` when (re-)timing a condition on the currently-acting
+ * combatant; tickConditionsAtEndOfTurn then clears the flag on the next
+ * end-of-turn tick instead of decrementing `roundsRemaining`, so the first
+ * real decrement happens on the turn-end after that one. Irrelevant for
+ * indefinite conditions (`roundsRemaining` undefined).
  */
 export interface ActiveCondition {
   name: string;
   roundsRemaining?: number;
+  skipNextTick?: boolean;
 }
 
 /** Minimal shape this module needs from EncounterUnit, to stay decoupled from React/types.ts. */
@@ -57,9 +69,11 @@ export function normalizeConditions(raw: unknown): ActiveCondition[] {
       const name = (entry as { name: string }).name.trim();
       if (!name) continue;
       const rr = (entry as { roundsRemaining?: unknown }).roundsRemaining;
+      const skip = (entry as { skipNextTick?: unknown }).skipNextTick;
       result.push({
         name,
         roundsRemaining: typeof rr === 'number' && Number.isFinite(rr) ? rr : undefined,
+        skipNextTick: skip === true ? true : undefined,
       });
     }
   }
@@ -73,13 +87,14 @@ export function normalizeConditions(raw: unknown): ActiveCondition[] {
 export function addCondition(
   conditions: ActiveCondition[] | undefined,
   name: string,
-  roundsRemaining?: number
+  roundsRemaining?: number,
+  skipNextTick?: boolean
 ): ActiveCondition[] {
   const trimmed = name.trim();
   if (!trimmed) return conditions ? [...conditions] : [];
   const existing = conditions || [];
   const filtered = existing.filter(c => c.name.toLowerCase() !== trimmed.toLowerCase());
-  return [...filtered, { name: trimmed, roundsRemaining }];
+  return [...filtered, { name: trimmed, roundsRemaining, skipNextTick: skipNextTick ? true : undefined }];
 }
 
 /** Removes a condition by name (case-insensitive). Returns a new array; never mutates input. */
@@ -108,6 +123,14 @@ export function tickConditionsAtEndOfTurn<T extends UnitWithConditions>(
   for (const cond of normalized) {
     if (cond.roundsRemaining === undefined) {
       remaining.push(cond);
+      continue;
+    }
+    // A condition (re-)timed on the currently-acting combatant is flagged
+    // skipNextTick so this, its first end-of-turn tick, consumes the flag
+    // instead of the round count -- see the ActiveCondition doc comment for
+    // why. The duration starts decrementing from the turn-end after this one.
+    if (cond.skipNextTick) {
+      remaining.push({ ...cond, skipNextTick: undefined });
       continue;
     }
     const next = cond.roundsRemaining - 1;

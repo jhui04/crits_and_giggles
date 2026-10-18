@@ -218,4 +218,31 @@ test.describe('EncounterRunner global shortcut collisions', () => {
     await page.keyboard.press('Alt+n');
     await expect(currentTurnButton(page)).toContainText('Goblin Sneak');
   });
+
+  test('Alt+N while the Conditions dialog is open does not advance the turn', async ({ page }) => {
+    await setupApp(page);
+    await expect(currentTurnButton(page)).toContainText('Grog');
+
+    // Conditions is one of EncounterRunner's own in-tree dialogs, so the
+    // old isForeignOverlayOpen() check alone didn't catch it: it lives
+    // inside rootRef, unlike the Assistant Oracle/Oracle/Shortcuts
+    // Help/Dice Log overlays.
+    const grogItem = page.locator('li', { hasText: 'Grog' });
+    await grogItem.getByRole('button', { name: /^Conditions/ }).click();
+    const heading = page.getByRole('heading', { name: 'Conditions for Grog' });
+    await expect(heading).toBeFocused();
+
+    await page.keyboard.press('Alt+n');
+
+    // The dialog is still open and the turn did not silently advance underneath it.
+    await expect(heading).toBeVisible();
+    await expect(currentTurnButton(page)).toContainText('Grog');
+
+    await page.keyboard.press('Escape');
+    await expect(heading).not.toBeVisible();
+
+    // Sanity check: Alt+N works again once the dialog is closed.
+    await page.keyboard.press('Alt+n');
+    await expect(currentTurnButton(page)).toContainText('Goblin Sneak');
+  });
 });

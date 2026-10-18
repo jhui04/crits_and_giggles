@@ -11,6 +11,17 @@
  * re-exports this module rather than keeping its own copy.
  */
 
+/**
+ * The single source of truth for "bloodied": at or below half max HP, but
+ * only while still up (> 0 HP). No rounding either way (an odd max like 7
+ * bloodies at hp <= 3.5, i.e. hp <= 3). Everything that needs "bloodied" imports
+ * this rather than keeping its own copy, so they can't disagree on an odd max HP.
+ */
+export function isBloodied(currentHp?: number, maxHp?: number): boolean {
+  if (currentHp === undefined || maxHp === undefined || maxHp <= 0) return false;
+  return currentHp > 0 && currentHp <= maxHp / 2;
+}
+
 export interface DamageTarget {
   instanceId?: string;
   combatantId?: string;
