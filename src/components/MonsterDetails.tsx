@@ -220,7 +220,7 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
     <div className="monster-details" onKeyDown={handleKeyDown} >
       <h3>Quick Stats</h3>
       <div>
-        {initiative !== undefined && <p><strong>Initiative:</strong> {initiative}</p>}
+        {initiative != null && <p><strong>Initiative:</strong> {initiative}</p>}
         <p><strong>HP:</strong> {currentHp !== undefined ? `${currentHp} / ${maxHp}` : monster.attributes.hp.value} ({monster.attributes.hp.dice})</p>
         <p><strong>AC:</strong> {monster.attributes.ac.value} {monster.attributes.ac.notes ? `(${monster.attributes.ac.notes})` : ''}</p>
         <p><strong>Type:</strong> {monster.meta.size} {monster.meta.type}</p>

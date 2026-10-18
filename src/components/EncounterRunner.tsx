@@ -76,6 +76,29 @@ function tryRollHp(u: EncounterUnit, purpose: string) {
   }
 }
 
+/** Remove browser recovery copies that belong to another campaign (e.g. before a DB wipe), use the old untagged format, or whose encounter is gone. */
+function purgeStaleEncounterCopies(campaign: Campaign | null | undefined): void {
+  if (!campaign) return;
+  try {
+    const encounterIds = new Set(campaign.encounters.map(e => e.id));
+    const prefix = 'crits_encounter_';
+    for (const key of Object.keys(localStorage)) {
+      if (!key.startsWith(prefix)) continue;
+      let keep = false;
+      try {
+        const env = JSON.parse(localStorage.getItem(key) || 'null');
+        // Copies for other campaigns are left alone only if they are tagged; untagged legacy ones are dropped.
+        keep = !!env && typeof env.campaignId === 'string' && (env.campaignId !== campaign.id || encounterIds.has(key.slice(prefix.length)));
+      } catch {
+        keep = false;
+      }
+      if (!keep) localStorage.removeItem(key);
+    }
+  } catch {
+    // storage unavailable
+  }
+}
+
 /** Roll initiative (1d20 + dex) and log it. */
 function rollInitiative(u: EncounterUnit, purpose: string): number {
   const formula = `1d20${u.dexMod >= 0 ? '+' : ''}${u.dexMod}`;
@@ -176,7 +199,9 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
 
     // Immediate synchronous localStorage update for instant page refresh recovery
     try {
-      localStorage.setItem(`crits_encounter_${activeEncounter.id}`, JSON.stringify(runningState));
+      // Tagged with the campaign id: the seeded default campaign gets a fresh
+      // campaign id after the DB is wiped even though its encounter ids are stable.
+      localStorage.setItem(`crits_encounter_${activeEncounter.id}`, JSON.stringify({ campaignId: activeCampaign.id, state: runningState }));
     } catch (e) {
       console.warn('Failed to sync encounter to localStorage:', e);
     }
@@ -280,12 +305,19 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
 
     let savedState: EncounterRunningState | null = forceFresh ? null : (encounter.runningState || null);
     if (!forceFresh) {
+      // The server is the source of truth. The browser copy is only crash/refresh
+      // recovery for a write the server has not confirmed, so it is used only when it
+      // belongs to this campaign (ids change when the DB is wiped) and is strictly newer.
+      purgeStaleEncounterCopies(campaign);
       try {
         const local = localStorage.getItem(`crits_encounter_${encounter.id}`);
         if (local) {
-          const parsed = JSON.parse(local) as EncounterRunningState;
-          if (!savedState || (parsed.updatedAt && (!savedState.updatedAt || parsed.updatedAt >= savedState.updatedAt))) {
-            savedState = parsed;
+          const env = JSON.parse(local) as { campaignId?: string; state?: EncounterRunningState };
+          const parsed = env.state;
+          if (parsed && env.campaignId === campaign?.id) {
+            if (!savedState || (parsed.updatedAt && (!savedState.updatedAt || parsed.updatedAt > savedState.updatedAt))) {
+              savedState = parsed;
+            }
           }
         }
       } catch {
@@ -798,7 +830,8 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
         }
       }
 
-      let initVal = u.initiative;
+      // The server returns unset initiatives as null, not undefined.
+      let initVal = u.initiative ?? undefined;
       if (initVal === undefined) {
         initVal = u.isPlayer ? 0 : rollInitiative(u, 'Initiative (Initial Roll)');
       }
@@ -1036,7 +1069,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
           >
             Dice Log (Alt+D)
           </button>
-          {(isCombatStarted || combatants.some(c => c.initiative !== undefined)) && (
+          {(isCombatStarted || combatants.some(c => c.initiative != null)) && (
             <button type="button" onClick={handleResetCombat}>Reset Encounter</button>
           )}
           <button type="button" onClick={handleClose}>Close Encounter Tab</button>
