@@ -11,6 +11,7 @@ import { validateAgainstSchema, formatSchemaErrors } from './schemaValidator.js'
 import { getMapDocumentByUrl, getGridDataFromDocument } from '../maps/mapStore.js';
 import { TERRAIN_RULES, describePlacement, findPositions as engineFindPositions } from '../../src/shared/spatial/index.ts';
 import { stripMentionTags } from '../../src/shared/mentionTags.ts';
+import { formatConditionNames } from '../../src/utils/conditions.ts';
 import {
   MAP_READ_TOOL_DEFS,
   runGetMapOverview,
@@ -2913,7 +2914,7 @@ export async function executeTool(toolName, rawArgs, context = {}) {
             currentHp: c.currentHp,
             maxHp: c.maxHp,
             isLiveCombatant: true,
-            ...(hit.source === 'running_state' ? { conditions: c.conditions || [] } : {}),
+            ...(hit.source === 'running_state' ? { conditions: formatConditionNames(c.conditions) } : {}),
             status: c.currentHp <= 0 ? (hit.source === 'encounter_units' && c.isPlayer ? 'Unconscious / Dying' : 'Dead / Defeated') : 'Alive',
           };
           break;
@@ -2952,7 +2953,7 @@ export async function executeTool(toolName, rawArgs, context = {}) {
             currentHp: c.currentHp,
             maxHp: c.maxHp,
             isPlayer: !!c.isPlayer,
-            ...(hit.source === 'running_state' ? { conditions: c.conditions || [] } : {}),
+            ...(hit.source === 'running_state' ? { conditions: formatConditionNames(c.conditions) } : {}),
             status: c.currentHp <= 0 ? (c.isPlayer ? 'Unconscious / Dying' : 'Dead / Defeated') : 'Alive',
           };
         } else {
@@ -3020,7 +3021,7 @@ export async function executeTool(toolName, rawArgs, context = {}) {
                 isPlayer: !!c.isPlayer,
                 phase: c.phase || 1,
                 isCurrentTurn: !!currentTurnUnit && c.instanceId === currentTurnUnit.instanceId,
-                conditions: c.conditions || [],
+                conditions: formatConditionNames(c.conditions),
                 position: c.position || null,
               })),
             };
@@ -3679,7 +3680,7 @@ export async function executeTool(toolName, rawArgs, context = {}) {
                 initiative: c.initiative,
                 isPlayer: !!c.isPlayer,
                 position: c.position || null,
-                conditions: c.conditions || [],
+                conditions: formatConditionNames(c.conditions),
               }));
             }
           } catch {}
@@ -3730,7 +3731,7 @@ export async function executeTool(toolName, rawArgs, context = {}) {
                 coordinates: { x: c.position.x, y: c.position.y },
                 cell: coordinateToLabel(c.position.x, c.position.y),
                 hp: `${c.currentHp ?? '?'}/${c.maxHp ?? '?'}`,
-                conditions: c.conditions || [],
+                conditions: formatConditionNames(c.conditions),
               };
               if (mapModel) {
                 const region = mapModel.regionAt(c.position);

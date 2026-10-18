@@ -3,6 +3,7 @@ import { hitlManager } from './hitlManager.js';
 import { getProfileToolNames } from './contextProfiles.js';
 import { WRITE_TOOL_NAMES } from './toolController.js';
 import { stripMentionTags } from '../../src/shared/mentionTags.ts';
+import { formatConditionNames } from '../../src/utils/conditions.ts';
 
 /**
  * Accurate and conservative token estimator.
@@ -118,7 +119,7 @@ export function getAuthoritativeGameState({
         initiative: c.initiative,
         position: c.position || null,
         isPlayer: !!c.isPlayer,
-        conditions: c.conditions || [],
+        conditions: formatConditionNames(c.conditions),
       }));
     } else {
       // Read from encounter_units table

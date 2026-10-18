@@ -1,4 +1,5 @@
 import type { WallSegment, TerrainLayer, MapObject } from './shared/spatial/types.ts';
+import type { ActiveCondition } from './utils/conditions';
 export type LoreItem = 
   | string 
   | { type: 'list', items: string[] }
@@ -148,7 +149,7 @@ export interface EncounterUnit {
   isPlayer?: boolean;
   faction?: 'ally' | 'enemy' | 'neutral';
   fullData?: Monster;
-  conditions?: string[];
+  conditions?: ActiveCondition[];
   notes?: string;
   position?: Position;
   phase?: number;
