@@ -300,11 +300,17 @@ export function WorldBuilder() {
       clearTimeout(focusTimeoutRef.current);
     }
     focusTimeoutRef.current = setTimeout(() => {
+      focusTimeoutRef.current = null;
+      // The form's submit button was just unmounted, which reverts focus to
+      // <body>. If focus has since moved somewhere else (the user or a test
+      // has already interacted with something new), this restoration is
+      // stale: moving focus now would yank it away from whatever they're
+      // doing instead of returning it from the closed form.
+      if (document.activeElement !== document.body) return;
       if (idToFocus) {
         const newEditBtn = document.querySelector(`[data-edit-id="${idToFocus}"]`) as HTMLButtonElement | null;
         if (newEditBtn) {
           newEditBtn.focus();
-          focusTimeoutRef.current = null;
           return;
         }
       }
@@ -314,7 +320,6 @@ export function WorldBuilder() {
       } else {
         addAssetBtnRef.current?.focus();
       }
-      focusTimeoutRef.current = null;
     }, 100);
   };
 
@@ -334,11 +339,14 @@ export function WorldBuilder() {
       clearTimeout(focusTimeoutRef.current);
     }
     focusTimeoutRef.current = setTimeout(() => {
+      focusTimeoutRef.current = null;
+      // See the matching guard in handleAssetSubmit: skip a stale restore if
+      // focus has already moved on to something the user is now using.
+      if (document.activeElement !== document.body) return;
       if (idToFocus) {
         const newEditBtn = document.querySelector(`[data-edit-id="${idToFocus}"]`) as HTMLButtonElement | null;
         if (newEditBtn) {
           newEditBtn.focus();
-          focusTimeoutRef.current = null;
           return;
         }
       }
@@ -348,7 +356,6 @@ export function WorldBuilder() {
       } else {
         addAssetBtnRef.current?.focus();
       }
-      focusTimeoutRef.current = null;
     }, 100);
   };
 
