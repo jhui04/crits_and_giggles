@@ -125,3 +125,31 @@ def test_extract_archive_tar_gz():
         assert os.path.exists(extracted_file)
         with open(extracted_file, "rb") as f:
             assert f.read() == sample_content
+
+
+def test_export_and_import_include_images():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        fake_repo = os.path.join(tmpdir, "repo")
+        os.makedirs(os.path.join(fake_repo, "dnd_beyond", "monsters"))
+        os.makedirs(os.path.join(fake_repo, "public", "images", "monsters"))
+        with open(os.path.join(fake_repo, "dnd_beyond", "monsters", "page1.html"), "w", encoding="utf-8") as f:
+            f.write("<html>Monster Page 1</html>")
+        image_bytes = b"fake png image bytes"
+        with open(os.path.join(fake_repo, "public", "images", "monsters", "1.png"), "wb") as f:
+            f.write(image_bytes)
+
+        archive_path = os.path.join(tmpdir, "export.zip")
+        export_cache(archive_path, base_dir=fake_repo)
+        with zipfile.ZipFile(archive_path) as zf:
+            assert "public/images/monsters/1.png" in zf.namelist()
+
+        # Restricting categories must exclude images unless requested
+        html_only = os.path.join(tmpdir, "html_only.zip")
+        export_cache(html_only, categories=["monsters"], base_dir=fake_repo)
+        with zipfile.ZipFile(html_only) as zf:
+            assert "public/images/monsters/1.png" not in zf.namelist()
+
+        target_repo = os.path.join(tmpdir, "target")
+        import_cache(archive_path, regenerate=False, base_dir=target_repo)
+        with open(os.path.join(target_repo, "public", "images", "monsters", "1.png"), "rb") as f:
+            assert f.read() == image_bytes

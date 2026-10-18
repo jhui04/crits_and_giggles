@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from scraper_base import ScraperManager, RequestLimitExceeded
+from scraper_base import ScraperManager, RequestLimitExceeded, extract_art_url, attach_image
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATE_FILE = os.path.join(ROOT_DIR, "tools/state/monster_scraper_state.json")
@@ -278,6 +278,10 @@ def parse_monster_html(html_content, url=""):
         if lore_sections:
             monster["lore_sections"] = lore_sections
 
+    image_url = extract_art_url(soup, html_content, 'monster-image')
+    if image_url:
+        monster["image_url"] = image_url
+
     return monster
 
 
@@ -395,8 +399,12 @@ def merge_values(val1, val2, path, monster_name):
 
 def merge_monsters(canonical, incoming):
     all_keys = set(canonical.keys()) | set(incoming.keys())
-    keys_to_merge = all_keys - {'id', 'url', 'source'}
+    keys_to_merge = all_keys - {'id', 'url', 'source', 'image_url', 'image'}
     monster_name = canonical.get('name') or incoming.get('name') or "Unknown"
+    if not canonical.get('image_url') and incoming.get('image_url'):
+        canonical['image_url'] = incoming['image_url']
+        if incoming.get('image'):
+            canonical['image'] = incoming['image']
     for k in keys_to_merge:
         if k in canonical and k in incoming:
             canonical[k] = merge_values(canonical[k], incoming[k], k, monster_name)
@@ -418,8 +426,9 @@ def deduplicate_monsters(monsters_list):
     final_output.extend(existing_stubs)
 
     def is_duplicate(m1, m2):
-        keys1 = {k for k in m1.keys() if k not in ('id', 'url', 'source')}
-        keys2 = {k for k in m2.keys() if k not in ('id', 'url', 'source')}
+        ignored = ('id', 'url', 'source', 'image_url', 'image')
+        keys1 = {k for k in m1.keys() if k not in ignored}
+        keys2 = {k for k in m2.keys() if k not in ignored}
         if keys1 != keys2:
             return False
         for k in keys1:
@@ -581,6 +590,7 @@ def main():
                         monster_data = parse_monster_html(html_content, monster_url)
                         if not monster_data.get('source') and source != "Unknown":
                             monster_data['source'] = source
+                        attach_image(monster_data, 'monsters', download=not args.offline)
                             
                         if already_in_json:
                             all_monsters[target_idx] = monster_data

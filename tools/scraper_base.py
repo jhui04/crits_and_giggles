@@ -18,6 +18,68 @@ from playwright.sync_api import sync_playwright
 
 BASE_URL = "https://www.dndbeyond.com"
 
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+IMAGES_DIR = os.path.join(ROOT_DIR, "public", "images")
+# Real artwork lives under /avatars/... (thumbnails/<a>/<b>/<w>/<h>/<id>.<ext>, or <a>/<b>/<id>.<ext>);
+# everything else on these pages (school icons, "wondrousitem.jpg", "beast.jpg") is a generic placeholder.
+REAL_ART_RE = re.compile(r'(?:https?:)?//[^"\x27\s?]*?/avatars/(?:thumbnails/)?\d+/\d+/(?:\d+/\d+/)?[^"\x27\s?/]+\.(?:png|jpe?g|webp|gif)', re.I)
+
+def _absolute(url):
+    return "https:" + url if url.startswith('//') else url
+
+def extract_art_url(soup, html, css_class):
+    """Return the absolute URL of the real artwork <img class=css_class>, or None for placeholders/missing."""
+    img = soup.select_one(f'img.{css_class}')
+    if not img:
+        return None
+    src = (img.get('src') or '').strip()
+    match = REAL_ART_RE.search(src)
+    if match:
+        return _absolute(match.group(0))
+    # Browser-saved pages rewrite src to a local ./..._files/<name> path; the original URL is still in the page.
+    basename = os.path.basename(src.split('?')[0])
+    if not basename or src.startswith(('http', '//')):
+        return None
+    for m in REAL_ART_RE.finditer(html):
+        if m.group(0).endswith('/' + basename):
+            return _absolute(m.group(0))
+    return None
+
+def local_image_path(kind, asset_id, image_url):
+    """Deterministic web path (and disk path) for a downloaded image: /images/<kind>/<id>.<ext>."""
+    ext = os.path.splitext(image_url.split('?')[0])[1].lower() or '.jpg'
+    name = f"{asset_id}{ext}"
+    return f"/images/{kind}/{name}", os.path.join(IMAGES_DIR, kind, name)
+
+def download_image(url, dest):
+    import urllib.request
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        data = resp.read()
+    if not data:
+        raise ValueError("empty response")
+    with open(dest, 'wb') as out:
+        out.write(data)
+
+def attach_image(asset, kind, download=False):
+    """Set asset['image'] (local web path) when the downloaded file exists; optionally download it first.
+    Leaves asset['image_url'] (remote source) untouched. No-op when the asset has no real artwork."""
+    url = asset.get('image_url')
+    asset.pop('image', None)
+    if not url:
+        return asset
+    web_path, disk_path = local_image_path(kind, asset['id'], url)
+    if download and not (os.path.exists(disk_path) and os.path.getsize(disk_path) > 0):
+        try:
+            download_image(url, disk_path)
+            print(f"Downloaded image for {asset.get('name', asset['id'])}")
+        except Exception as e:
+            print(f"Warning: could not download image {url}: {e}")
+    if os.path.exists(disk_path) and os.path.getsize(disk_path) > 0:
+        asset['image'] = web_path
+    return asset
+
 class RequestLimitExceeded(Exception):
     """Raised when the maximum number of network requests for the session is reached."""
     pass

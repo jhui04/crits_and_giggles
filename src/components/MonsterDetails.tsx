@@ -7,6 +7,7 @@ import { wrapSpells } from '../utils/spellUtils';
 import { Markdown } from './Markdown';
 import { dataService } from '../services/DataService';
 import { isInteractiveTarget, useFocusTrap } from './uiHelpers';
+import { AssetImage } from './AssetImage';
 
 interface MonsterDetailsProps {
   monster: Monster;
@@ -224,6 +225,7 @@ export function MonsterDetails({ monster, currentHp, maxHp, initiative, onAnnoun
         <p><strong>AC:</strong> {monster.attributes.ac.value} {monster.attributes.ac.notes ? `(${monster.attributes.ac.notes})` : ''}</p>
         <p><strong>Type:</strong> {monster.meta.size} {monster.meta.type}</p>
       </div>
+      <AssetImage src={monster.image} />
 
       {monster.description && (
         <div style={{ marginTop: '1rem' }}>

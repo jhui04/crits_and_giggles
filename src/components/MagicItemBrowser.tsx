@@ -1,3 +1,4 @@
+import { AssetImage } from './AssetImage';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import type { MagicItem, LoreItem } from '../types';
 import { dataService } from '../services/DataService';
@@ -191,6 +192,7 @@ export function MagicItemDetail({ magicItem, id, onClose, onAssetClick = () => {
           </div>
         )}
       </div>
+      <AssetImage src={magicItem.image} />
 
       <div style={{ lineHeight: '1.6' }}>
         {renderLoreContent(magicItem.description)}

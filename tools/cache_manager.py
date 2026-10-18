@@ -29,6 +29,9 @@ TOOLS_STATE_DIR = os.path.join(PROJECT_ROOT, 'tools', 'state')
 PUBLIC_DATA_DIR = os.path.join(PROJECT_ROOT, 'public', 'data')
 
 CACHE_CATEGORIES = ['monsters', 'spells', 'magic_items', 'adventures', 'egtw']
+# Downloaded monster / magic item artwork lives in public/images/ (tools/download_images.py), not dnd_beyond/.
+IMAGES_CATEGORY = 'images'
+EXPORT_CATEGORIES = CACHE_CATEGORIES + [IMAGES_CATEGORY]
 
 def get_rel_path(abs_path):
     return os.path.relpath(abs_path, PROJECT_ROOT).replace('\\', '/')
@@ -45,7 +48,7 @@ def export_cache(output_path, include_state=True, categories=None, base_dir=None
     is_tar = output_path.endswith('.tar.gz') or output_path.endswith('.tgz') or output_path.endswith('.tar')
     archive_format = 'tar' if is_tar else 'zip'
 
-    target_categories = set(categories) if categories else set(CACHE_CATEGORIES)
+    target_categories = set(categories) if categories else set(EXPORT_CATEGORIES)
 
     files_to_pack = []
     dnd_dir = os.path.join(root_dir, 'dnd_beyond')
@@ -61,6 +64,15 @@ def export_cache(output_path, include_state=True, categories=None, base_dir=None
                 # parts[0] == 'dnd_beyond', parts[1] == category
                 if len(parts) > 1 and parts[1] not in target_categories:
                     continue
+                files_to_pack.append((abs_file, rel_file))
+
+    # 1b. Collect downloaded artwork under public/images/
+    images_dir = os.path.join(root_dir, 'public', 'images')
+    if IMAGES_CATEGORY in target_categories and os.path.exists(images_dir):
+        for root, _, files in os.walk(images_dir):
+            for file in files:
+                abs_file = os.path.join(root, file)
+                rel_file = os.path.relpath(abs_file, root_dir).replace('\\', '/')
                 files_to_pack.append((abs_file, rel_file))
 
     # 2. Collect tools/state files if requested
@@ -84,7 +96,10 @@ def export_cache(output_path, include_state=True, categories=None, base_dir=None
     else:
         with zipfile.ZipFile(output_path, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
             for abs_file, rel_file in files_to_pack:
-                zf.write(abs_file, arcname=rel_file)
+                # Images are already compressed; storing them avoids slow, pointless deflate.
+                is_image = rel_file.startswith('public/images/')
+                zf.write(abs_file, arcname=rel_file,
+                         compress_type=zipfile.ZIP_STORED if is_image else zipfile.ZIP_DEFLATED)
 
     archive_size_mb = os.path.getsize(output_path) / (1024 * 1024)
     print(f"Export complete: {output_path} ({archive_size_mb:.2f} MB, {len(files_to_pack)} files).")
@@ -339,8 +354,8 @@ def main():
     export_parser.add_argument(
         "--category", "-c",
         action="append",
-        choices=CACHE_CATEGORIES,
-        help="Specific categories to export (can specify multiple)"
+        choices=EXPORT_CATEGORIES,
+        help="Specific categories to export (can specify multiple). 'images' is the downloaded artwork in public/images/"
     )
 
     # Import command

@@ -35,6 +35,7 @@ export interface Monster {
   source?: string;
   description?: LoreItem[];
   lore_sections?: LoreSection[];
+  image?: string;
   proficiency_bonus?: number;
   traits: { name: string; content: string; usage?: { times: number; type: string } }[];
   actions: { name: string; content: string; is_attack?: boolean; attack_bonus?: number; damage?: { dice: string; type: string }[] }[];
@@ -284,6 +285,7 @@ export interface MagicItem {
   description: LoreItem[];
   html_description: string;
   scraped_at: string;
+  image?: string;
   duplicate_of?: string;
 }
 

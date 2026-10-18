@@ -19,7 +19,7 @@ if hasattr(sys.stderr, 'reconfigure'):
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from scraper_base import ScraperManager, RequestLimitExceeded
+from scraper_base import ScraperManager, RequestLimitExceeded, extract_art_url, attach_image
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATE_FILE = os.path.join(ROOT_DIR, "tools/state/magic_item_scraper_state.json")
@@ -170,7 +170,11 @@ def parse_magic_item_detail_html(html_content, url=""):
     for tag_el in detail_content_div.select('.tags.item-tags .tag.item-tag'):
         tags.append(clean_text(tag_el.get_text()))
     data['tags'] = tags
-    
+
+    image_url = extract_art_url(soup, html_content, 'magic-item-image')
+    if image_url:
+        data['image_url'] = image_url
+
     return data
 
 def validate_magic_item(html_content, url):
@@ -200,7 +204,7 @@ def deduplicate_magic_items(items_list):
         return (1, str(val))
         
     def items_are_duplicates(a, b):
-        ignored = {'id', 'url', 'source', 'scraped_at'}
+        ignored = {'id', 'url', 'source', 'scraped_at', 'image_url', 'image'}
         keys_a = {k for k in a.keys() if k not in ignored}
         keys_b = {k for k in b.keys() if k not in ignored}
         if keys_a != keys_b:
@@ -393,6 +397,8 @@ def main():
                             if val is not None and val != "Unknown" and val != "":
                                 # Overwrite baseline with details page info if detailed page info is valid
                                 item_data[key] = val
+
+                        attach_image(item_data, 'magic-items', download=not args.offline)
 
                         # Save to JSON
                         items_dict[item_id] = item_data

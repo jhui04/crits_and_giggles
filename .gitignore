@@ -51,3 +51,6 @@ tools/external/cache/
 
 # NVDA VM test results (tools/nvda-vm/run-tests.ps1, setup-vm.ps1)
 tools/nvda-vm/results/
+
+# Downloaded monster / magic item artwork (tools/download_images.py)
+public/images
