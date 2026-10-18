@@ -271,16 +271,16 @@ test.describe('Create Mode Accessibility', () => {
   test('Encounter Builder unit phase is a single screen reader element', async ({ page }) => {
     await page.getByRole('button', { name: 'Edit', exact: true }).click();
     await verifyModalOpen(page, 'Encounter Builder');
-    const phase = page.getByRole('button', { name: /^Phase for .+: 1$/ }).first();
+    const phase = page.getByRole('button', { name: /^Phase for .+: Phase 1$/ }).first();
     await expect(phase).toBeVisible();
     await expect(phase).toHaveAttribute('aria-expanded', 'false');
     await expect(page.getByText('Phase:', { exact: true })).toHaveCount(0);
 
     // Choosing a phase by keyboard updates the toggle's name.
-    const phaseName = (await phase.textContent())!.replace(/: 1.*$/, '');
+    const phaseName = (await phase.textContent())!.replace(/: Phase 1.*$/, '');
     const toggle = page.locator(`[id="${await phase.getAttribute('id')}"]`);
-    await chooseDisclosureOption(page, toggle, '3');
-    await expect(toggle).toHaveAccessibleName(`${phaseName}: 3`);
+    await chooseDisclosureOption(page, toggle, 'Phase 3');
+    await expect(toggle).toHaveAccessibleName(`${phaseName}: Phase 3`);
 
     // Escape inside the open list closes only the list, not the Encounter Builder.
     await page.keyboard.press('Enter');

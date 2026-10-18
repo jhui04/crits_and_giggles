@@ -160,6 +160,7 @@ The framework standardizes the confirmation container shell while allowing custo
 - **`combatant_config` (`CombatantConfigProposalPayload`)**:
   - `encounterId`, `encounterName`, `scenarioTextSummary`
   - `combatants`: Array of `{ name, coordinates: { x, y, label, regionName }, phase, faction, hp }`
+  - `phaseNames` (optional): the encounter's DM-chosen phase names (`{ "1": "Beach Fight" }`), read-only context so the card and description show "Phase 1: Beach Fight". Phases are still identified and assigned by number; the tool never writes names.
 - **`generic` (`GenericProposalPayload`)**:
   - Flexible key-value table fallback for general administrative mutations.
 

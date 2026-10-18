@@ -9,7 +9,8 @@ import { useCampaigns } from '../context/CampaignContext';
 import { isInteractiveTarget, useFocusTrap } from './uiHelpers';
 import { useAssistantScreen } from '../context/AssistantScreenContext';
 
-const PHASE_OPTIONS: DisclosureSelectOption<string>[] = [1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: String(n) }));
+import { MAX_BUILDER_PHASES, MAX_PHASE_NAME_LENGTH, normalizePhaseNames, phaseLabel } from '../utils/phaseNames';
+import type { PhaseNames } from '../utils/phaseNames';
 
 interface EncounterBuilderProps {
   initialEncounter: Encounter | null;
@@ -24,6 +25,16 @@ export function EncounterBuilder({ initialEncounter, chapterId, onClose }: Encou
   const [dmMapUrl, setDmMapUrl] = useState(initialEncounter?.dmMapUrl || '');
   const [playerMapUrl, setPlayerMapUrl] = useState(initialEncounter?.playerMapUrl || '');
   const [units, setUnits] = useState<EncounterUnit[]>(initialEncounter ? initialEncounter.units : []);
+  // Display-only phase names keyed by phase number; units keep referencing phases by number.
+  const [phaseNames, setPhaseNames] = useState<PhaseNames>(initialEncounter?.phaseNames ?? {});
+  const phaseNumbers = Array.from(
+    { length: Math.max(MAX_BUILDER_PHASES, ...units.map(u => u.phase ?? 1)) },
+    (_, i) => i + 1
+  );
+  const phaseOptions: DisclosureSelectOption<string>[] = phaseNumbers.map(n => ({
+    value: String(n),
+    label: phaseLabel(phaseNames, n),
+  }));
   // Which unit the monster picker is linking; null means "add a new monster".
   const [linkingInstanceId, setLinkingInstanceId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -269,7 +280,8 @@ export function EncounterBuilder({ initialEncounter, chapterId, onClose }: Encou
       runningState: initialEncounter ? initialEncounter.runningState : null,
       dmMapUrl: dmMapUrl.trim() || undefined,
       playerMapUrl: playerMapUrl.trim() || undefined,
-      mapSize: initialEncounter?.mapSize || { width: 20, height: 20 }
+      mapSize: initialEncounter?.mapSize || { width: 20, height: 20 },
+      phaseNames: normalizePhaseNames(phaseNames)
     };
     
     const existingEncounters = initialEncounter 
@@ -330,6 +342,24 @@ export function EncounterBuilder({ initialEncounter, chapterId, onClose }: Encou
         </button>
       </section>
 
+      <details open={Object.keys(initialEncounter?.phaseNames ?? {}).length > 0} style={{ margin: '1rem 0' }}>
+        <summary>Phase Names (optional)</summary>
+        <p id="phase-names-hint">Leave a name blank to use the default, "Phase 1", "Phase 2" and so on. Names are trimmed and limited to {MAX_PHASE_NAME_LENGTH} characters.</p>
+        {phaseNumbers.map(n => (
+          <div key={n} style={{ marginBottom: '0.5rem' }}>
+            <label htmlFor={`phase-name-${n}`}>Name for Phase {n}</label>
+            <input
+              id={`phase-name-${n}`}
+              value={phaseNames[String(n)] ?? ''}
+              maxLength={MAX_PHASE_NAME_LENGTH}
+              aria-describedby="phase-names-hint"
+              onChange={e => setPhaseNames(prev => ({ ...prev, [String(n)]: e.target.value }))}
+              style={{ width: '100%', padding: '0.5rem' }}
+            />
+          </div>
+        ))}
+      </details>
+
       <div role="status" aria-live="polite" className="sr-only">{statusMessage}</div>
 
       <section aria-label="Current Units">
@@ -360,7 +390,7 @@ export function EncounterBuilder({ initialEncounter, chapterId, onClose }: Encou
                   <DisclosureSelect
                     label={`Phase for ${unit.name}`}
                     value={String(unit.phase ?? 1)}
-                    options={PHASE_OPTIONS}
+                    options={phaseOptions}
                     onChange={(v) => updateUnitPhase(unit.instanceId, parseInt(v, 10))}
                     buttonStyle={{ padding: '0.25rem 0.5rem', minWidth: '11rem' }}
                   />

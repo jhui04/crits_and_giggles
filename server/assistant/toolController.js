@@ -27,6 +27,7 @@ import {
   formatPhaseLabel,
   findMonster,
 } from './combatantParser.js';
+import { normalizePhaseNames } from '../phaseNames.js';
 import {
   columnIndexToLabel,
   coordinateToLabel,
@@ -178,7 +179,7 @@ export function getVisibleCombatants(rs) {
  * no campaign is known at all (e.g. isolated tool tests).
  */
 function resolveEncounterForWrite(args, context = {}) {
-  const cols = 'id, campaign_id, name, running_state, dm_map_url, player_map_url, map_size, grid_config';
+  const cols = 'id, campaign_id, name, running_state, dm_map_url, player_map_url, map_size, grid_config, phase_names';
   let encounter = null;
   const encounterId = args.encounterId || context.encounterId;
 
@@ -2111,10 +2112,18 @@ export const CONFIGURE_ENCOUNTER_COMBATANTS_TOOL_DEF = {
       }
     }
 
+    // DM-chosen phase names (display only; phases are still identified by number).
+    let customPhaseNames = {};
+    try {
+      customPhaseNames = normalizePhaseNames(encounter.phase_names ? JSON.parse(encounter.phase_names) : null) || {};
+    } catch {
+      customPhaseNames = {};
+    }
+
     const uniquePhases = new Set(finalCombatants.map((c) => c.phase));
     const phaseSummary = Array.from(uniquePhases)
       .sort((a, b) => a - b)
-      .map((p) => formatPhaseLabel(p))
+      .map((p) => (customPhaseNames[String(p)] ? `Phase ${p}: ${customPhaseNames[String(p)]}` : formatPhaseLabel(p)))
       .join(', ');
 
     const description = `Configure ${finalCombatants.length} combatant(s) across ${uniquePhases.size} phase(s) (${phaseSummary}) for encounter "${encounter.name}"`;
@@ -2128,6 +2137,7 @@ export const CONFIGURE_ENCOUNTER_COMBATANTS_TOOL_DEF = {
           : args.scenarioText
         : undefined,
       combatants: finalCombatants,
+      phaseNames: Object.keys(customPhaseNames).length > 0 ? customPhaseNames : undefined,
     };
 
     const executionPayload = {

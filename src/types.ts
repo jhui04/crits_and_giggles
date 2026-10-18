@@ -175,6 +175,8 @@ export interface Encounter {
   gridConfig?: MapGridConfig;
   dmMapUrl?: string;
   playerMapUrl?: string;
+  /** Custom phase names keyed by phase number ("1" -> "Beach Fight"); display only. Missing/blank = "Phase N". */
+  phaseNames?: Record<string, string>;
 }
 
 /**
@@ -378,6 +380,8 @@ export interface CombatantConfigProposalPayload {
   encounterName?: string;
   scenarioTextSummary?: string;
   combatants: CombatantConfigEntry[];
+  /** DM-chosen phase names (phase number -> name); absent when every phase uses "Phase N". */
+  phaseNames?: Record<string, string>;
 }
 
 export interface MapPatchProposalPayload {

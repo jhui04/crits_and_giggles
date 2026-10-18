@@ -134,6 +134,7 @@ export function initDb(targetDb = db) {
       player_map_url TEXT,
       map_size TEXT,
       grid_config TEXT,
+      phase_names TEXT,
       PRIMARY KEY (id, campaign_id),
       FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
     );
@@ -241,6 +242,13 @@ export function initDb(targetDb = db) {
 
   try {
     targetDb.exec('ALTER TABLE encounters ADD COLUMN grid_config TEXT;');
+  } catch (e) {
+    // Column already exists, ignore
+  }
+
+  try {
+    // JSON map of phase number -> custom name; NULL means every phase uses "Phase N".
+    targetDb.exec('ALTER TABLE encounters ADD COLUMN phase_names TEXT;');
   } catch (e) {
     // Column already exists, ignore
   }

@@ -22,6 +22,7 @@ import { mapGridService } from '../services/MapGridService';
 import { isInteractiveTarget, useAnnouncer, useFocusTrap } from './uiHelpers';
 import { hasDamageImmunity, hasDamageResistance, hasDamageVulnerability, projectHpApplication } from '../shared/combatHp';
 import { UNTYPED_DAMAGE } from '../utils/damageTypes';
+import { phaseLabel } from '../utils/phaseNames';
 import { buildHpChangeAnnouncement, formatTrackerHp } from '../utils/combatDamageAnnouncements';
 import {
   buildUndoAnnouncement,
@@ -456,6 +457,8 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     [selectedUnitBase, combatants]
   );
 
+  const phaseName = (phaseNum: number) => phaseLabel(activeEncounter?.phaseNames, phaseNum);
+
   const togglePhase = (phaseNum: number) => {
     const isCurrentlyActive = activePhases.includes(phaseNum);
     // Keep the current turn pinned to the same unit across phase changes.
@@ -476,13 +479,13 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
 
     if (isCurrentlyActive) {
       if (activePhases.length === 1) {
-        setAnnouncement(`Cannot deactivate Phase ${phaseNum}: at least one phase must remain active.`);
+        setAnnouncement(`Cannot deactivate ${phaseName(phaseNum)}: at least one phase must remain active.`);
         return;
       }
       const nextPhases = activePhases.filter(p => p !== phaseNum);
       const hiddenUnits = combatants.filter(u => (u.phase || 1) === phaseNum);
       const nextIdx = resolveTurnIndex(visibleOf(combatants, nextPhases));
-      setAnnouncement(`Phase ${phaseNum} deactivated. ${hiddenUnits.length} unit${hiddenUnits.length === 1 ? '' : 's'} hidden from encounter.`);
+      setAnnouncement(`${phaseName(phaseNum)} deactivated. ${hiddenUnits.length} unit${hiddenUnits.length === 1 ? '' : 's'} hidden from encounter.`);
       setActivePhases(nextPhases);
       setTurnIndex(nextIdx);
       syncEncounterState(combatants, isCombatStarted, nextIdx, round, nextPhases);
@@ -497,14 +500,14 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
           if ((u.phase || 1) === phaseNum && !u.isPlayer) {
             const hp = { max: u.maxHp || 1, current: u.currentHp || 1 };
             if (u.hpDice && (!u.maxHp || u.maxHp <= 1)) {
-              const rolled = tryRollHp(u, `Hit Points (Phase ${phaseNum} entry)`);
+              const rolled = tryRollHp(u, `Hit Points (${phaseName(phaseNum)} entry)`);
               if (rolled !== null) {
                 hp.max = rolled;
                 hp.current = rolled;
               }
             }
 
-            const initVal = u.initiative ?? rollInitiative(u, `Initiative (Phase ${phaseNum} entry)`);
+            const initVal = u.initiative ?? rollInitiative(u, `Initiative (${phaseName(phaseNum)} entry)`);
             rolledAny = true;
             return { ...u, maxHp: hp.max, currentHp: hp.current, initiative: initVal };
           }
@@ -518,7 +521,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
       }
 
       const nextIdx = resolveTurnIndex(visibleOf(updatedCombatants, nextPhases));
-      setAnnouncement(`Phase ${phaseNum} activated. ${newlyVisible.length} unit${newlyVisible.length === 1 ? '' : 's'} entered the encounter: ${newlyVisible.map(u => u.name).join(', ')}.`);
+      setAnnouncement(`${phaseName(phaseNum)} activated. ${newlyVisible.length} unit${newlyVisible.length === 1 ? '' : 's'} entered the encounter: ${newlyVisible.map(u => u.name).join(', ')}.`);
       setActivePhases(nextPhases);
       setTurnIndex(nextIdx);
       syncEncounterState(updatedCombatants, isCombatStarted, nextIdx, round, nextPhases);
@@ -1081,9 +1084,9 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
                 alignItems: 'center',
                 gap: '0.4rem'
               }}
-              aria-label={`Phase ${phaseNum}: ${count} unit${count === 1 ? '' : 's'}. ${isActive ? 'Active (Click to hide)' : 'Hidden (Click to activate)'}`}
+              aria-label={`${phaseName(phaseNum)}: ${count} unit${count === 1 ? '' : 's'}. ${isActive ? 'Active (Click to hide)' : 'Hidden (Click to activate)'}`}
             >
-              <span>Phase {phaseNum} ({count})</span>
+              <span>{phaseName(phaseNum)} ({count})</span>
               <span style={{ fontSize: '0.8rem', fontWeight: 'bold' }}>
                 {isActive ? '✓ Visible' : '✗ Hidden'}
               </span>

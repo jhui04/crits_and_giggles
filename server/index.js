@@ -14,6 +14,7 @@ import {
   clearLlmMetrics,
 } from './assistant/telemetry.js';
 import { hitlManager } from './assistant/hitlManager.js';
+import { normalizePhaseNames } from './phaseNames.js';
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -72,13 +73,16 @@ function getFullCampaign(id) {
 
   campaign.players = db.prepare('SELECT id, name, description FROM players WHERE campaign_id = ?').all(id);
   
-  const encounters = db.prepare('SELECT id, name, running_state as runningState, dm_map_url as dmMapUrl, player_map_url as playerMapUrl, map_size as mapSize, grid_config as gridConfig FROM encounters WHERE campaign_id = ?').all(id);
+  const encounters = db.prepare('SELECT id, name, running_state as runningState, dm_map_url as dmMapUrl, player_map_url as playerMapUrl, map_size as mapSize, grid_config as gridConfig, phase_names as phaseNames FROM encounters WHERE campaign_id = ?').all(id);
   const encChapters = groupBy(db.prepare('SELECT encounter_id, chapter_id FROM encounter_chapters WHERE campaign_id = ?').all(id), 'encounter_id', r => r.chapter_id);
   const encUnits = groupBy(db.prepare('SELECT * FROM encounter_units WHERE campaign_id = ?').all(id), 'encounter_id');
   for (const enc of encounters) {
     enc.runningState = enc.runningState ? JSON.parse(enc.runningState) : null;
     enc.mapSize = enc.mapSize ? JSON.parse(enc.mapSize) : null;
     enc.gridConfig = enc.gridConfig ? JSON.parse(enc.gridConfig) : null;
+    // Old encounters have no names: omit the key so every phase falls back to "Phase N".
+    const phaseNames = enc.phaseNames ? normalizePhaseNames(JSON.parse(enc.phaseNames)) : null;
+    if (phaseNames) enc.phaseNames = phaseNames; else delete enc.phaseNames;
     enc.chapterIds = encChapters.get(enc.id) || [];
     enc.units = encUnits.get(enc.id) || [];
     // Convert isPlayer back to boolean and restore position
@@ -128,7 +132,7 @@ function insertCampaignChildren(campaignId, data) {
   }
   
   if (data.encounters) {
-    const insertEncounter = db.prepare('INSERT INTO encounters (id, campaign_id, name, running_state, dm_map_url, player_map_url, map_size, grid_config) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    const insertEncounter = db.prepare('INSERT INTO encounters (id, campaign_id, name, running_state, dm_map_url, player_map_url, map_size, grid_config, phase_names) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const insertEncounterChapter = db.prepare('INSERT INTO encounter_chapters (encounter_id, chapter_id, campaign_id) VALUES (?, ?, ?)');
     const insertUnit = db.prepare(`
       INSERT INTO encounter_units (instanceId, encounter_id, campaign_id, monsterId, playerId, name, maxHp, currentHp, hpDice, dexMod, initiative, passivePerception, isPlayer, position_x, position_y, phase, tempHp, faction)
@@ -144,7 +148,8 @@ function insertCampaignChildren(campaignId, data) {
         enc.dmMapUrl || null,
         enc.playerMapUrl || null,
         enc.mapSize ? JSON.stringify(enc.mapSize) : null,
-        enc.gridConfig ? JSON.stringify(enc.gridConfig) : null
+        enc.gridConfig ? JSON.stringify(enc.gridConfig) : null,
+        (() => { const n = normalizePhaseNames(enc.phaseNames); return n ? JSON.stringify(n) : null; })()
       );
       if (enc.chapterIds) {
         enc.chapterIds.forEach(chapId => insertEncounterChapter.run(enc.id, chapId, campaignId));

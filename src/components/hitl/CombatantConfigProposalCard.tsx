@@ -5,8 +5,10 @@ interface CombatantConfigProposalCardProps {
   payload: CombatantConfigProposalPayload;
 }
 
-function formatPhaseDisplay(phase: number): string {
+function formatPhaseDisplay(phase: number, names?: Record<string, string>): string {
   const p = Number(phase) || 1;
+  const custom = names?.[String(p)];
+  if (custom) return `Phase ${p}: ${custom}`;
   if (p === 1) return 'Phase 1: Initial Wave';
   if (p === 2) return 'Phase 2: Reinforcements';
   return `Phase ${p}: Reinforcements`;
@@ -176,7 +178,7 @@ export const CombatantConfigProposalCard: React.FC<CombatantConfigProposalCardPr
                       )}
                     </td>
                     <td data-testid="combatant-phase" style={{ padding: '0.45rem 0.6rem', color: '#e4e4e7' }}>
-                      {formatPhaseDisplay(c.phase)}
+                      {formatPhaseDisplay(c.phase, payload.phaseNames)}
                     </td>
                     <td
                       data-testid="combatant-faction"
