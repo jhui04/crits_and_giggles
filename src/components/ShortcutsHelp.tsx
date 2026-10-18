@@ -59,6 +59,7 @@ export function ShortcutsHelp({ isOpen, onClose }: ShortcutsHelpProps) {
     { key: 'Alt + W', description: 'Switch to the World tab (Create Mode)' },
     { key: 'Alt + H', description: 'Show/Hide this Shortcuts Help' },
     { key: 'Alt + N', description: 'Next Turn (during Combat)' },
+    { key: 'Alt + U', description: 'Undo Last Manual HP Change (during Combat)' },
     { key: 'Alt + B', description: 'Jump Focus to Combat Map' },
     { key: 'Alt + E', description: 'Nearby Entities Radar (Combat Map)' },
     { key: 'Alt + J', description: 'Jump to Creature (Combat Map)' },

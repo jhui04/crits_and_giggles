@@ -11,6 +11,10 @@ import { useAssistantScreen } from '../context/AssistantScreenContext';
 import { dataService } from '../services/DataService';
 import { mapGridService } from '../services/MapGridService';
 import { isInteractiveTarget, useAnnouncer, useFocusTrap } from './uiHelpers';
+import { hasDamageImmunity, hasDamageResistance, hasDamageVulnerability, projectHpApplication } from '../shared/combatHp';
+import { UNTYPED_DAMAGE } from '../utils/damageTypes';
+import { buildHpChangeAnnouncement, formatTrackerHp } from '../utils/combatDamageAnnouncements';
+import { buildUndoAnnouncement, buildUndoDescription, describeUndoAction, popUndoEntry, pushUndoEntry, type HpUndoEntry } from '../utils/hpUndoStack';
 
 const DEFAULT_MAP_SIZE: MapSize = { width: 20, height: 20 };
 
@@ -85,6 +89,12 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   const [activeOperationsUnit, setActiveOperationsUnit] = useState<EncounterUnit | null>(null);
   const [hpMods, setHpMods] = useState<Record<string, string>>({});
   const [activePhases, setActivePhases] = useState<number[]>([1]);
+  // Undo stack for manual DM HP changes (see applyHpMod / undoLastHpChange
+  // below). Capped at HP_UNDO_STACK_CAP via pushUndoEntry. Reset whenever
+  // the loaded encounter's id actually changes (see hpUndoEncounterIdRef),
+  // not on every reload of the same encounter.
+  const [hpUndoStack, setHpUndoStack] = useState<HpUndoEntry[]>([]);
+  const hpUndoEncounterIdRef = useRef<string | null>(null);
 
   // Tracks every running_state.updatedAt this component itself has written
   // (not just the most recent one), so the "pick up external server-side
@@ -232,11 +242,22 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   const lastActiveRollButtonRef = useRef<HTMLElement | null>(null);
   const lastFocusedOperationsButtonRef = useRef<HTMLButtonElement | null>(null);
   const lastFocusedMapCellRef = useRef<Position | null>(null);
+  const undoButtonRef = useRef<HTMLButtonElement | null>(null);
+  const nextTurnButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const loadEncounter = useCallback(async (encounter: Encounter, forceFresh: boolean = false, campaignOverride?: Campaign) => {
     const campaign = campaignOverride ?? activeCampaign;
     setActiveEncounter(encounter);
-    
+
+    // Switching to a genuinely different encounter invalidates any pending
+    // undo (it describes HP changes on combatants that may not even exist in
+    // the new encounter). Reloading the SAME encounter (an external HITL
+    // update, or "Reset Encounter") intentionally leaves the stack alone.
+    if (hpUndoEncounterIdRef.current !== encounter.id) {
+      hpUndoEncounterIdRef.current = encounter.id;
+      setHpUndoStack([]);
+    }
+
     let savedState: EncounterRunningState | null = forceFresh ? null : (encounter.runningState || null);
     if (!forceFresh) {
       try {
@@ -503,6 +524,40 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     syncEncounterState(combatants, true, nextIndex, nextRound, activePhases);
   }, [isCombatStarted, visibleCombatants, combatants, turnIndex, round, activePhases, syncEncounterState, setAnnouncement]);
 
+  // Undoes the most recent manual DM HP change (applyHpMod below), restoring
+  // the combatant's currentHp/tempHp from the top of hpUndoStack. Pure
+  // push/pop logic lives in src/utils/hpUndoStack.ts; this just applies it
+  // to component state and persists/announces the result.
+  const undoLastHpChange = useCallback(() => {
+    if (hpUndoStack.length === 0) return;
+    const { entry, rest } = popUndoEntry(hpUndoStack);
+    if (!entry) return;
+
+    // The button disappears entirely once the stack empties (see render
+    // below); if that's what had focus, it would otherwise teleport to
+    // document.body. Move it to Next Turn instead -- still predictable,
+    // and already the next logical control in this toolbar.
+    const wasUndoButtonFocused = document.activeElement === undoButtonRef.current;
+
+    let restoredMaxHp = 0;
+    const next = combatants.map(u => {
+      if (u.instanceId === entry.instanceId) {
+        restoredMaxHp = u.maxHp || 0;
+        return { ...u, currentHp: entry.prevHp, tempHp: entry.prevTempHp };
+      }
+      return u;
+    });
+
+    setHpUndoStack(rest);
+    setCombatants(next);
+    syncEncounterState(next, isCombatStarted, turnIndex, round);
+    setAnnouncement(buildUndoAnnouncement(entry, entry.prevHp, restoredMaxHp));
+
+    if (rest.length === 0 && wasUndoButtonFocused) {
+      setTimeout(() => nextTurnButtonRef.current?.focus(), 0);
+    }
+  }, [hpUndoStack, combatants, syncEncounterState, isCombatStarted, turnIndex, round, setAnnouncement]);
+
   useFocusTrap(detailsModalRef, selectedUnitBase !== null);
   useFocusTrap(rollDialogRef, activeRoll !== null);
 
@@ -580,6 +635,14 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
         nextTurn();
       }
 
+      // Alt + U to undo the last manual HP change. No-op (and no
+      // preventDefault, so it doesn't swallow the keystroke) when there is
+      // nothing to undo, matching the button being absent in that state.
+      if (e.altKey && e.key.toLowerCase() === 'u' && hpUndoStack.length > 0) {
+        e.preventDefault();
+        undoLastHpChange();
+      }
+
       // Note: Alt+A and Alt+D are intentionally NOT handled here. Alt+A is the
       // documented global Assistant Oracle shortcut (App.tsx); a per-combatant
       // Operations shortcut used to collide with it, but map cells already have
@@ -596,7 +659,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [nextTurn, selectedUnit, activeRoll, activeOperationsUnit, closeDetails, closeRollModal, closeOperations]);
+  }, [nextTurn, selectedUnit, activeRoll, activeOperationsUnit, closeDetails, closeRollModal, closeOperations, hpUndoStack, undoLastHpChange]);
 
   // Triggers the same global Alt+D shortcut App.tsx's own window keydown listener
   // handles, instead of maintaining a second local dice log here. Dispatching a
@@ -717,46 +780,73 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     }
   }, [activeCampaign, activeEncounter, loadEncounter, recordSyncedUpdatedAt]);
 
-  const applyHpMod = (instanceId: string, isDamage: boolean, amount?: number) => {
+  const applyHpMod = (instanceId: string, isDamage: boolean, amount?: number, damageType?: string) => {
     const val = amount !== undefined ? amount : parseInt(hpMods[instanceId] || '0', 10);
     if (isNaN(val) || val <= 0) return;
-    
-    let updatedUnitName = '';
-    let updatedNewHp = 0;
-    let updatedTempHp = 0;
+
+    // "untyped" (the DisclosureSelect default) and healing (which has no
+    // damage type at all) both resolve to no type, so resistance/immunity/
+    // vulnerability lookups in projectHpApplication are skipped for them.
+    const normDamageType = isDamage && damageType && damageType !== UNTYPED_DAMAGE ? damageType : undefined;
+
+    let announcementMsg = '';
+    let pendingUndo: HpUndoEntry | null = null;
 
     const next = combatants.map(u => {
       if (u.instanceId === instanceId) {
         if (u.isPlayer) return u;
 
-        const temp = u.tempHp || 0;
-        let newHp: number;
-        let newTemp = temp;
-        if (isDamage) {
-          // 5e: temporary hit points absorb damage first; remainder hits current HP.
-          const absorbed = Math.min(temp, val);
-          newTemp = temp - absorbed;
-          newHp = Math.max(0, (u.currentHp || 0) - (val - absorbed));
-        } else {
-          newHp = Math.min((u.maxHp || 0), (u.currentHp || 0) + val);
+        const prevHp = u.currentHp || 0;
+        const prevTempHp = u.tempHp || 0;
+
+        const projection = projectHpApplication(u, isDamage ? 'damage' : 'healing', val, normDamageType);
+        const newHp = projection.projectedHp;
+        const newTempHp = projection.projectedTempHp;
+
+        const isImmune = isDamage && normDamageType ? hasDamageImmunity(u, normDamageType) : false;
+        const isResistant = isDamage && normDamageType && !isImmune ? hasDamageResistance(u, normDamageType) : false;
+        const isVulnerable = isDamage && normDamageType && !isImmune ? hasDamageVulnerability(u, normDamageType) : false;
+
+        announcementMsg = buildHpChangeAnnouncement({
+          name: u.name,
+          actionType: isDamage ? 'damage' : 'healing',
+          amount: val,
+          damageType: normDamageType,
+          isImmune,
+          isResistant,
+          isVulnerable,
+          prevHp,
+          newHp,
+          maxHp: u.maxHp || 0,
+          newTempHp,
+        });
+
+        if (newHp !== prevHp || newTempHp !== prevTempHp) {
+          pendingUndo = {
+            instanceId,
+            unitName: u.name,
+            prevHp,
+            prevTempHp,
+            description: buildUndoDescription(val, isDamage ? 'damage' : 'healing', normDamageType, u.name),
+          };
         }
 
-        updatedUnitName = u.name;
-        updatedNewHp = newHp;
-        updatedTempHp = newTemp;
-        return { ...u, currentHp: newHp, tempHp: newTemp };
+        return { ...u, currentHp: newHp, tempHp: newTempHp };
       }
       return u;
     });
 
-    if (updatedUnitName) {
-      const tempNote = updatedTempHp > 0 ? ` ${updatedTempHp} temporary hit points remain.` : '';
-      setAnnouncement(`${updatedUnitName} takes ${val} ${isDamage ? 'damage' : 'healing'}. New HP is ${updatedNewHp}.${tempNote}`);
+    if (announcementMsg) {
+      setAnnouncement(announcementMsg);
+    }
+
+    if (pendingUndo) {
+      setHpUndoStack(prev => pushUndoEntry(prev, pendingUndo as HpUndoEntry));
     }
 
     setCombatants(next);
     syncEncounterState(next, isCombatStarted, turnIndex, round);
-    
+
     if (amount === undefined) {
       setHpMods(prev => ({ ...prev, [instanceId]: '' }));
     }
@@ -904,8 +994,20 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
         <section>
           <h3>Initiative Track</h3>
           <p>Use <strong>Tab</strong> to navigate. <strong>Enter</strong> for details. <strong>Alt + N</strong> for next turn.</p>
-          <button type="button" onClick={nextTurn} style={{ marginBottom: '1rem' }}>Next Turn (Alt+N)</button>
-          
+          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+            <button type="button" ref={nextTurnButtonRef} onClick={nextTurn}>Next Turn (Alt+N)</button>
+            {hpUndoStack.length > 0 && (
+              <button
+                type="button"
+                ref={undoButtonRef}
+                onClick={undoLastHpChange}
+                aria-keyshortcuts="Alt+U"
+              >
+                {describeUndoAction(hpUndoStack[hpUndoStack.length - 1])} (Alt+U)
+              </button>
+            )}
+          </div>
+
           <ul style={{ listStyle: 'none', padding: 0 }} role="list">
             {visibleCombatants.map((u, i) => (
               <li key={u.instanceId} style={{ marginBottom: '1rem', border: i === turnIndex ? '3px solid #000' : '1px solid #eee', padding: '0.5rem', backgroundColor: i === turnIndex ? '#f0f8ff' : 'white' }}>
@@ -918,7 +1020,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
                     aria-current={i === turnIndex ? 'step' : undefined}
                   >
                     <span className="sr-only">{i === turnIndex ? "Current Turn" : ""}</span>
-                    {u.initiative} - {u.name} {u.isPlayer ? '(Player)' : `(HP: ${u.currentHp}/${u.maxHp})`}
+                    {u.initiative} - {u.name} {u.isPlayer ? '(Player)' : `(${formatTrackerHp(u.currentHp, u.maxHp)})`}
                   </button>
                 </div>
                 {!u.isPlayer && (

@@ -1,17 +1,18 @@
 import { describe, it, expect } from 'vitest';
-// Targets the server module directly (the only copy that actually runs in
-// production) rather than a client-side duplicate: the duplicate used to
-// carry its own copy of this coverage while nothing imported the code it
-// was meant to protect, so the two could silently drift apart (see R-2 —
-// this is exactly what happened with the G-15 damage-type substring bug,
-// which had to be fixed by hand in both copies).
+// Targets the shared module directly (src/shared/combatHp.ts). This is now
+// the single implementation used by both the client (manual DM damage entry
+// in MonsterOperationsModal) and the server (the apply_combat_damage HITL
+// write tool, via server/assistant/combatHpUtils.js's thin re-export), so
+// there is no longer a second copy for this coverage to drift from -- which
+// is exactly what happened with the G-15 damage-type substring bug before
+// the two copies were unified here.
 import {
   projectHpApplication,
   hasDamageResistance,
   hasDamageImmunity,
   hasDamageVulnerability,
   matchesDamageType,
-} from '../../server/assistant/combatHpUtils.js';
+} from '../shared/combatHp';
 
 describe('combatHpUtils: projectHpApplication', () => {
   describe('Damage and Temp HP Absorption', () => {

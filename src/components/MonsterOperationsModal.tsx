@@ -4,11 +4,13 @@ import { DiceService } from '../services/DiceService';
 import { diceLogService } from '../services/DiceLogService';
 import { getSaveModifier, getSkillModifier, DND_SKILLS_BY_ABILITY } from '../utils/dnd';
 import { useFocusTrap } from './uiHelpers';
+import { DisclosureSelect } from './DisclosureSelect';
+import { DAMAGE_TYPE_OPTIONS, UNTYPED_DAMAGE } from '../utils/damageTypes';
 
 interface MonsterOperationsModalProps {
   unit: EncounterUnit;
   onClose: () => void;
-  onApplyHpMod: (instanceId: string, isDamage: boolean, amount: number) => void;
+  onApplyHpMod: (instanceId: string, isDamage: boolean, amount: number, damageType?: string) => void;
   onRoll: (title: string, hit: string, damage?: string) => void;
   onAnnounce: (msg: string) => void;
   onOpenRadar?: (unit: EncounterUnit) => void;
@@ -19,6 +21,11 @@ type ViewMode = 'MAIN' | 'DAMAGE' | 'HEAL' | 'ACTIONS' | 'SKILLS' | 'SAVES';
 export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, onAnnounce, onOpenRadar }: MonsterOperationsModalProps) {
   const [view, setView] = useState<ViewMode>('MAIN');
   const [hpAmount, setHpAmount] = useState<string>('');
+  // Remembered for the session while this modal instance is reused across
+  // multiple damage applications to the same (or another) unit; resets to
+  // Untyped when a fresh modal mounts, since this state does not persist
+  // across unmounts.
+  const [damageType, setDamageType] = useState<string>(UNTYPED_DAMAGE);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const firstButtonRef = useRef<HTMLButtonElement>(null);
@@ -72,7 +79,7 @@ export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, on
   const handleApplyHp = (isDamage: boolean) => {
     const val = parseInt(hpAmount, 10);
     if (!isNaN(val) && val > 0) {
-      onApplyHpMod(unit.instanceId, isDamage, val);
+      onApplyHpMod(unit.instanceId, isDamage, val, isDamage ? damageType : undefined);
       onClose();
     }
   };
@@ -166,14 +173,24 @@ export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, on
   const renderHpInput = (isDamage: boolean) => (
     <form onSubmit={(e) => { e.preventDefault(); handleApplyHp(isDamage); }}>
       <label htmlFor="hp-amount">{isDamage ? 'Damage' : 'Heal'} Amount:</label>
-      <input 
+      <input
         id="hp-amount"
         ref={inputRef}
-        type="number" 
-        value={hpAmount} 
-        onChange={e => setHpAmount(e.target.value)} 
+        type="number"
+        value={hpAmount}
+        onChange={e => setHpAmount(e.target.value)}
         style={{ width: '100%', padding: '0.5rem', margin: '0.5rem 0' }}
       />
+      {isDamage && (
+        <DisclosureSelect
+          id="hp-damage-type"
+          label="Damage Type"
+          value={damageType}
+          onChange={setDamageType}
+          options={DAMAGE_TYPE_OPTIONS}
+          style={{ margin: '0 0 0.75rem' }}
+        />
+      )}
       <div style={{ display: 'flex', gap: '0.5rem' }}>
         <button type="submit" style={{ flex: 1 }}>Apply</button>
         <button type="button" onClick={() => setView('MAIN')} style={{ flex: 1 }}>Back</button>
@@ -247,7 +264,13 @@ export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, on
   );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') && document.activeElement?.tagName !== 'INPUT') {
+    // An open DisclosureSelect's own <ul> owns Up/Down/Home/End while a
+    // damage-type option has focus (DisclosureSelect.tsx handleListKeyDown);
+    // it only preventDefault()s, it doesn't stopPropagation(), so without this
+    // guard the modal's own "cycle every focusable element" handler below
+    // would also fire on the same keypress and fight it for focus.
+    const insideOpenDisclosureList = document.activeElement?.closest('.disclosure-select-list') != null;
+    if (!insideOpenDisclosureList && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') && document.activeElement?.tagName !== 'INPUT') {
       if (modalContentRef.current) {
         const focusable = Array.from(modalContentRef.current.querySelectorAll<HTMLElement>(
           'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
