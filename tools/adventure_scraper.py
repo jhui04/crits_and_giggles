@@ -81,23 +81,20 @@ def replace_world_references(text, wildemount_asset_ids, world_assets_by_id=None
     pattern = r'(@(?:Spell|Monster|Item|World|Campaign|Asset|Encounter)\[[^\]]+\]\{[^}]+\})'
     parts = re.split(pattern, text)
     
-    sorted_assets = sorted(wildemount_asset_ids.items(), key=lambda x: len(x[0]), reverse=True)
-    
-    for i in range(len(parts)):
-        if i % 2 == 0: # Non-tag segment
-            for name_lower, world_id in sorted_assets:
-                if len(name_lower) < 3:
-                    continue
-                
-                word_pattern = r'\b(' + re.escape(name_lower) + r')\b'
-                
-                def replacer(match):
-                    matched_name = match.group(1)
-                    return f"@World[{world_id}]{{{matched_name}}}"
-                
-                # Check case-insensitively but preserve matched name
-                parts[i] = re.sub(word_pattern, replacer, parts[i], flags=re.IGNORECASE)
-                
+    sorted_assets = [(n, i) for n, i in sorted(wildemount_asset_ids.items(), key=lambda x: len(x[0]), reverse=True) if len(n) >= 3]
+    if not sorted_assets:
+        return text
+    ids_by_lower = {n.lower(): i for n, i in sorted_assets}
+    # Single pass, longest name first, so a replaced tag is never re-matched by a shorter name.
+    word_pattern = re.compile(r'\b(' + '|'.join(re.escape(n) for n, _ in sorted_assets) + r')\b', re.IGNORECASE)
+
+    def replacer(match):
+        matched_name = match.group(1)
+        return f"@World[{ids_by_lower[matched_name.lower()]}]{{{matched_name}}}"
+
+    for i in range(0, len(parts), 2):
+        parts[i] = word_pattern.sub(replacer, parts[i])
+
     return "".join(parts)
 
 def process_element_content(elem, current_encounter, monsters_by_id, wildemount_asset_ids, world_assets_by_id, campaign, current_chapter):
