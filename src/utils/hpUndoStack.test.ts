@@ -127,6 +127,32 @@ describe('isUndoEntryStale', () => {
     const zeroEntry: HpUndoEntry = { ...entry, postHp: 0, postTempHp: 0 };
     expect(isUndoEntryStale(zeroEntry, {})).toBe(false);
   });
+
+  it('ignores condition changes for entries that never touched conditions', () => {
+    expect(isUndoEntryStale(entry, { currentHp: 4, tempHp: 1, conditions: [{ name: 'Prone' }] })).toBe(false);
+  });
+
+  describe('entries that touched conditions (failed concentration)', () => {
+    const concEntry: HpUndoEntry = {
+      ...entry,
+      prevConditions: [{ name: 'Concentrating' }, { name: 'Poisoned', roundsRemaining: 2 }],
+      postConditions: [{ name: 'Poisoned', roundsRemaining: 2 }],
+    };
+
+    it('is not stale when conditions still match the post-change snapshot', () => {
+      expect(isUndoEntryStale(concEntry, { currentHp: 4, tempHp: 1, conditions: [{ name: 'Poisoned', roundsRemaining: 2 }] })).toBe(false);
+    });
+
+    it('is stale when a turn-end tick changed a condition since', () => {
+      const unit = { currentHp: 4, tempHp: 1, conditions: [{ name: 'Poisoned', roundsRemaining: 1 }] };
+      expect(isUndoEntryStale(concEntry, unit)).toBe(true);
+      expect(buildStaleUndoAnnouncement(concEntry, unit)).toBe("Can't undo: Goblin 2's conditions changed since then.");
+    });
+
+    it('is stale when a condition expired since', () => {
+      expect(isUndoEntryStale(concEntry, { currentHp: 4, tempHp: 1, conditions: [] })).toBe(true);
+    });
+  });
 });
 
 describe('buildStaleUndoAnnouncement', () => {

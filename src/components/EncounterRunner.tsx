@@ -590,7 +590,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     setHpUndoStack(rest);
 
     if (stale) {
-      setAnnouncement(buildStaleUndoAnnouncement(entry));
+      setAnnouncement(buildStaleUndoAnnouncement(entry, liveUnit));
     } else {
       let restoredMaxHp = 0;
       const next = combatants.map(u => {

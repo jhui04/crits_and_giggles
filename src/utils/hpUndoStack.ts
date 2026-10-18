@@ -4,7 +4,7 @@
  * so the push/pop/description behavior can be unit tested directly.
  */
 
-import type { ActiveCondition } from './conditions';
+import { normalizeConditions, type ActiveCondition } from './conditions';
 
 export interface HpUndoEntry {
   instanceId: string;
@@ -75,26 +75,40 @@ export function buildUndoAnnouncement(entry: HpUndoEntry, restoredHp: number, ma
   return `Undid ${entry.description}. ${restoredHp} of ${maxHp} HP.`;
 }
 
-/** Minimal shape this module needs to read a unit's live HP for staleness checks. */
+/** Minimal shape this module needs to read a unit's live HP/conditions for staleness checks. */
 export interface StaleUndoCheckUnit {
   currentHp?: number;
   tempHp?: number;
+  conditions?: unknown;
+}
+
+function hpChangedSince(entry: HpUndoEntry, unit: StaleUndoCheckUnit): boolean {
+  return (unit.currentHp ?? 0) !== entry.postHp || (unit.tempHp ?? 0) !== entry.postTempHp;
 }
 
 /**
- * True when the unit's live currentHp/tempHp no longer match what this entry
- * recorded immediately after its own change (postHp/postTempHp) -- meaning
- * some other path mutated this unit's HP in between. Restoring prevHp/
- * prevTempHp in that case would silently overwrite that later change, so the
- * caller should discard the entry instead of applying it.
+ * Only entries that touched conditions (a failed concentration check) restore
+ * them on undo, so only those need their conditions compared. A turn-end tick
+ * or a Conditions dialog edit in between would otherwise be silently reverted.
+ */
+function conditionsChangedSince(entry: HpUndoEntry, unit: StaleUndoCheckUnit): boolean {
+  if (entry.postConditions === undefined) return false;
+  return JSON.stringify(normalizeConditions(unit.conditions)) !== JSON.stringify(normalizeConditions(entry.postConditions));
+}
+
+/**
+ * True when the unit's live HP (or, for entries that touched conditions, its
+ * conditions) no longer match what this entry recorded immediately after its
+ * own change -- meaning some other path mutated this unit in between.
+ * Restoring the snapshot in that case would silently overwrite that later
+ * change, so the caller should discard the entry instead of applying it.
  */
 export function isUndoEntryStale(entry: HpUndoEntry, unit: StaleUndoCheckUnit): boolean {
-  const currentHp = unit.currentHp ?? 0;
-  const currentTempHp = unit.tempHp ?? 0;
-  return currentHp !== entry.postHp || currentTempHp !== entry.postTempHp;
+  return hpChangedSince(entry, unit) || conditionsChangedSince(entry, unit);
 }
 
 /** The screen-reader announcement when an undo entry is discarded as stale, e.g. "Can't undo: Goblin 2's hit points changed since then." */
-export function buildStaleUndoAnnouncement(entry: HpUndoEntry): string {
-  return `Can't undo: ${entry.unitName}'s hit points changed since then.`;
+export function buildStaleUndoAnnouncement(entry: HpUndoEntry, unit?: StaleUndoCheckUnit): string {
+  const what = unit && !hpChangedSince(entry, unit) && conditionsChangedSince(entry, unit) ? 'conditions' : 'hit points';
+  return `Can't undo: ${entry.unitName}'s ${what} changed since then.`;
 }
