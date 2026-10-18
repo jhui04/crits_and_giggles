@@ -5,6 +5,8 @@ import {
   buildUndoDescription,
   describeUndoAction,
   buildUndoAnnouncement,
+  isUndoEntryStale,
+  buildStaleUndoAnnouncement,
   HP_UNDO_STACK_CAP,
   type HpUndoEntry,
 } from './hpUndoStack';
@@ -15,6 +17,8 @@ function makeEntry(n: number): HpUndoEntry {
     unitName: `Goblin ${n}`,
     prevHp: 7,
     prevTempHp: 0,
+    postHp: 4,
+    postTempHp: 0,
     description: `${n} damage to Goblin ${n}`,
   };
 }
@@ -82,6 +86,8 @@ describe('describeUndoAction / buildUndoAnnouncement', () => {
     unitName: 'Goblin 2',
     prevHp: 7,
     prevTempHp: 0,
+    postHp: 4,
+    postTempHp: 0,
     description: '3 fire damage to Goblin 2',
   };
 
@@ -91,5 +97,49 @@ describe('describeUndoAction / buildUndoAnnouncement', () => {
 
   it('builds the post-undo announcement', () => {
     expect(buildUndoAnnouncement(entry, 7, 7)).toBe('Undid 3 fire damage to Goblin 2. 7 of 7 HP.');
+  });
+});
+
+describe('isUndoEntryStale', () => {
+  const entry: HpUndoEntry = {
+    instanceId: 'unit-1',
+    unitName: 'Goblin 2',
+    prevHp: 7,
+    prevTempHp: 0,
+    postHp: 4,
+    postTempHp: 1,
+    description: '3 damage to Goblin 2',
+  };
+
+  it('is not stale when the unit still matches the recorded post-change HP/temp HP', () => {
+    expect(isUndoEntryStale(entry, { currentHp: 4, tempHp: 1 })).toBe(false);
+  });
+
+  it('is stale when currentHp was changed by something else since', () => {
+    expect(isUndoEntryStale(entry, { currentHp: 10, tempHp: 1 })).toBe(true);
+  });
+
+  it('is stale when tempHp was changed by something else since', () => {
+    expect(isUndoEntryStale(entry, { currentHp: 4, tempHp: 5 })).toBe(true);
+  });
+
+  it('treats a missing currentHp/tempHp as 0 rather than throwing', () => {
+    const zeroEntry: HpUndoEntry = { ...entry, postHp: 0, postTempHp: 0 };
+    expect(isUndoEntryStale(zeroEntry, {})).toBe(false);
+  });
+});
+
+describe('buildStaleUndoAnnouncement', () => {
+  it('announces the stale discard tersely', () => {
+    const entry: HpUndoEntry = {
+      instanceId: 'unit-1',
+      unitName: "Goblin 2",
+      prevHp: 7,
+      prevTempHp: 0,
+      postHp: 4,
+      postTempHp: 0,
+      description: '3 damage to Goblin 2',
+    };
+    expect(buildStaleUndoAnnouncement(entry)).toBe("Can't undo: Goblin 2's hit points changed since then.");
   });
 });

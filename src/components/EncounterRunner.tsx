@@ -6,8 +6,15 @@ import { MonsterOperationsModal } from './MonsterOperationsModal';
 import { ConditionsModal } from './ConditionsModal';
 import { CombatMap } from './CombatMap';
 import { autoDeployUnits } from '../utils/mapUtils';
-import { tickConditionsAtEndOfTurn, formatConditions } from '../utils/conditions';
+import { tickConditionsAtEndOfTurn, formatConditions, normalizeConditions, removeCondition } from '../utils/conditions';
 import type { ActiveCondition } from '../utils/conditions';
+import { getSaveModifier } from '../utils/dnd';
+import {
+  getConcentrationDC,
+  needsConcentrationCheck,
+  buildConcentrationDownAnnouncement,
+  buildConcentrationSaveAnnouncement,
+} from '../utils/concentrationCheck';
 import type { Encounter, EncounterUnit, EncounterRunningState, Campaign, Position, MapSize } from '../types';
 import { useCampaigns } from '../context/CampaignContext';
 import { useAssistantScreen } from '../context/AssistantScreenContext';
@@ -17,7 +24,16 @@ import { isInteractiveTarget, useAnnouncer, useFocusTrap } from './uiHelpers';
 import { hasDamageImmunity, hasDamageResistance, hasDamageVulnerability, projectHpApplication } from '../shared/combatHp';
 import { UNTYPED_DAMAGE } from '../utils/damageTypes';
 import { buildHpChangeAnnouncement, formatTrackerHp } from '../utils/combatDamageAnnouncements';
-import { buildUndoAnnouncement, buildUndoDescription, describeUndoAction, popUndoEntry, pushUndoEntry, type HpUndoEntry } from '../utils/hpUndoStack';
+import {
+  buildUndoAnnouncement,
+  buildUndoDescription,
+  buildStaleUndoAnnouncement,
+  describeUndoAction,
+  isUndoEntryStale,
+  popUndoEntry,
+  pushUndoEntry,
+  type HpUndoEntry,
+} from '../utils/hpUndoStack';
 
 const DEFAULT_MAP_SIZE: MapSize = { width: 20, height: 20 };
 
@@ -562,19 +578,38 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
     // and already the next logical control in this toolbar.
     const wasUndoButtonFocused = document.activeElement === undoButtonRef.current;
 
-    let restoredMaxHp = 0;
-    const next = combatants.map(u => {
-      if (u.instanceId === entry.instanceId) {
-        restoredMaxHp = u.maxHp || 0;
-        return { ...u, currentHp: entry.prevHp, tempHp: entry.prevTempHp };
-      }
-      return u;
-    });
+    const liveUnit = combatants.find(u => u.instanceId === entry.instanceId);
+    // If the unit's HP/temp HP no longer match what this entry recorded
+    // right after its own change, something else (an approved assistant
+    // HITL mutation, an external running-state sync, etc.) touched it in
+    // between. Restoring prevHp/prevTempHp now would silently clobber that
+    // later change, so discard this entry instead of applying it. A
+    // missing unit is treated the same way (can't verify -- discard).
+    const stale = !liveUnit || isUndoEntryStale(entry, liveUnit);
 
     setHpUndoStack(rest);
-    setCombatants(next);
-    syncEncounterState(next, isCombatStarted, turnIndex, round);
-    setAnnouncement(buildUndoAnnouncement(entry, entry.prevHp, restoredMaxHp));
+
+    if (stale) {
+      setAnnouncement(buildStaleUndoAnnouncement(entry));
+    } else {
+      let restoredMaxHp = 0;
+      const next = combatants.map(u => {
+        if (u.instanceId === entry.instanceId) {
+          restoredMaxHp = u.maxHp || 0;
+          return {
+            ...u,
+            currentHp: entry.prevHp,
+            tempHp: entry.prevTempHp,
+            conditions: entry.prevConditions !== undefined ? entry.prevConditions : u.conditions,
+          };
+        }
+        return u;
+      });
+
+      setCombatants(next);
+      syncEncounterState(next, isCombatStarted, turnIndex, round);
+      setAnnouncement(buildUndoAnnouncement(entry, entry.prevHp, restoredMaxHp));
+    }
 
     if (rest.length === 0 && wasUndoButtonFocused) {
       setTimeout(() => nextTurnButtonRef.current?.focus(), 0);
@@ -878,17 +913,65 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
           newTempHp,
         });
 
-        if (newHp !== prevHp || newTempHp !== prevTempHp) {
+        // Concentration check: only for damage (healing never triggers
+        // one), only while Concentrating, and only when damage was
+        // actually taken -- after resistance/vulnerability/immunity,
+        // counting damage absorbed by temp HP, and never for immune (0
+        // taken). The result is appended to the SAME announcement rather
+        // than firing a second, competing one.
+        const prevConditionsList = normalizeConditions(u.conditions);
+        let nextConditionsList = prevConditionsList;
+        if (isDamage) {
+          const isConcentrating = prevConditionsList.some(c => c.name.toLowerCase() === 'concentrating');
+          const damageTaken = (prevHp - newHp) + (prevTempHp - newTempHp);
+          if (isConcentrating && needsConcentrationCheck(damageTaken)) {
+            if (newHp <= 0) {
+              // A creature at 0 HP is unconscious and automatically loses
+              // concentration -- no roll.
+              nextConditionsList = removeCondition(prevConditionsList, 'Concentrating');
+              announcementMsg = `${announcementMsg} ${buildConcentrationDownAnnouncement()}`;
+            } else {
+              const dc = getConcentrationDC(damageTaken);
+              const conMod = u.fullData ? getSaveModifier(u.fullData, 'CON') : 0;
+              const formula = `1d20${conMod >= 0 ? '+' : ''}${conMod}`;
+              const result = DiceService.roll(formula);
+              const base = result.rolls[0];
+              const maintained = result.total >= dc;
+              diceLogService.logRoll({
+                source: u.name,
+                purpose: 'Concentration Save',
+                formula,
+                rolls: result.rolls,
+                modifier: conMod,
+                total: result.total,
+                critStatus: base === 20 ? 'crit' : base === 1 ? 'fumble' : 'normal',
+              });
+              if (!maintained) {
+                nextConditionsList = removeCondition(prevConditionsList, 'Concentrating');
+              }
+              announcementMsg = `${announcementMsg} ${buildConcentrationSaveAnnouncement(u.name, result.total, dc, maintained)}`;
+            }
+          }
+        }
+        const conditionsChanged = nextConditionsList !== prevConditionsList;
+
+        if (newHp !== prevHp || newTempHp !== prevTempHp || conditionsChanged) {
           pendingUndo = {
             instanceId,
             unitName: u.name,
             prevHp,
             prevTempHp,
+            postHp: newHp,
+            postTempHp: newTempHp,
+            prevConditions: conditionsChanged ? prevConditionsList : undefined,
+            postConditions: conditionsChanged ? nextConditionsList : undefined,
             description: buildUndoDescription(val, isDamage ? 'damage' : 'healing', normDamageType, u.name),
           };
         }
 
-        return { ...u, currentHp: newHp, tempHp: newTempHp };
+        return conditionsChanged
+          ? { ...u, currentHp: newHp, tempHp: newTempHp, conditions: nextConditionsList }
+          : { ...u, currentHp: newHp, tempHp: newTempHp };
       }
       return u;
     });
