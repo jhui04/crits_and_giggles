@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cleanPhaseName, normalizePhaseNames, phaseLabel, MAX_PHASE_NAME_LENGTH } from './phaseNames';
+import { cleanPhaseName, findPhaseNameConflicts, normalizePhaseNames, phaseLabel, MAX_PHASE_NAME_LENGTH } from './phaseNames';
 
 describe('phaseNames', () => {
   it('falls back to "Phase N" for missing, blank and whitespace names', () => {
@@ -24,5 +24,28 @@ describe('phaseNames', () => {
     expect(normalizePhaseNames({ '1': '' })).toBeUndefined();
     expect(normalizePhaseNames(null)).toBeUndefined();
     expect(normalizePhaseNames(['a'])).toBeUndefined();
+  });
+
+  it('flags case-insensitive duplicate names, later phase loses', () => {
+    expect(findPhaseNameConflicts({ '1': 'Beach', '3': 'BEACH' })).toEqual([
+      { phase: 3, name: 'BEACH', conflictsWith: 1, kind: 'name' },
+    ]);
+    expect(normalizePhaseNames({ '1': 'Beach', '2': ' beach  ' })).toEqual({ '1': 'Beach' });
+    expect(normalizePhaseNames({ '1': 'Beach', '2': 'Boss' })).toEqual({ '1': 'Beach', '2': 'Boss' });
+  });
+
+  it('rejects a name equal to another unnamed phase default, but allows its own default', () => {
+    expect(findPhaseNameConflicts({ '1': 'phase 2' })).toEqual([
+      { phase: 1, name: 'phase 2', conflictsWith: 2, kind: 'default' },
+    ]);
+    expect(normalizePhaseNames({ '1': 'Phase 2' })).toBeUndefined();
+    expect(normalizePhaseNames({ '2': 'Phase 2' })).toEqual({ '2': 'Phase 2' });
+    // Phase 2 is named, so its default label is no longer in use.
+    expect(normalizePhaseNames({ '1': 'Phase 2', '2': 'Boss' })).toEqual({ '1': 'Phase 2', '2': 'Boss' });
+  });
+
+  it('only reserves defaults of phases that exist', () => {
+    expect(normalizePhaseNames({ '1': 'Phase 9' }, 5)).toEqual({ '1': 'Phase 9' });
+    expect(normalizePhaseNames({ '1': 'Phase 9' }, 9)).toBeUndefined();
   });
 });

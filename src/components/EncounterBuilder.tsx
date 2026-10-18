@@ -9,8 +9,8 @@ import { useCampaigns } from '../context/CampaignContext';
 import { isInteractiveTarget, useFocusTrap } from './uiHelpers';
 import { useAssistantScreen } from '../context/AssistantScreenContext';
 
-import { MAX_BUILDER_PHASES, MAX_PHASE_NAME_LENGTH, normalizePhaseNames, phaseLabel } from '../utils/phaseNames';
-import type { PhaseNames } from '../utils/phaseNames';
+import { MAX_BUILDER_PHASES, MAX_PHASE_NAME_LENGTH, cleanPhaseName, findPhaseNameConflicts, normalizePhaseNames, phaseLabel } from '../utils/phaseNames';
+import type { PhaseNames, PhaseNameConflict } from '../utils/phaseNames';
 
 interface EncounterBuilderProps {
   initialEncounter: Encounter | null;
@@ -31,6 +31,23 @@ export function EncounterBuilder({ initialEncounter, chapterId, onClose }: Encou
     { length: Math.max(MAX_BUILDER_PHASES, ...units.map(u => u.phase ?? 1)) },
     (_, i) => i + 1
   );
+  const [phaseNamesOpen, setPhaseNamesOpen] = useState(Object.keys(initialEncounter?.phaseNames ?? {}).length > 0);
+  const [phaseAlert, setPhaseAlert] = useState('');
+  // Names must be unique per encounter; the later phase is the one flagged (matches the server).
+  const cleanedPhaseNames: PhaseNames = {};
+  for (const n of phaseNumbers) {
+    const c = cleanPhaseName(phaseNames[String(n)]);
+    if (c) cleanedPhaseNames[String(n)] = c;
+  }
+  const phaseConflicts = findPhaseNameConflicts(cleanedPhaseNames, phaseNumbers.length);
+  const conflictByPhase = new Map<number, PhaseNameConflict>(phaseConflicts.map(c => [c.phase, c]));
+  const conflictMessage = (c: PhaseNameConflict) => c.kind === 'name'
+    ? `"${c.name}" is already the name of ${phaseLabel(cleanedPhaseNames, c.conflictsWith)} (phase ${c.conflictsWith}). Phase names must be different from each other, ignoring capital letters.`
+    : `"${c.name}" is the default name of phase ${c.conflictsWith}. Give phase ${c.conflictsWith} its own name first, or choose a different name.`;
+  // Live summary while typing; a blocked save replaces it with the "not saved" message.
+  const liveAlert = phaseConflicts.length === 0 ? '' :
+    `${phaseConflicts.length === 1 ? '1 phase name is' : `${phaseConflicts.length} phase names are`} not unique. ${phaseConflicts.map(c => `Phase ${c.phase}: ${conflictMessage(c)}`).join(' ')}`;
+  const shownPhaseAlert = phaseConflicts.length === 0 ? '' : (phaseAlert || liveAlert);
   const phaseOptions: DisclosureSelectOption<string>[] = phaseNumbers.map(n => ({
     value: String(n),
     label: phaseLabel(phaseNames, n),
@@ -248,6 +265,13 @@ export function EncounterBuilder({ initialEncounter, chapterId, onClose }: Encou
       alert("Please select a Campaign first in the Campaigns tab.");
       return;
     }
+    if (phaseConflicts.length > 0) {
+      const first = phaseConflicts[0];
+      setPhaseNamesOpen(true);
+      setPhaseAlert(`Encounter not saved. Phase names must be unique. ${conflictMessage(first)}${phaseConflicts.length > 1 ? ` ${phaseConflicts.length - 1} more phase name${phaseConflicts.length > 2 ? 's need' : ' needs'} fixing.` : ''}`);
+      setTimeout(() => document.getElementById(`phase-name-${first.phase}`)?.focus(), 0);
+      return;
+    }
     
     // Strip fullData before saving to backend (Plan 3 compliance)
     const strippedUnits = units.map(u => {
@@ -281,7 +305,7 @@ export function EncounterBuilder({ initialEncounter, chapterId, onClose }: Encou
       dmMapUrl: dmMapUrl.trim() || undefined,
       playerMapUrl: playerMapUrl.trim() || undefined,
       mapSize: initialEncounter?.mapSize || { width: 20, height: 20 },
-      phaseNames: normalizePhaseNames(phaseNames)
+      phaseNames: normalizePhaseNames(phaseNames, phaseNumbers.length)
     };
     
     const existingEncounters = initialEncounter 
@@ -342,22 +366,28 @@ export function EncounterBuilder({ initialEncounter, chapterId, onClose }: Encou
         </button>
       </section>
 
-      <details open={Object.keys(initialEncounter?.phaseNames ?? {}).length > 0} style={{ margin: '1rem 0' }}>
+      <details open={phaseNamesOpen} onToggle={e => setPhaseNamesOpen(e.currentTarget.open)} style={{ margin: '1rem 0' }}>
         <summary>Phase Names (optional)</summary>
-        <p id="phase-names-hint">Leave a name blank to use the default, "Phase 1", "Phase 2" and so on. Names are trimmed and limited to {MAX_PHASE_NAME_LENGTH} characters.</p>
-        {phaseNumbers.map(n => (
-          <div key={n} style={{ marginBottom: '0.5rem' }}>
-            <label htmlFor={`phase-name-${n}`}>Name for Phase {n}</label>
-            <input
-              id={`phase-name-${n}`}
-              value={phaseNames[String(n)] ?? ''}
-              maxLength={MAX_PHASE_NAME_LENGTH}
-              aria-describedby="phase-names-hint"
-              onChange={e => setPhaseNames(prev => ({ ...prev, [String(n)]: e.target.value }))}
-              style={{ width: '100%', padding: '0.5rem' }}
-            />
-          </div>
-        ))}
+        <p id="phase-names-hint">Leave a name blank to use the default, "Phase 1", "Phase 2" and so on. Names are trimmed, limited to {MAX_PHASE_NAME_LENGTH} characters, and must be different from each other, ignoring capital letters.</p>
+        <div role="alert" className="sr-only">{shownPhaseAlert}</div>
+        {phaseNumbers.map(n => {
+          const conflict = conflictByPhase.get(n);
+          return (
+            <div key={n} style={{ marginBottom: '0.5rem' }}>
+              <label htmlFor={`phase-name-${n}`}>Name for Phase {n}</label>
+              <input
+                id={`phase-name-${n}`}
+                value={phaseNames[String(n)] ?? ''}
+                maxLength={MAX_PHASE_NAME_LENGTH}
+                aria-invalid={conflict ? true : undefined}
+                aria-describedby={conflict ? `phase-name-error-${n} phase-names-hint` : 'phase-names-hint'}
+                onChange={e => setPhaseNames(prev => ({ ...prev, [String(n)]: e.target.value }))}
+                style={{ width: '100%', padding: '0.5rem', ...(conflict ? { border: '2px solid #b00020' } : {}) }}
+              />
+              {conflict && <p id={`phase-name-error-${n}`} style={{ color: '#b00020', margin: '0.25rem 0 0' }}>Error: {conflictMessage(conflict)}</p>}
+            </div>
+          );
+        })}
       </details>
 
       <div role="status" aria-live="polite" className="sr-only">{statusMessage}</div>

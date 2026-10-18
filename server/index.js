@@ -14,7 +14,7 @@ import {
   clearLlmMetrics,
 } from './assistant/telemetry.js';
 import { hitlManager } from './assistant/hitlManager.js';
-import { normalizePhaseNames } from './phaseNames.js';
+import { normalizePhaseNames, phaseCountFor } from './phaseNames.js';
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -81,10 +81,11 @@ function getFullCampaign(id) {
     enc.mapSize = enc.mapSize ? JSON.parse(enc.mapSize) : null;
     enc.gridConfig = enc.gridConfig ? JSON.parse(enc.gridConfig) : null;
     // Old encounters have no names: omit the key so every phase falls back to "Phase N".
-    const phaseNames = enc.phaseNames ? normalizePhaseNames(JSON.parse(enc.phaseNames)) : null;
-    if (phaseNames) enc.phaseNames = phaseNames; else delete enc.phaseNames;
     enc.chapterIds = encChapters.get(enc.id) || [];
     enc.units = encUnits.get(enc.id) || [];
+    // Legacy rows may hold duplicate names: drop later duplicates so Run Mode labels stay unique.
+    const phaseNames = enc.phaseNames ? normalizePhaseNames(JSON.parse(enc.phaseNames), phaseCountFor(enc.units)) : null;
+    if (phaseNames) enc.phaseNames = phaseNames; else delete enc.phaseNames;
     // Convert isPlayer back to boolean and restore position
     enc.units.forEach(u => {
       u.isPlayer = !!u.isPlayer;
@@ -149,7 +150,7 @@ function insertCampaignChildren(campaignId, data) {
         enc.playerMapUrl || null,
         enc.mapSize ? JSON.stringify(enc.mapSize) : null,
         enc.gridConfig ? JSON.stringify(enc.gridConfig) : null,
-        (() => { const n = normalizePhaseNames(enc.phaseNames); return n ? JSON.stringify(n) : null; })()
+        (() => { const n = normalizePhaseNames(enc.phaseNames, phaseCountFor(enc.units)); return n ? JSON.stringify(n) : null; })()
       );
       if (enc.chapterIds) {
         enc.chapterIds.forEach(chapId => insertEncounterChapter.run(enc.id, chapId, campaignId));
