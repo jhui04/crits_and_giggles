@@ -8,6 +8,8 @@ import { DisclosureSelect } from './DisclosureSelect';
 import { ConditionsPanel } from './ConditionsPanel';
 import type { ActiveCondition } from '../utils/conditions';
 import { DAMAGE_TYPE_OPTIONS, UNTYPED_DAMAGE } from '../utils/damageTypes';
+import { MultiattackPanel } from './MultiattackPanel';
+import { isMultiattackAction } from '../utils/multiattack';
 
 interface MonsterOperationsModalProps {
   unit: EncounterUnit;
@@ -83,6 +85,9 @@ export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, on
       // Returning from a sub-view: its controls just unmounted, so put focus
       // back on the heading instead of dropping it to document.body.
       headingRef.current?.focus();
+    } else if (view === 'ACTIONS') {
+      // The first control may be a Multiattack picker or roll button, not a plain action button.
+      modalContentRef.current?.querySelector<HTMLElement>('#ops-actions button')?.focus();
     } else if (view !== 'CONDITIONS') {
       // CONDITIONS focuses its own heading on mount.
       firstButtonRef.current?.focus();
@@ -121,10 +126,11 @@ export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, on
     return { announceStr, visualStr };
   };
 
-  const rollAction = (actionName: string, bonus?: number, damageDice?: {dice: string, type: string}[]) => {
+  /** Rolls (and dice-logs) one attack; returns the pieces for announcing it. */
+  const performAttack = (actionName: string, bonus?: number, damageDice?: {dice: string, type: string}[]) => {
     let hitVisual: string | undefined;
     let damageResultString: string | undefined;
-    const announceParts = [];
+    const announceParts: string[] = [];
 
     if (bonus !== undefined) {
       const { announceStr, visualStr } = getD20Details(bonus, `${actionName} (Attack to hit)`);
@@ -150,6 +156,11 @@ export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, on
       announceParts.push(`${damageResultString} damage`);
     }
 
+    return { hitVisual, damageResultString, announceParts };
+  };
+
+  const rollAction = (actionName: string, bonus?: number, damageDice?: {dice: string, type: string}[]) => {
+    const { hitVisual, damageResultString, announceParts } = performAttack(actionName, bonus, damageDice);
     const msg = `${unit.name} uses ${actionName}${announceParts.length > 0 ? ': ' + announceParts.join(', ') : ''}`;
     onAnnounce(msg);
     onRoll(actionName, hitVisual || 'Rolled', damageResultString);
@@ -217,22 +228,49 @@ export function MonsterOperationsModal({ unit, onClose, onApplyHpMod, onRoll, on
     </form>
   );
 
-  const renderActions = () => (
-    <div style={{ display: 'grid', gap: '0.5rem' }}>
-      {monster.actions.length === 0 && <p>No specific actions defined.</p>}
-      {monster.actions.map((a, i) => (
-        <button 
-          key={a.name} 
-          ref={i === 0 ? firstButtonRef : null}
-          type="button" 
-          onClick={() => rollAction(a.name, a.attack_bonus, a.damage)}
-        >
-          {a.name}
-        </button>
-      ))}
-      <button type="button" onClick={() => setView('MAIN')} style={{ marginTop: '0.5rem' }}>Back</button>
-    </div>
-  );
+  const renderActions = () => {
+    // Multiattack actions get a MultiattackPanel; it falls back to the raw
+    // text when the breakdown cannot be parsed.
+    let multiIndex = 0;
+    return (
+      <div id="ops-actions" style={{ display: 'grid', gap: '0.5rem' }}>
+        {monster.actions.length === 0 && <p>No specific actions defined.</p>}
+        {monster.actions.map((a, i) => {
+          if (isMultiattackAction(a)) {
+            return (
+              <MultiattackPanel
+                key={a.name}
+                index={multiIndex++}
+                multiattack={a}
+                actions={monster.actions}
+                traits={monster.traits}
+                unitName={unit.name}
+                rollAttack={(name, bonus, damage) => {
+                  const r = performAttack(name, bonus, damage);
+                  return { line: `${name}: ${r.announceParts.length > 0 ? r.announceParts.join(' and ') : 'rolled'}` };
+                }}
+                onRolled={(title, summary) => {
+                  onAnnounce(`${unit.name} uses ${title}: ${summary}`);
+                  onRoll(title, summary);
+                }}
+              />
+            );
+          }
+          return (
+            <button
+              key={a.name}
+              ref={i === 0 ? firstButtonRef : null}
+              type="button"
+              onClick={() => rollAction(a.name, a.attack_bonus, a.damage)}
+            >
+              {a.name}
+            </button>
+          );
+        })}
+        <button type="button" onClick={() => setView('MAIN')} style={{ marginTop: '0.5rem' }}>Back</button>
+      </div>
+    );
+  };
 
   const renderSkills = () => {
     return (
