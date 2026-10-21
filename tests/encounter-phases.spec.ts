@@ -84,6 +84,7 @@ test.describe('Encounter Phases System', () => {
     await expect(phase2Btn).toHaveAttribute('aria-checked', 'false');
 
     // 2. Only Phase 1 units are visible initially in the setup list
+    await page.getByRole('button', { name: /^NPCs/ }).click();
     await expect(page.getByLabel(/Goblin Scout/)).toBeVisible();
     await expect(page.getByLabel(/Valeros/)).toBeVisible();
     await expect(page.getByLabel(/Bugbear Boss/)).not.toBeVisible();

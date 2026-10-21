@@ -125,25 +125,13 @@ test.describe('Tactical Map Movement & Wall Collisions', () => {
     // Accessibility check on Move Towards modal
     await checkA11y(page, 'Move Towards Modal with Path Around Walls');
 
-    // Verify destination column is routed around the fence (not column W / index 22 directly through the fence)
-    const colSelect = page.locator('#dest-col-select');
-    await expect(colSelect).toBeVisible();
-    const selectedColValue = await colSelect.inputValue();
-    // Col 22 is W. Due to Manor Stone Fence blocking [22, 2] <-> [22, 3], pathfinder routes around it (e.g. col != 22)
-    // or outcome avoids the direct blocked wall transition
+    // Destination is a single cell field; the pathfinder must not step straight into the fenced cell W4
+    const destInput = page.getByLabel(/Destination Cell/);
+    await expect(destInput).toBeVisible();
     const outcomeStatus = page.locator('[role="status"]');
     await expect(outcomeStatus).toBeVisible();
-    const outcomeText = await outcomeStatus.innerText();
-    expect(outcomeText).toContain('Will move');
-
-    // If destination column is not 22, it navigated laterally around fence
-    // Or destination cell does not cross through [22,3] directly
-    const rowSelect = page.locator('#dest-row-select');
-    const selectedRowValue = await rowSelect.inputValue();
-    // Confirm that it didn't just step straight into W4 if at column 22
-    if (selectedColValue === '22') {
-      expect(selectedRowValue).not.toBe('4');
-    }
+    expect(await outcomeStatus.innerText()).toContain('Will move');
+    expect(await destInput.inputValue()).not.toBe('W4');
 
     // Confirm Move
     const confirmBtn = page.getByRole('button', { name: 'Confirm Move' });

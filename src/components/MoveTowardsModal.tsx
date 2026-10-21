@@ -7,6 +7,7 @@ import {
   getCreatureSpeed,
   calculateMoveTowards
 } from '../utils/mapUtils';
+import { parseCellLabel } from '../shared/spatial/labels';
 
 interface MoveTowardsModalProps {
   isOpen: boolean;
@@ -51,6 +52,8 @@ export function MoveTowardsModal({
 
   const [moveAmount, setMoveAmount] = useState<number>(defaultMoveAmount);
   const [manualPos, setManualPos] = useState<Position | null>(null);
+  const [destDraft, setDestDraft] = useState<string | null>(null);
+  const clearManual = () => { setManualPos(null); setDestDraft(null); };
   const [prevKey, setPrevKey] = useState(`${originUnit.instanceId}-${targetUnit.instanceId}-${defaultMoveAmount}`);
 
   // Adjust default move amount whenever origin or target changes
@@ -58,7 +61,7 @@ export function MoveTowardsModal({
   if (prevKey !== currentKey) {
     setPrevKey(currentKey);
     setMoveAmount(defaultMoveAmount);
-    setManualPos(null);
+    clearManual();
   }
 
   useEffect(() => {
@@ -127,6 +130,7 @@ export function MoveTowardsModal({
   const toCoord = coordinateToLabel(toPos);
   const destCoord = coordinateToLabel(effectivePos);
 
+  const destInvalid = destDraft !== null;
   const isOccupied = occupiedSet.has(`${effectivePos.x},${effectivePos.y}`);
   const occupyingUnit = isOccupied
     ? allUnits.find(u => u.position?.x === effectivePos.x && u.position?.y === effectivePos.y)
@@ -134,7 +138,7 @@ export function MoveTowardsModal({
   const isAdjacentToTarget = calculateDistance(effectivePos, toPos) <= 5;
 
   const handleConfirm = () => {
-    if (isOccupied) return;
+    if (isOccupied || destInvalid) return;
 
     let announcement = `${originUnit.name} moved ${effectiveMovedFeet} ft towards ${targetUnit.name} to ${destCoord}.`;
     if (isAdjacentToTarget) {
@@ -201,7 +205,7 @@ export function MoveTowardsModal({
               onChange={e => {
                 const val = parseInt(e.target.value, 10);
                 setMoveAmount(isNaN(val) ? 0 : Math.max(0, val));
-                setManualPos(null);
+                clearManual();
               }}
               style={{
                 flex: 1,
@@ -216,7 +220,7 @@ export function MoveTowardsModal({
               type="button"
               onClick={() => {
                 setMoveAmount(prev => Math.max(0, prev - 5));
-                setManualPos(null);
+                clearManual();
               }}
               aria-label="Decrease distance by 5 feet"
               style={{ padding: '0.5rem 0.75rem', fontWeight: 'bold', cursor: 'pointer' }}
@@ -227,7 +231,7 @@ export function MoveTowardsModal({
               type="button"
               onClick={() => {
                 setMoveAmount(prev => prev + 5);
-                setManualPos(null);
+                clearManual();
               }}
               aria-label="Increase distance by 5 feet"
               style={{ padding: '0.5rem 0.75rem', fontWeight: 'bold', cursor: 'pointer' }}
@@ -243,7 +247,7 @@ export function MoveTowardsModal({
             type="button"
             onClick={() => {
               setMoveAmount(defaultMoveAmount);
-              setManualPos(null);
+              clearManual();
             }}
             style={{ padding: '0.3rem 0.6rem', fontSize: '0.85rem', cursor: 'pointer', backgroundColor: '#e9ecef', border: '1px solid #ced4da', borderRadius: '4px' }}
           >
@@ -253,7 +257,7 @@ export function MoveTowardsModal({
             type="button"
             onClick={() => {
               setMoveAmount(maxSpeed);
-              setManualPos(null);
+              clearManual();
             }}
             style={{ padding: '0.3rem 0.6rem', fontSize: '0.85rem', cursor: 'pointer', backgroundColor: '#e9ecef', border: '1px solid #ced4da', borderRadius: '4px' }}
           >
@@ -263,7 +267,7 @@ export function MoveTowardsModal({
             type="button"
             onClick={() => {
               setMoveAmount(Math.max(0, totalDistance - 5));
-              setManualPos(null);
+              clearManual();
             }}
             style={{ padding: '0.3rem 0.6rem', fontSize: '0.85rem', cursor: 'pointer', backgroundColor: '#e9ecef', border: '1px solid #ced4da', borderRadius: '4px' }}
           >
@@ -273,7 +277,7 @@ export function MoveTowardsModal({
             type="button"
             onClick={() => {
               setMoveAmount(maxSpeed * 2);
-              setManualPos(null);
+              clearManual();
             }}
             style={{ padding: '0.3rem 0.6rem', fontSize: '0.85rem', cursor: 'pointer', backgroundColor: '#e9ecef', border: '1px solid #ced4da', borderRadius: '4px' }}
           >
@@ -284,53 +288,41 @@ export function MoveTowardsModal({
         {/* Destination Coordinate Fine-Tuning */}
         <div style={{ backgroundColor: '#f1f3f5', border: '1px solid #dee2e6', borderRadius: '6px', padding: '0.75rem 1rem', marginBottom: '1.25rem' }}>
           <div style={{ fontWeight: 'bold', marginBottom: '0.5rem' }}>
-            Modify Destination Cell (Optional):
+            Modify Destination Cell (Optional)
           </div>
           <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
             <div>
-              <label htmlFor="dest-col-select" style={{ fontSize: '0.85rem', marginRight: '0.35rem' }}>
-                Column:
+              <label htmlFor="dest-cell-input" style={{ fontSize: '0.85rem', marginRight: '0.35rem' }}>
+                Destination Cell (for example C4):
               </label>
-              <select
-                id="dest-col-select"
-                value={effectivePos.x}
+              <input
+                id="dest-cell-input"
+                type="text"
+                value={destDraft ?? destCoord}
+                aria-invalid={destInvalid}
+                aria-describedby={destInvalid ? 'dest-cell-error' : undefined}
                 onChange={e => {
-                  const newX = parseInt(e.target.value, 10);
-                  setManualPos({ x: newX, y: effectivePos.y });
+                  const text = e.target.value;
+                  const cell = parseCellLabel(text);
+                  if (cell && cell.x < mapSize.width && cell.y < mapSize.height) {
+                    setManualPos(cell);
+                    setDestDraft(null);
+                  } else {
+                    setDestDraft(text);
+                  }
                 }}
-                style={{ padding: '0.3rem 0.5rem', borderRadius: '4px', border: '1px solid #ced4da' }}
-              >
-                {Array.from({ length: mapSize.width }, (_, i) => (
-                  <option key={i} value={i}>
-                    {columnIndexToLabel(i)}
-                  </option>
-                ))}
-              </select>
+                style={{ padding: '0.3rem 0.5rem', borderRadius: '4px', border: '1px solid #ced4da', width: '6rem' }}
+              />
             </div>
-            <div>
-              <label htmlFor="dest-row-select" style={{ fontSize: '0.85rem', marginRight: '0.35rem' }}>
-                Row:
-              </label>
-              <select
-                id="dest-row-select"
-                value={effectivePos.y}
-                onChange={e => {
-                  const newY = parseInt(e.target.value, 10);
-                  setManualPos({ x: effectivePos.x, y: newY });
-                }}
-                style={{ padding: '0.3rem 0.5rem', borderRadius: '4px', border: '1px solid #ced4da' }}
-              >
-                {Array.from({ length: mapSize.height }, (_, i) => (
-                  <option key={i} value={i}>
-                    {i + 1}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {destInvalid && (
+              <div id="dest-cell-error" role="alert" style={{ color: '#842029', fontWeight: 'bold' }}>
+                Enter a cell on the map, from A1 to {columnIndexToLabel(mapSize.width - 1)}{mapSize.height}.
+              </div>
+            )}
             {manualPos && (
               <button
                 type="button"
-                onClick={() => setManualPos(null)}
+                onClick={() => clearManual()}
                 style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem', cursor: 'pointer', backgroundColor: '#6c757d', color: '#fff', border: 'none', borderRadius: '4px' }}
               >
                 Reset to Auto Path
@@ -376,17 +368,17 @@ export function MoveTowardsModal({
         <div style={{ display: 'flex', gap: '0.75rem' }}>
           <button
             type="button"
-            disabled={isOccupied}
+            disabled={isOccupied || destInvalid}
             onClick={handleConfirm}
             style={{
               flex: 1,
               padding: '0.75rem',
-              backgroundColor: isOccupied ? '#6c757d' : '#198754',
+              backgroundColor: isOccupied || destInvalid ? '#6c757d' : '#198754',
               color: '#fff',
               fontWeight: 'bold',
               border: 'none',
               borderRadius: '4px',
-              cursor: isOccupied ? 'not-allowed' : 'pointer'
+              cursor: isOccupied || destInvalid ? 'not-allowed' : 'pointer'
             }}
           >
             Confirm Move

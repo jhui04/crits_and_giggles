@@ -31,6 +31,7 @@ test('Monster Saving Throws Fallback in Operations Modal', async ({ page, reques
   await encounterPage.waitForLoadState();
   
   // Wait for unit to appear in setup list
+  await encounterPage.getByRole('button', { name: /^NPCs/ }).click();
   await expect(encounterPage.getByText('Save Test Monster')).toBeVisible();
   await encounterPage.getByRole('button', { name: 'Start Combat' }).click();
 

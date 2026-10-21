@@ -348,6 +348,7 @@ test.describe('Milestone 4: Encounter Combatant Customization & Phase Tool (R4)'
 
     // Verify EncounterRunner updated with new combatants
     // Phase 1 unit: Goblin Ambush Scout should be visible
+    await page.getByRole('button', { name: /^NPCs/ }).click();
     await expect(page.getByLabel(/Goblin Ambush Scout/)).toBeVisible();
 
     // Toggle Phase 2 switch to verify Phase 2 unit is also present

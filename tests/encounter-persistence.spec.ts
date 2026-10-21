@@ -38,6 +38,7 @@ test.describe('Encounter State Persistence Between Browser Sessions', () => {
     const playerUnit = suiteSeed.encounters[0].units.find(u => u.isPlayer)!;
     const monsterUnit = suiteSeed.encounters[0].units.find(u => !u.isPlayer)!;
 
+    await page.getByRole('button', { name: /^NPCs/ }).click();
     const playerInput = page.getByLabel(new RegExp(playerUnit.name));
     const monsterInput = page.getByLabel(new RegExp(monsterUnit.name));
 
@@ -56,6 +57,7 @@ test.describe('Encounter State Persistence Between Browser Sessions', () => {
     await page.waitForLoadState('networkidle');
 
     await expect(page.getByText('Initiative Setup')).toBeVisible();
+    await page.getByRole('button', { name: /^NPCs/ }).click();
     await expect(page.getByLabel(new RegExp(playerUnit.name))).toHaveValue('19');
     await expect(page.getByLabel(new RegExp(monsterUnit.name))).toHaveValue('14');
   });

@@ -310,11 +310,16 @@ test.describe('Combat Map Accessibility Suite', () => {
     await expect(moveHeading).toBeVisible();
     await expect(moveHeading).toBeFocused();
 
-    // Verify destination column and row modifiers are present
-    const colSelect = encounterPage.locator('#dest-col-select');
-    const rowSelect = encounterPage.locator('#dest-row-select');
-    await expect(colSelect).toBeVisible();
-    await expect(rowSelect).toBeVisible();
+    // Verify the single destination cell field is present
+    await expect(encounterPage.getByLabel(/Destination Cell/)).toBeVisible();
+
+    // An unparseable cell shows an error and blocks confirming; a valid cell clears it
+    await encounterPage.getByLabel(/Destination Cell/).fill('ZZ99');
+    await expect(encounterPage.getByRole('alert')).toContainText('Enter a cell on the map');
+    await expect(encounterPage.getByRole('button', { name: 'Confirm Move' })).toBeDisabled();
+    await encounterPage.getByLabel(/Destination Cell/).fill('b2');
+    await expect(encounterPage.getByLabel(/Destination Cell/)).toHaveValue('B2');
+    await expect(encounterPage.getByRole('alert')).toHaveCount(0);
 
     // Modify distance via +5 ft button
     const plus5Btn = encounterPage.getByRole('button', { name: 'Increase distance by 5 feet' });

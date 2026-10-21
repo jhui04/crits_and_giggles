@@ -109,7 +109,7 @@ test.describe('Tactical Map Walls & Dynamic Cover System', () => {
     await expect(goblinItem).toContainText('Cover: Half Cover behind Manor Stone Fence (+2 AC)');
 
     // Verify Move Towards button has full accessible description with cover info
-    const moveBtn = goblinItem.getByRole('button', { name: /Move towards Goblin Scout \(Half Cover behind Manor Stone Fence \(\+2 AC\)\)/ });
+    const moveBtn = goblinItem.getByRole('button', { name: /Move towards Goblin Scout.*Cover: Half Cover behind Manor Stone Fence \(\+2 AC\)/ });
     await expect(moveBtn).toBeVisible();
 
     // 2. Verify Orc Raider on beach has Total Cover because the solid Manor House blocks line-of-sight
