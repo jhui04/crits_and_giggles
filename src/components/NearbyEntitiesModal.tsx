@@ -281,40 +281,47 @@ export function NearbyEntitiesModal({
                   const roleText = unit.isPlayer ? 'Ally/Player' : 'Enemy/Monster';
                   const hpText = unit.currentHp !== undefined ? `${unit.currentHp}/${unit.maxHp ?? '?'} HP` : '';
                   return (
-                    <li
-                      key={unit.instanceId}
-                      style={{
-                        padding: '0.75rem',
-                        borderBottom: '1px solid #e0e0e0',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        flexWrap: 'wrap',
-                        gap: '0.5rem'
-                      }}
-                    >
-                      <div style={{ flex: '1 1 200px' }}>
-                        <strong>{unit.name}</strong> <span style={{ fontSize: '0.85em', color: '#555' }}>({roleText})</span>
-                        {hpText && <div style={{ fontSize: '0.85em', color: '#444' }}>{hpText}</div>}
-                        {cover && cover.type !== 'none' && (
-                          <div
-                            style={{
-                              fontSize: '0.85em',
-                              fontWeight: 'bold',
-                              color: cover.type === 'total' ? '#b02a37' : cover.type === 'three_quarters' ? '#b45309' : '#0b5ed7',
-                              marginTop: '0.2rem'
-                            }}
-                          >
-                            Cover: {cover.description}
-                          </div>
-                        )}
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                        <div style={{ textAlign: 'right', fontWeight: 'bold' }}>
-                          <span>{distance} ft {direction}</span>
-                          <div style={{ fontSize: '0.85em', color: '#555' }}>at {coordLabel}</div>
-                        </div>
-                        {activeOriginUnit && onConfirmMoveTowards && (
+                    <li key={unit.instanceId} style={{ borderBottom: '1px solid #e0e0e0' }}>
+                      {(() => {
+                        const content = (
+                          <>
+                            <span style={{ flex: '1 1 200px', textAlign: 'left' }}>
+                              <strong>{unit.name}</strong> <span style={{ fontSize: '0.85em', color: '#555' }}>({roleText})</span>
+                              {hpText && <span style={{ display: 'block', fontSize: '0.85em', color: '#444' }}>{hpText}</span>}
+                              {cover && cover.type !== 'none' && (
+                                <span
+                                  style={{
+                                    display: 'block',
+                                    fontSize: '0.85em',
+                                    fontWeight: 'bold',
+                                    color: cover.type === 'total' ? '#b02a37' : cover.type === 'three_quarters' ? '#b45309' : '#0b5ed7',
+                                    marginTop: '0.2rem'
+                                  }}
+                                >
+                                  Cover: {cover.description}
+                                </span>
+                              )}
+                            </span>
+                            <span style={{ textAlign: 'right', fontWeight: 'bold' }}>
+                              <span>{distance} ft {direction}</span>
+                              <span style={{ display: 'block', fontSize: '0.85em', color: '#555' }}>at {coordLabel}</span>
+                            </span>
+                          </>
+                        );
+                        const rowStyle = {
+                          padding: '0.75rem',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          flexWrap: 'wrap' as const,
+                          gap: '0.5rem',
+                          width: '100%',
+                          boxSizing: 'border-box' as const
+                        };
+                        if (!(activeOriginUnit && onConfirmMoveTowards)) {
+                          return <div style={rowStyle}>{content}</div>;
+                        }
+                        return (
                           <button
                             ref={el => { moveBtnRefs.current[unit.instanceId] = el; }}
                             type="button"
@@ -323,22 +330,20 @@ export function NearbyEntitiesModal({
                               lastMoveTargetIdRef.current = unit.instanceId;
                               setMoveTarget(unit);
                             }}
-                            aria-label={`Move towards ${unit.name}${cover && cover.type !== 'none' ? ` (${cover.description})` : ''}`}
+                            aria-label={`Move towards ${unit.name}, ${roleText}${hpText ? `, ${hpText}` : ''}${cover && cover.type !== 'none' ? `, Cover: ${cover.description}` : ''}, ${distance} ft ${direction}, at ${coordLabel}`}
                             style={{
-                              padding: '0.4rem 0.8rem',
-                              backgroundColor: '#198754',
-                              color: '#fff',
-                              fontWeight: 'bold',
-                              fontSize: '0.85rem',
+                              ...rowStyle,
+                              background: '#f8fff9',
+                              color: '#111',
+                              font: 'inherit',
                               border: 'none',
-                              borderRadius: '4px',
                               cursor: 'pointer'
                             }}
                           >
-                            Move Towards
+                            {content}
                           </button>
-                        )}
-                      </div>
+                        );
+                      })()}
                     </li>
                   );
                 })}

@@ -125,6 +125,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
   useAssistantScreen(activeEncounter ? 'run.combat' : 'run.encounter_picker');
   const [combatants, setCombatants] = useState<EncounterUnit[]>([]);
   const [turnIndex, setTurnIndex] = useState(0);
+  const [npcRowsExpanded, setNpcRowsExpanded] = useState(false);
   const [round, setRound] = useState(1);
   const [isCombatStarted, setIsCombatStarted] = useState(false);
   const [announcement, setAnnouncement] = useAnnouncer();
@@ -1135,7 +1136,7 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
           <h3>Initiative Setup</h3>
           <p>Enter player initiatives and click Start. Monsters will auto-roll health and initiative.</p>
           <ul style={{ listStyle: 'none', padding: 0 }}>
-            {visibleCombatants.map(u => (
+            {visibleCombatants.filter(u => u.isPlayer).map(u => (
               <li key={u.instanceId} style={{ marginBottom: '0.5rem' }}>
                 <label htmlFor={`init-${u.instanceId}`} style={{ marginRight: '1rem' }}>{u.name}:</label>
                 <input 
@@ -1148,6 +1149,34 @@ export function EncounterRunner({ targetEncounterId }: { targetEncounterId?: str
               </li>
             ))}
           </ul>
+          {visibleCombatants.some(u => !u.isPlayer) && (
+            <>
+              <button
+                type="button"
+                aria-expanded={npcRowsExpanded}
+                aria-controls="npc-initiative-list"
+                onClick={() => setNpcRowsExpanded(v => !v)}
+              >
+                NPCs ({visibleCombatants.filter(u => !u.isPlayer).length})
+              </button>
+              {npcRowsExpanded && (
+                <ul id="npc-initiative-list" style={{ listStyle: 'none', padding: 0 }}>
+                  {visibleCombatants.filter(u => !u.isPlayer).map(u => (
+              <li key={u.instanceId} style={{ marginBottom: '0.5rem' }}>
+                <label htmlFor={`init-${u.instanceId}`} style={{ marginRight: '1rem' }}>{u.name}:</label>
+                <input 
+                  id={`init-${u.instanceId}`}
+                  type="number" 
+                  value={u.initiative ?? ''} 
+                  onChange={(e) => updateInitiative(u.instanceId, e.target.value)}
+                  placeholder={u.isPlayer ? "Required" : "Auto"}
+                />
+              </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
           <button type="button" onClick={startCombat} style={{ marginTop: '1rem' }}>Start Combat</button>
         </section>
       ) : (
