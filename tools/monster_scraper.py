@@ -498,6 +498,9 @@ def main():
     )
 
     try:
+        # public/data is gitignored, so it does not exist in a fresh clone.
+        os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
+
         # Load existing monsters
         if os.path.exists(DATA_FILE):
             with open(DATA_FILE, 'r', encoding='utf-8') as f:

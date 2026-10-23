@@ -184,7 +184,11 @@ def merge_json_records(existing_data, new_data, key_func=None):
 
     return new_data
 
-def run_scraper_offline(scraper_name, base_dir=None, timeout=300):
+# A --force offline reparse of the full monster cache (~900 pages) takes a few minutes
+# on a fast machine; a scraper killed by the timeout leaves a partial JSON file behind.
+SCRAPER_TIMEOUT_SECONDS = 1800
+
+def run_scraper_offline(scraper_name, base_dir=None, timeout=SCRAPER_TIMEOUT_SECONDS):
     """
     Executes a scraper script in offline mode (--offline) with proper arguments.
     """
@@ -208,7 +212,11 @@ def run_scraper_offline(scraper_name, base_dir=None, timeout=300):
             cmd,
             cwd=root_dir,
             capture_output=True,
-            text=True,
+            # Scrapers print non-ASCII names. With the Windows default (cp1252) the
+            # reader thread dies with UnicodeDecodeError, the child's stdout pipe fills,
+            # and the scraper hangs on a blocked write until the timeout kills it.
+            encoding='utf-8',
+            errors='replace',
             timeout=timeout
         )
         if proc.returncode != 0:
@@ -235,6 +243,8 @@ def regenerate_json_files(scrapers=None, base_dir=None):
     """
     root_dir = os.path.abspath(base_dir) if base_dir else PROJECT_ROOT
     data_dir = os.path.join(root_dir, 'public', 'data')
+    # public/data is gitignored; make sure it exists before any scraper writes into it.
+    os.makedirs(data_dir, exist_ok=True)
 
     json_targets = {
         'monster_scraper.py': os.path.join(data_dir, 'monsters.json'),
