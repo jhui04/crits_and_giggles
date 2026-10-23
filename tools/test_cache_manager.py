@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import tempfile
+import textwrap
 import pytest
 import zipfile
 import tarfile
@@ -18,6 +19,7 @@ from tools.cache_manager import (
     extract_archive,
     merge_json_records,
     import_cache,
+    regenerate_json_files,
     CACHE_CATEGORIES
 )
 
@@ -153,3 +155,28 @@ def test_export_and_import_include_images():
         import_cache(archive_path, regenerate=False, base_dir=target_repo)
         with open(os.path.join(target_repo, "public", "images", "monsters", "1.png"), "rb") as f:
             assert f.read() == image_bytes
+
+
+def test_regenerate_creates_public_data_dir_for_fresh_clone():
+    """public/data is gitignored, so a fresh clone has no such folder. A scraper
+    that writes into it must not fail with FileNotFoundError, and non-ASCII
+    scraper output must not break the subprocess capture on Windows."""
+    stub_scraper = textwrap.dedent("""
+        import os, sys
+        sys.stdout.reconfigure(encoding='utf-8')
+        print("Scraped 'Xu\u2019thul, the Prismatic Terror'")
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(root, 'public', 'data', 'monsters.json'), 'w', encoding='utf-8') as out:
+            out.write('[{"id": 1, "name": "Goblin"}]')
+    """)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        fake_repo = os.path.join(tmpdir, "repo")
+        os.makedirs(os.path.join(fake_repo, "tools"))
+        with open(os.path.join(fake_repo, "tools", "monster_scraper.py"), "w", encoding="utf-8") as f:
+            f.write(stub_scraper)
+        assert not os.path.exists(os.path.join(fake_repo, "public", "data"))
+
+        assert regenerate_json_files(scrapers=["monster_scraper.py"], base_dir=fake_repo) is True
+
+        with open(os.path.join(fake_repo, "public", "data", "monsters.json"), encoding="utf-8") as f:
+            assert json.load(f) == [{"id": 1, "name": "Goblin"}]
